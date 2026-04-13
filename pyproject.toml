@@ -1,0 +1,41 @@
+[project]
+name = "cadquery-furniture"
+version = "0.1.0"
+description = "Parametric furniture design, evaluation, and cutlist optimization with CadQuery"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.27.0",
+    "numpy",
+    "pytest>=7.0",
+    "pytest-cov>=7.1.0",
+]
+
+[project.optional-dependencies]
+cad = [
+    "cadquery>=2.4",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+viewer = [
+    "jupyter-cadquery>=3.0",
+    "jupyter",
+]
+cutlist = [
+    "rectpack",
+]
+
+[project.scripts]
+cabinet-mcp = "cadquery_furniture.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+.uv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+pytest-cache-files-*
+
+# CadQuery / visualization outputs
+~/.cabinet-mcp/
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+.coverage*

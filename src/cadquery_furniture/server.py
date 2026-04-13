@@ -1,0 +1,1062 @@
+"""
+MCP server for the cabinet-design toolkit.
+
+Exposes the parametric design, evaluation, and cutlist workflows as MCP tools
+so that Claude, Gemini CLI, or any MCP-compatible client can design cabinets
+conversationally.
+
+Transports
+----------
+stdio (default)
+    The host process (Claude Desktop, Gemini CLI, …) launches ``cabinet-mcp``
+    as a subprocess and communicates over stdin/stdout.  No port is used; no
+    port conflicts are possible.  This is the right choice for Claude Desktop
+    and Gemini CLI.
+
+HTTP/SSE  (``--http``)
+    Runs an HTTP server (Starlette + uvicorn) with a Server-Sent Events
+    endpoint at ``GET /sse`` and a POST endpoint at ``/messages/``.  Use this
+    when you need a persistent process that multiple clients can reach, or when
+    the host does not support stdio transport.
+
+    Port selection
+    ~~~~~~~~~~~~~~
+    Default starting port is **3749** (distinctive enough to avoid accidental
+    collisions with common dev servers).  If that port is already bound, the
+    server tries 3750, 3751, … up to ``--max-port-attempts`` tries.  The
+    resolved port is:
+    - printed to **stderr** on startup
+    - written to ``/tmp/cabinet-mcp.port`` so scripts / other tools can
+      discover it without parsing log output
+    - removed from ``/tmp/cabinet-mcp.port`` on clean exit
+
+Entry point: ``cabinet-mcp`` (defined in pyproject.toml [project.scripts]).
+
+Usage::
+
+    # stdio (default) — Claude Desktop / Gemini CLI
+    cabinet-mcp
+
+    # HTTP/SSE on default port (3749, auto-increments on collision)
+    cabinet-mcp --http
+
+    # HTTP/SSE on a specific starting port
+    cabinet-mcp --http --port 4000
+
+    # Via uv without installing
+    uv run cabinet-mcp --http --port 4000
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import sys
+import textwrap
+from pathlib import Path
+from typing import Any
+
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server import Server
+from mcp.server.models import InitializationOptions
+
+from .cabinet import CabinetConfig
+from .visualize import build_and_visualize as _build_and_visualize
+from .cutlist import (
+    CutlistPanel,
+    SheetStock,
+    consolidate_bom,
+    to_csv,
+    to_json,
+)
+from .door import DoorConfig
+from .drawer import DrawerConfig
+from .evaluation import Issue, Severity, evaluate_cabinet
+from .hardware import HINGES, SLIDES, OverlayType
+from .joinery import (
+    CarcassJoinery,
+    DrawerJoineryStyle,
+    DEFAULT_DOMINO,
+    DEFAULT_POCKET_SCREW,
+    DEFAULT_BISCUIT,
+    DEFAULT_DOWEL,
+    DOMINO_SIZES,
+)
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _ok(data: Any) -> list[types.TextContent]:
+    """Return a JSON success response."""
+    return [types.TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+def _err(msg: str) -> list[types.TextContent]:
+    """Return a plain-text error response."""
+    return [types.TextContent(type="text", text=f"ERROR: {msg}")]
+
+
+def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
+    return [
+        {
+            "severity": i.severity.value,
+            "check": i.check,
+            "message": i.message,
+            "part_a": i.part_a,
+            "part_b": i.part_b,
+            "value": i.value,
+            "limit": i.limit,
+        }
+        for i in issues
+    ]
+
+
+def _build_cabinet_config(args: dict) -> CabinetConfig:
+    """
+    Build a CabinetConfig from a flat dict of keyword arguments.
+    Handles nested list fields (drawer_config, fixed_shelf_positions).
+    Enums are accepted as strings.
+    """
+    kwargs: dict[str, Any] = {}
+    for key, value in args.items():
+        if key == "carcass_joinery" and isinstance(value, str):
+            kwargs[key] = CarcassJoinery(value)
+        else:
+            kwargs[key] = value
+    return CabinetConfig(**kwargs)
+
+
+def _build_door_config(args: dict) -> DoorConfig:
+    return DoorConfig(**args)
+
+
+def _build_drawer_config(args: dict) -> DrawerConfig:
+    kwargs: dict[str, Any] = {}
+    for key, value in args.items():
+        if key == "joinery_style" and isinstance(value, str):
+            kwargs[key] = DrawerJoineryStyle(value)
+        else:
+            kwargs[key] = value
+    return DrawerConfig(**kwargs)
+
+
+# ─── Server ───────────────────────────────────────────────────────────────────
+
+server = Server("cabinet-mcp")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tool: list_hardware
+# ──────────────────────────────────────────────────────────────────────────────
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="list_hardware",
+            description=(
+                "Return the catalogue of available drawer slides and hinges. "
+                "Use this to discover valid key strings for other tools."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["slides", "hinges", "all"],
+                        "description": "Which hardware category to list.",
+                        "default": "all",
+                    }
+                },
+            },
+        ),
+        types.Tool(
+            name="list_joinery_options",
+            description=(
+                "Return available joinery styles for drawer boxes and carcass construction, "
+                "including Festool Domino tenon sizes."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="design_cabinet",
+            description=textwrap.dedent("""\
+                Define or update a cabinet configuration and return a summary of its
+                parametric layout — panel sizes, opening stack, hardware, joinery — without
+                running CadQuery geometry.
+
+                Required: width, height, depth (all in mm).
+
+                drawer_config is a list of [height_mm, slot_type] pairs stacked from
+                bottom to top. slot_type options: "drawer", "door", "door_pair",
+                "shelf", "open".
+
+                carcass_joinery options: "dado_rabbet", "floating_tenon",
+                "pocket_screw", "biscuit", "dowel".
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number", "description": "Exterior width in mm."},
+                    "height": {"type": "number", "description": "Exterior height in mm."},
+                    "depth":  {"type": "number", "description": "Exterior depth in mm."},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "prefixItems": [
+                                {"type": "number", "description": "Opening height in mm"},
+                                {"type": "string", "description": "Slot type"},
+                            ],
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "description": "Stack of [height_mm, slot_type] pairs from bottom up.",
+                        "default": [],
+                    },
+                    "carcass_joinery": {
+                        "type": "string",
+                        "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
+                        "default": "dado_rabbet",
+                    },
+                    "adj_shelf_holes": {"type": "boolean", "default": False},
+                    "door_hinge": {
+                        "type": "string",
+                        "description": "Hinge key from list_hardware. Default: blum_clip_top_110_full.",
+                        "default": "blum_clip_top_110_full",
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
+            name="evaluate_cabinet",
+            description=textwrap.dedent("""\
+                Run the full structural/fit evaluation on a cabinet configuration and return
+                a list of issues (errors, warnings, info). Pass the same arguments as
+                design_cabinet. Optionally include door_configs (list of DoorConfig dicts)
+                to also evaluate door hardware.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number"},
+                    "height": {"type": "number"},
+                    "depth":  {"type": "number"},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                        "default": [],
+                    },
+                    "carcass_joinery": {
+                        "type": "string",
+                        "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
+                        "default": "dado_rabbet",
+                    },
+                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "door_configs": {
+                        "type": "array",
+                        "description": "Optional list of DoorConfig parameter dicts to evaluate.",
+                        "items": {"type": "object"},
+                        "default": [],
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
+            name="design_door",
+            description=textwrap.dedent("""\
+                Calculate door dimensions, hinge count, and hinge positions for a cabinet
+                opening. Returns the DoorConfig summary.
+
+                overlay_type is determined automatically from the hinge_key you choose.
+                Use list_hardware to see valid hinge keys.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "opening_width":  {"type": "number", "description": "Cabinet opening width in mm."},
+                    "opening_height": {"type": "number", "description": "Cabinet opening height in mm."},
+                    "num_doors": {
+                        "type": "integer",
+                        "enum": [1, 2],
+                        "description": "1 = single door, 2 = door pair.",
+                        "default": 1,
+                    },
+                    "hinge_key": {
+                        "type": "string",
+                        "description": "Hinge key from list_hardware.",
+                        "default": "blum_clip_top_110_full",
+                    },
+                    "door_thickness": {"type": "number", "default": 18.0},
+                    "door_weight_kg": {"type": "number", "default": 0.0},
+                    "gap_top":    {"type": "number", "default": 2.0},
+                    "gap_bottom": {"type": "number", "default": 2.0},
+                    "gap_side":   {"type": "number", "default": 2.0},
+                    "gap_between": {"type": "number", "default": 2.0},
+                },
+                "required": ["opening_width", "opening_height"],
+            },
+        ),
+        types.Tool(
+            name="design_drawer",
+            description=textwrap.dedent("""\
+                Calculate drawer box dimensions and joinery geometry for a given opening.
+                Returns DrawerConfig summary including side/front-back dimensions and
+                joinery cut specs.
+
+                joinery_style options: "butt", "qqq", "half_lap", "drawer_lock".
+                slide_key: use list_hardware to see options (default: blum_tandem_550h).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "opening_width":  {"type": "number", "description": "Cabinet opening width in mm."},
+                    "opening_height": {"type": "number", "description": "Available height for drawer in mm."},
+                    "opening_depth":  {"type": "number", "description": "Cabinet interior depth in mm."},
+                    "slide_key": {
+                        "type": "string",
+                        "description": "Drawer slide key from list_hardware.",
+                        "default": "blum_tandem_550h",
+                    },
+                    "joinery_style": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "butt",
+                    },
+                    "side_thickness":       {"type": "number", "default": 15.0},
+                    "front_back_thickness": {"type": "number", "default": 15.0},
+                    "bottom_thickness":     {"type": "number", "default": 6.0},
+                    "face_thickness":       {"type": "number", "default": 18.0},
+                },
+                "required": ["opening_width", "opening_height", "opening_depth"],
+            },
+        ),
+        types.Tool(
+            name="generate_cutlist",
+            description=textwrap.dedent("""\
+                Generate a bill of materials and cutlist from a cabinet configuration.
+                Returns panels as JSON (compatible with cut-optimizer-2d) and as CSV.
+
+                Pass the same cabinet parameters as design_cabinet.
+                Optionally specify sheet stock dimensions (default 4x8 3/4\" Baltic Birch).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number"},
+                    "height": {"type": "number"},
+                    "depth":  {"type": "number"},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                        "default": [],
+                    },
+                    "sheet_length": {
+                        "type": "number",
+                        "description": "Sheet stock length in mm (default 2440 / 4x8).",
+                        "default": 2440,
+                    },
+                    "sheet_width": {
+                        "type": "number",
+                        "description": "Sheet stock width in mm (default 1220 / 4x8).",
+                        "default": 1220,
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "csv", "both"],
+                        "description": "Output format.",
+                        "default": "both",
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
+            name="compare_joinery",
+            description=textwrap.dedent("""\
+                Compare drawer joinery styles side-by-side for a given stock thickness.
+                Returns cut dimensions and characteristics for butt, qqq, half_lap,
+                and drawer_lock joints.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "side_thickness": {
+                        "type": "number",
+                        "description": "Drawer side thickness in mm.",
+                        "default": 12.0,
+                    },
+                    "front_back_thickness": {
+                        "type": "number",
+                        "description": "Drawer front/back thickness in mm.",
+                        "default": 12.0,
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="visualize_cabinet",
+            description=textwrap.dedent("""\
+                Build a full 3D cabinet assembly, export it as a GLB file, and
+                generate a self-contained HTML viewer that opens in the browser.
+
+                Requires CadQuery (pip install cadquery).  The HTML embeds the
+                GLB as base64, so no server is needed — just open the file.
+
+                Pass the same cabinet parameters as design_cabinet.
+                Returns paths to the GLB and HTML files plus file size info.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number", "description": "Exterior width in mm."},
+                    "height": {"type": "number", "description": "Exterior height in mm."},
+                    "depth":  {"type": "number", "description": "Exterior depth in mm."},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                        "default": [],
+                    },
+                    "fixed_shelf_positions": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "default": [],
+                    },
+                    "adj_shelf_holes": {"type": "boolean", "default": False},
+                    "name": {
+                        "type": "string",
+                        "description": "Base filename stem for output files.",
+                        "default": "cabinet",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Directory for output files. Default: ~/.cabinet-mcp/visualizations",
+                        "default": "~/.cabinet-mcp/visualizations",
+                    },
+                    "open_browser": {
+                        "type": "boolean",
+                        "description": "Open the HTML viewer in the default browser.",
+                        "default": True,
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Mesh tessellation tolerance in mm. Lower = finer mesh, bigger file. Default: 0.1",
+                        "default": 0.1,
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tool handlers
+# ──────────────────────────────────────────────────────────────────────────────
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+    try:
+        if name == "list_hardware":
+            return await _tool_list_hardware(arguments)
+        elif name == "list_joinery_options":
+            return await _tool_list_joinery(arguments)
+        elif name == "design_cabinet":
+            return await _tool_design_cabinet(arguments)
+        elif name == "evaluate_cabinet":
+            return await _tool_evaluate_cabinet(arguments)
+        elif name == "design_door":
+            return await _tool_design_door(arguments)
+        elif name == "design_drawer":
+            return await _tool_design_drawer(arguments)
+        elif name == "generate_cutlist":
+            return await _tool_generate_cutlist(arguments)
+        elif name == "compare_joinery":
+            return await _tool_compare_joinery(arguments)
+        elif name == "visualize_cabinet":
+            return await _tool_visualize_cabinet(arguments)
+        else:
+            return _err(f"Unknown tool: {name}")
+    except Exception as exc:
+        return _err(f"{type(exc).__name__}: {exc}")
+
+
+# ── list_hardware ─────────────────────────────────────────────────────────────
+
+async def _tool_list_hardware(args: dict) -> list[types.TextContent]:
+    category = args.get("category", "all")
+    result: dict[str, Any] = {}
+
+    if category in ("slides", "all"):
+        result["slides"] = {
+            key: {
+                "name": s.name,
+                "slide_type": s.slide_type.value,
+                "available_lengths_mm": list(s.available_lengths),
+                "nominal_side_clearance_mm": s.nominal_side_clearance,
+                "min_bottom_clearance_mm": s.min_bottom_clearance,
+                "max_load_kg": s.max_load_kg,
+                "min_drawer_height_mm": s.min_drawer_height,
+            }
+            for key, s in SLIDES.items()
+        }
+
+    if category in ("hinges", "all"):
+        result["hinges"] = {
+            key: {
+                "name": h.name,
+                "overlay_type": h.overlay_type.value,
+                "overlay_mm": h.overlay,
+                "cup_diameter_mm": h.cup_diameter,
+                "cup_boring_distance_mm": h.cup_boring_distance,
+                "opening_angle_deg": h.opening_angle,
+                "soft_close": h.soft_close,
+                "max_door_weight_kg": h.max_door_weight_kg,
+                "part_number": h.part_number,
+            }
+            for key, h in HINGES.items()
+        }
+
+    return _ok(result)
+
+
+# ── list_joinery_options ──────────────────────────────────────────────────────
+
+async def _tool_list_joinery(args: dict) -> list[types.TextContent]:
+    from .joinery import DrawerJoinerySpec
+
+    drawer_styles = {
+        "butt":        "Simple butt joint — glue and fasteners only, no interlocking cuts.",
+        "qqq":         "Quarter-Quarter-Quarter locking rabbet (Stephen Phipps). "
+                       "All cuts = material_thickness ÷ 2. Stronger than dovetail, table-saw only.",
+        "half_lap":    "Half-lap: side dado depth = side_thickness ÷ 2; "
+                       "front/back channel matches.",
+        "drawer_lock": "Drawer-lock (router bit required). Two-step interlock — "
+                       "side dado + inner step for positive mechanical lock.",
+    }
+
+    carcass_methods = {
+        "dado_rabbet":     "Dadoes for shelves/bottom, rabbet for back. No additional hardware.",
+        "floating_tenon":  "Festool Domino oval mortise/tenon. DF 500 (≤8 mm) or DF 700 (10/14 mm).",
+        "pocket_screw":    "Kreg-style 15° angled pocket. Fast, tool-accessible, no mortise needed.",
+        "biscuit":         "Plate-joinery biscuits (#0, #10, #20). Alignment aid + glue surface.",
+        "dowel":           "Round dowels — compatible with 32 mm European shelf-pin grid.",
+    }
+
+    domino_sizes = {
+        key: {
+            "tenon_length_mm":          d.tenon_length,
+            "tenon_thickness_mm":       d.tenon_thickness,
+            "mortise_length_mm":        d.mortise_length,
+            "mortise_width_mm":         d.mortise_width,
+            "mortise_depth_per_side_mm": d.mortise_depth_per_side,
+            "machine": d.machine,
+        }
+        for key, d in DOMINO_SIZES.items()
+    }
+
+    return _ok({
+        "drawer_joinery_styles": drawer_styles,
+        "carcass_joinery_methods": carcass_methods,
+        "domino_sizes": domino_sizes,
+    })
+
+
+# ── design_cabinet ────────────────────────────────────────────────────────────
+
+async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
+    cfg = _build_cabinet_config(args)
+
+    # Interior dimensions
+    interior_width  = cfg.width  - 2 * cfg.side_thickness
+    interior_height = cfg.height - cfg.bottom_thickness - cfg.back_rabbet_depth
+    interior_depth  = cfg.depth  - cfg.back_thickness
+
+    # Panel sizes (parametric only, no CQ needed)
+    panels = {
+        "side_panel": {
+            "qty": 2,
+            "width_mm":  cfg.depth,
+            "height_mm": cfg.height,
+            "thickness_mm": cfg.side_thickness,
+        },
+        "bottom_panel": {
+            "qty": 1,
+            "width_mm":  interior_width,
+            "depth_mm":  cfg.depth - cfg.back_thickness,
+            "thickness_mm": cfg.bottom_thickness,
+        },
+        "back_panel": {
+            "qty": 1,
+            "width_mm":  interior_width,
+            "height_mm": cfg.height,
+            "thickness_mm": cfg.back_thickness,
+        },
+    }
+
+    for i, pos in enumerate(cfg.fixed_shelf_positions):
+        panels[f"fixed_shelf_{i+1}"] = {
+            "qty": 1,
+            "width_mm":  interior_width,
+            "depth_mm":  interior_depth,
+            "thickness_mm": cfg.shelf_thickness,
+            "height_from_bottom_mm": pos,
+        }
+
+    opening_stack = [
+        {"height_mm": h, "type": t} for h, t in cfg.drawer_config
+    ]
+
+    return _ok({
+        "exterior": {"width_mm": cfg.width, "height_mm": cfg.height, "depth_mm": cfg.depth},
+        "interior": {
+            "width_mm":  interior_width,
+            "height_mm": interior_height,
+            "depth_mm":  interior_depth,
+        },
+        "joinery":  cfg.carcass_joinery.value,
+        "panels":   panels,
+        "opening_stack": opening_stack,
+        "adj_shelf_holes": cfg.adj_shelf_holes,
+        "door_hinge": cfg.door_hinge,
+    })
+
+
+# ── evaluate_cabinet ──────────────────────────────────────────────────────────
+
+async def _tool_evaluate_cabinet(args: dict) -> list[types.TextContent]:
+    door_config_dicts = args.pop("door_configs", []) or []
+    cfg = _build_cabinet_config(args)
+
+    door_configs = [_build_door_config(d) for d in door_config_dicts]
+
+    issues = evaluate_cabinet(
+        cab_cfg=cfg,
+        door_configs=door_configs if door_configs else None,
+    )
+
+    errors   = [i for i in issues if i.severity == Severity.ERROR]
+    warnings = [i for i in issues if i.severity == Severity.WARNING]
+    infos    = [i for i in issues if i.severity == Severity.INFO]
+
+    return _ok({
+        "summary": {
+            "errors":   len(errors),
+            "warnings": len(warnings),
+            "info":     len(infos),
+            "pass":     len(errors) == 0,
+        },
+        "issues": _issues_to_dicts(issues),
+    })
+
+
+# ── design_door ───────────────────────────────────────────────────────────────
+
+async def _tool_design_door(args: dict) -> list[types.TextContent]:
+    cfg = _build_door_config(args)
+    hinge = cfg.hinge
+
+    return _ok({
+        "door_width_mm":      cfg.door_width,
+        "door_height_mm":     cfg.door_height,
+        "door_thickness_mm":  cfg.door_thickness,
+        "num_doors":          cfg.num_doors,
+        "overlay_type":       hinge.overlay_type.value,
+        "overlay_mm":         hinge.overlay,
+        "hinges_per_door":    cfg.hinge_count,
+        "total_hinges":       cfg.total_hinge_count,
+        "hinge_positions_z_mm": cfg.hinge_positions_z,
+        "hinge": {
+            "key":             args.get("hinge_key", "blum_clip_top_110_full"),
+            "name":            hinge.name,
+            "cup_diameter_mm": hinge.cup_diameter,
+            "cup_boring_distance_mm": hinge.cup_boring_distance,
+            "soft_close":      hinge.soft_close,
+            "part_number":     hinge.part_number,
+        },
+        "gaps": {
+            "top_mm":     cfg.gap_top,
+            "bottom_mm":  cfg.gap_bottom,
+            "side_mm":    cfg.gap_side,
+            "between_mm": cfg.gap_between,
+        },
+    })
+
+
+# ── design_drawer ─────────────────────────────────────────────────────────────
+
+async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
+    cfg = _build_drawer_config(args)
+    joinery = cfg.joinery
+    slide   = cfg.slide
+
+    joinery_info: dict[str, Any] = {
+        "style": joinery.style.value,
+        "requires_router_bit":     joinery.requires_router_bit,
+        "requires_true_thickness": joinery.requires_true_thickness,
+    }
+    if joinery.style.value != "butt":
+        joinery_info["side_dado_depth_x_mm"]  = joinery.side_dado_depth_x
+        joinery_info["side_dado_depth_y_mm"]  = joinery.side_dado_depth_y
+        joinery_info["fb_channel_depth_x_mm"] = joinery.fb_channel_depth_x
+        joinery_info["fb_channel_depth_y_mm"] = joinery.fb_channel_depth_y
+        joinery_info["side_tongue_width_mm"]  = joinery.side_tongue_width
+    if joinery.style.value == "drawer_lock":
+        joinery_info["lock_step_depth_x_mm"] = joinery.lock_step_depth_x
+        joinery_info["lock_step_depth_y_mm"] = joinery.lock_step_depth_y
+
+    slide_length = slide.slide_length_for_depth(cfg.opening_depth)
+
+    return _ok({
+        "box_width_mm":  cfg.box_width,
+        "box_height_mm": cfg.box_height,
+        "box_depth_mm":  cfg.box_depth,
+        "side_thickness_mm":       cfg.side_thickness,
+        "front_back_thickness_mm": cfg.front_back_thickness,
+        "bottom_thickness_mm":     cfg.bottom_thickness,
+        "slide": {
+            "name":                     slide.name,
+            "selected_length_mm":       slide_length,
+            "nominal_side_clearance_mm": slide.nominal_side_clearance,
+            "min_bottom_clearance_mm":  slide.min_bottom_clearance,
+            "max_load_kg":              slide.max_load_kg,
+        },
+        "joinery": joinery_info,
+    })
+
+
+# ── generate_cutlist ──────────────────────────────────────────────────────────
+
+async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
+    fmt = args.pop("format", "both")
+    sheet_length = float(args.pop("sheet_length", 2440))
+    sheet_width  = float(args.pop("sheet_width",  1220))
+
+    cfg = _build_cabinet_config(args)
+
+    # Compute panel dimensions parametrically (no CadQuery required)
+    interior_width = cfg.width - 2 * cfg.side_thickness
+    interior_depth = cfg.depth - cfg.back_thickness
+
+    raw_panels = [
+        CutlistPanel(
+            name="side",
+            length=cfg.height,
+            width=cfg.depth,
+            thickness=cfg.side_thickness,
+            quantity=2,
+            grain_direction="length",
+            material="baltic_birch",
+        ),
+        CutlistPanel(
+            name="bottom",
+            length=interior_width,
+            width=interior_depth,
+            thickness=cfg.bottom_thickness,
+            quantity=1,
+            grain_direction="length",
+            material="baltic_birch",
+        ),
+        CutlistPanel(
+            name="back",
+            length=cfg.height,
+            width=interior_width,
+            thickness=cfg.back_thickness,
+            quantity=1,
+            grain_direction="length",
+            material="baltic_birch",
+        ),
+    ]
+    for i, pos in enumerate(cfg.fixed_shelf_positions):
+        raw_panels.append(CutlistPanel(
+            name=f"shelf_{i + 1}",
+            length=interior_width,
+            width=interior_depth,
+            thickness=cfg.shelf_thickness,
+            quantity=1,
+            grain_direction="length",
+            material="baltic_birch",
+        ))
+
+    panels = consolidate_bom(raw_panels)
+
+    sheet = SheetStock(
+        name=f"{int(sheet_length)}x{int(sheet_width)}",
+        length=sheet_length,
+        width=sheet_width,
+        thickness=cfg.side_thickness,
+    )
+
+    result: dict[str, Any] = {
+        "panel_count": len(panels),
+        "panels_summary": [
+            {
+                "name":         p.name,
+                "length_mm":    p.length,
+                "width_mm":     p.width,
+                "thickness_mm": p.thickness,
+                "qty":          p.quantity,
+                "material":     p.material,
+            }
+            for p in panels
+        ],
+    }
+
+    if fmt in ("json", "both"):
+        result["cutlist_json"] = json.loads(to_json(panels, [sheet]))
+
+    if fmt in ("csv", "both"):
+        result["cutlist_csv"] = to_csv(panels)
+
+    return _ok(result)
+
+
+# ── compare_joinery ───────────────────────────────────────────────────────────
+
+async def _tool_compare_joinery(args: dict) -> list[types.TextContent]:
+    from .joinery import DrawerJoinerySpec
+
+    t_s  = float(args.get("side_thickness", 12.0))
+    t_fb = float(args.get("front_back_thickness", 12.0))
+
+    comparison = {}
+    for style in DrawerJoineryStyle:
+        spec = DrawerJoinerySpec.from_stock(style, t_s, t_fb)
+        entry: dict[str, Any] = {
+            "style": style.value,
+            "requires_router_bit":    spec.requires_router_bit,
+            "requires_true_thickness": spec.requires_true_thickness,
+            "side_dado_depth_x_mm":  spec.side_dado_depth_x,
+            "side_dado_depth_y_mm":  spec.side_dado_depth_y,
+            "fb_channel_depth_x_mm": spec.fb_channel_depth_x,
+            "fb_channel_depth_y_mm": spec.fb_channel_depth_y,
+        }
+        if style == DrawerJoineryStyle.QQQ:
+            entry["note"] = (
+                f"All cuts = side_thickness ÷ 2 = {t_s / 2:.1f} mm. "
+                "True 18 mm stock required for nominal 18 mm settings."
+            )
+        if style == DrawerJoineryStyle.DRAWER_LOCK:
+            entry["lock_step_depth_x_mm"] = spec.lock_step_depth_x
+            entry["lock_step_depth_y_mm"] = spec.lock_step_depth_y
+            entry["note"] = "Requires dedicated drawer-lock router bit."
+        comparison[style.value] = entry
+
+    return _ok({
+        "side_thickness_mm":       t_s,
+        "front_back_thickness_mm": t_fb,
+        "styles": comparison,
+    })
+
+
+# ── visualize_cabinet ─────────────────────────────────────────────────────────
+
+async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
+    name       = str(args.pop("name", "cabinet"))
+    output_dir = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
+    open_browser = bool(args.pop("open_browser", True))
+    tolerance  = float(args.pop("tolerance", 0.1))
+
+    cfg = _build_cabinet_config(args)
+
+    result = _build_and_visualize(
+        cfg,
+        output_dir=output_dir,
+        name=name,
+        open_browser=open_browser,
+        tolerance=tolerance,
+    )
+
+    return _ok({
+        "html":        result["html"],
+        "glb":         result["glb"],
+        "parts":       result["parts"],
+        "glb_size_kb": result["glb_size_kb"],
+        "note": (
+            "HTML viewer written. Open the 'html' path in a browser to inspect "
+            "the 3D model (orbit with left-drag, pan with right-drag, scroll to zoom)."
+        ),
+    })
+
+
+# ─── Port management ──────────────────────────────────────────────────────────
+
+#: Default port for HTTP/SSE mode — chosen to be distinctive and avoid
+#: accidental collision with common dev servers (3000, 3001, 8000, 8080 …).
+DEFAULT_PORT: int = 3749
+
+#: File written when the server binds in HTTP mode so other processes can
+#: discover the actual port without parsing log output.
+PORT_FILE: Path = Path("/tmp/cabinet-mcp.port")
+
+
+def find_free_port(start: int = DEFAULT_PORT, max_attempts: int = 20) -> int:
+    """Return the first unused TCP port in ``[start, start + max_attempts)``.
+
+    Tries each candidate port in order.  Raises ``RuntimeError`` if the entire
+    range is occupied.
+    """
+    for port in range(start, start + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Do NOT set SO_REUSEADDR here — we need a true "is this port free"
+            # check, not a "can I eventually take it" check.
+            try:
+                sock.bind(("", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(
+        f"No free port found in range {start}–{start + max_attempts - 1}. "
+        "Use --port to choose a different starting point or --max-port-attempts "
+        "to widen the search window."
+    )
+
+
+def write_port_file(port: int, path: Path = PORT_FILE) -> None:
+    """Write the resolved port to a well-known file so other tools can read it."""
+    path.write_text(str(port))
+
+
+def clear_port_file(path: Path = PORT_FILE) -> None:
+    """Remove the port file on clean exit."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# ─── Transport runners ────────────────────────────────────────────────────────
+
+def _init_options() -> InitializationOptions:
+    return InitializationOptions(
+        server_name="cabinet-mcp",
+        server_version="0.1.0",
+        capabilities=server.get_capabilities(
+            notification_options=None,
+            experimental_capabilities={},
+        ),
+    )
+
+
+async def _run_stdio() -> None:
+    """Run the server over stdin/stdout (default, for Claude Desktop / Gemini CLI)."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, _init_options())
+
+
+async def _run_http(host: str, port: int) -> None:
+    """Run the server over HTTP/SSE (Starlette + uvicorn)."""
+    import uvicorn
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.routing import Mount, Route
+
+    sse_transport = SseServerTransport("/messages/")
+
+    async def handle_sse(request):  # type: ignore[no-untyped-def]
+        async with sse_transport.connect_sse(
+            request.scope, request.receive, request._send
+        ) as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, _init_options())
+
+    starlette_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse_transport.handle_post_message),
+        ],
+    )
+
+    print(
+        f"cabinet-mcp  HTTP/SSE  http://{host}:{port}/sse",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    config = uvicorn.Config(
+        starlette_app,
+        host=host,
+        port=port,
+        log_level="warning",   # suppress uvicorn access logs; our own startup line is enough
+    )
+    uv_server = uvicorn.Server(config)
+    await uv_server.serve()
+
+
+# ─── Entry point ──────────────────────────────────────────────────────────────
+
+def main() -> None:
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(
+        prog="cabinet-mcp",
+        description="Cabinet-design MCP server (stdio by default, HTTP/SSE with --http).",
+    )
+    parser.add_argument(
+        "--http",
+        action="store_true",
+        help="Use HTTP/SSE transport instead of stdio.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        metavar="PORT",
+        help=f"Starting port for HTTP mode (auto-increments if in use). Default: {DEFAULT_PORT}.",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        metavar="HOST",
+        help="Bind address for HTTP mode. Default: 127.0.0.1.",
+    )
+    parser.add_argument(
+        "--max-port-attempts",
+        type=int,
+        default=20,
+        metavar="N",
+        dest="max_port_attempts",
+        help="Number of consecutive ports to try before giving up. Default: 20.",
+    )
+    parser.add_argument(
+        "--port-file",
+        type=Path,
+        default=PORT_FILE,
+        metavar="PATH",
+        dest="port_file",
+        help=f"Where to write the resolved port in HTTP mode. Default: {PORT_FILE}.",
+    )
+
+    args = parser.parse_args()
+
+    if args.http:
+        port = find_free_port(args.port, args.max_port_attempts)
+        write_port_file(port, args.port_file)
+        try:
+            asyncio.run(_run_http(args.host, port))
+        finally:
+            clear_port_file(args.port_file)
+    else:
+        asyncio.run(_run_stdio())
+
+
+if __name__ == "__main__":
+    main()
