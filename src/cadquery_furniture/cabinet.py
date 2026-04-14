@@ -387,6 +387,8 @@ def build_multi_bay_cabinet(
     outer_overlay: float = 18.0,
     inner_overlay: float = 17.0,
     face_v_gap: float = 2.0,
+    face_bottom_overhang: float = 0.0,
+    face_top_overhang: float = 0.0,
     include_drawers: bool = True,
     include_faces: bool = True,
     include_feet: bool = True,
@@ -399,19 +401,29 @@ def build_multi_bay_cabinet(
     all interior bay joints, leaving a ``inner_overlay * 2 - bay_side_thickness``
     gap between adjacent bay faces (typically 2 mm).
 
+    The face stack is anchored at top and bottom:
+    - Bottom of lowest face = ``bottom_thickness - face_bottom_overhang``
+      (0 = faces start at top of bottom panel; set to bottom_thickness for flush-to-carcass-exterior)
+    - Top of highest face  = ``height - top_thickness + face_top_overhang``
+      (0 = faces end at underside of top panel; set to top_thickness for flush-to-carcass-exterior)
+
     Args:
-        bay_configs:    Ordered list of CabinetConfig, left to right.
-        foot_height:    Adjustable-foot height in mm (default 102 mm = 4″).
-        foot_diameter:  Foot cylinder diameter in mm.
-        face_thickness: Drawer face panel thickness in mm.
-        outer_overlay:  Face overhang on outermost cabinet edges (flush = side_thickness).
-        inner_overlay:  Face overhang on interior bay dividers (leaves 2 mm gap
-                        when both adjacent faces each claim inner_overlay on an
-                        18 mm divider: 18 - 17 - 17 + 36 = 2 mm).
-        face_v_gap:     Vertical gap between adjacent drawer faces (mm).
-        include_drawers: Build and add drawer box assemblies.
-        include_faces:   Build and add drawer face panels.
-        include_feet:    Build and add adjustable-foot cylinders.
+        bay_configs:          Ordered list of CabinetConfig, left to right.
+        foot_height:          Adjustable-foot height in mm (default 102 mm = 4″).
+        foot_diameter:        Foot cylinder diameter in mm.
+        face_thickness:       Drawer face panel thickness in mm.
+        outer_overlay:        Face overhang on outermost cabinet edges (flush = side_thickness).
+        inner_overlay:        Face overhang on interior bay dividers (leaves 2 mm gap
+                              when both adjacent faces each claim inner_overlay on an
+                              18 mm divider: 18 - 17 - 17 + 36 = 2 mm).
+        face_v_gap:           Vertical gap between adjacent drawer faces (mm).
+        face_bottom_overhang: How far the bottom face extends below the top surface of
+                              the bottom panel (default 0 = starts at top of bottom panel).
+        face_top_overhang:    How far the top face extends above the underside of the top
+                              panel (default 0 = ends at underside of top panel).
+        include_drawers:      Build and add drawer box assemblies.
+        include_faces:        Build and add drawer face panels.
+        include_feet:         Build and add adjustable-foot cylinders.
 
     Returns:
         (cq.Assembly, list[PartInfo]) — the full assembly and its parts list.
@@ -511,28 +523,55 @@ def build_multi_bay_cabinet(
             else:
                 face_x = bx + cfg.side_thickness - inner_overlay
 
-            # Stack faces from carcass bottom (z=0), one per drawer opening
-            z = 0.0
+            # Anchor the face stack between the bottom and top panels.
+            # z_face_start = bottom of the lowest face (in assembly Z coordinates)
+            # z_face_end   = top of the highest face
+            z_face_start = cfg.bottom_thickness - face_bottom_overhang
+            z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
+
+            # Collect drawer slots with their cumulative Z position within the
+            # carcass interior (measured from the top of the bottom panel).
+            drawer_slots: list[tuple[int, int, float]] = []  # (drw_idx, opening_h, opening_z)
+            z_acc = cfg.bottom_thickness
             for drw_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
                 if slot_type == "drawer":
-                    face_h = opening_h - face_v_gap * 2
-                    face_shape = (
-                        cq.Workplane("XY")
-                        .box(face_w, face_thickness, face_h, centered=False)
-                    )
-                    # y = -face_thickness so face sits proud of carcass front
-                    assy.add(face_shape,
-                             name=f"bay{bay_idx}_face{drw_idx}",
-                             loc=cq.Location((face_x, -face_thickness, z + face_v_gap)),
-                             color=face_colour)
-                    all_parts.append(PartInfo(
-                        name=f"bay{bay_idx}_face{drw_idx}",
-                        shape=face_shape,
-                        material_thickness=face_thickness,
-                        grain_direction="width",
-                        edge_band=["all"],
-                    ))
-                z += opening_h
+                    drawer_slots.append((drw_idx, opening_h, z_acc))
+                z_acc += opening_h
+
+            n_faces = len(drawer_slots)
+            for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
+                is_first = face_num == 0
+                is_last  = face_num == n_faces - 1
+
+                # Bottom edge of this face
+                if is_first:
+                    face_z_bot = z_face_start
+                else:
+                    face_z_bot = opening_z + face_v_gap
+
+                # Top edge of this face
+                if is_last:
+                    face_z_top = z_face_end
+                else:
+                    face_z_top = opening_z + opening_h - face_v_gap
+
+                face_h = face_z_top - face_z_bot
+                face_shape = (
+                    cq.Workplane("XY")
+                    .box(face_w, face_thickness, face_h, centered=False)
+                )
+                # y = -face_thickness so face sits proud of carcass front
+                assy.add(face_shape,
+                         name=f"bay{bay_idx}_face{drw_idx}",
+                         loc=cq.Location((face_x, -face_thickness, face_z_bot)),
+                         color=face_colour)
+                all_parts.append(PartInfo(
+                    name=f"bay{bay_idx}_face{drw_idx}",
+                    shape=face_shape,
+                    material_thickness=face_thickness,
+                    grain_direction="width",
+                    edge_band=["all"],
+                ))
 
     # ── Feet ───────────────────────────────────────────────────────────────────
     if include_feet:
