@@ -266,8 +266,18 @@ class PartInfo:
     notes: str = ""
 
 
-def build_cabinet(cfg: Optional[CabinetConfig] = None) -> tuple["cq.Assembly", list[PartInfo]]:
+def build_cabinet(
+    cfg: Optional[CabinetConfig] = None,
+    suppress_left_side: bool = False,
+) -> tuple["cq.Assembly", list[PartInfo]]:
     """Build a complete cabinet assembly from configuration.
+
+    Args:
+        cfg:                Cabinet configuration (defaults to CabinetConfig()).
+        suppress_left_side: When True, omit the left side panel from both the
+                            assembly and the parts list.  Use this when the
+                            previous bay in a multi-bay assembly already
+                            provides the shared divider panel.
 
     Returns:
         Tuple of (cq.Assembly, list of PartInfo for BOM/cutlist).
@@ -279,16 +289,17 @@ def build_cabinet(cfg: Optional[CabinetConfig] = None) -> tuple["cq.Assembly", l
     parts: list[PartInfo] = []
 
     # ── Side panels ──────────────────────────────────────────────────────
-    left_side = make_side_panel(cfg, mirror=False)
+    left_side = make_side_panel(cfg, mirror=False) if not suppress_left_side else None
     right_side = make_side_panel(cfg, mirror=True)
 
-    parts.append(PartInfo(
-        name="left_side",
-        shape=left_side,
-        material_thickness=cfg.side_thickness,
-        grain_direction="length",  # grain runs vertically (height)
-        edge_band=["front"],
-    ))
+    if left_side is not None:
+        parts.append(PartInfo(
+            name="left_side",
+            shape=left_side,
+            material_thickness=cfg.side_thickness,
+            grain_direction="length",  # grain runs vertically (height)
+            edge_band=["front"],
+        ))
     parts.append(PartInfo(
         name="right_side",
         shape=right_side,
@@ -343,9 +354,10 @@ def build_cabinet(cfg: Optional[CabinetConfig] = None) -> tuple["cq.Assembly", l
     # ── Assembly ─────────────────────────────────────────────────────────
     assy = cq.Assembly(name="base_cabinet")
 
-    # Left side: sits at x=0
-    assy.add(left_side, name="left_side", loc=cq.Location((0, 0, 0)),
-             color=cq.Color(0.87, 0.72, 0.53, 1.0))
+    # Left side: sits at x=0 (omitted when suppress_left_side=True)
+    if left_side is not None:
+        assy.add(left_side, name="left_side", loc=cq.Location((0, 0, 0)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
     # Right side: sits at x = width - side_thickness
     assy.add(right_side, name="right_side",
@@ -439,11 +451,14 @@ def build_multi_bay_cabinet(
     n_bays = len(bay_configs)
 
     # ── Bay X offsets ──────────────────────────────────────────────────────────
+    # Adjacent bays share a single divider panel: the right panel of bay N serves
+    # as the left wall of bay N+1.  Each non-leftmost bay is therefore shifted
+    # one side_thickness to the left so its interior aligns with the shared panel.
     x_offsets: list[float] = []
     x = 0.0
-    for cfg in bay_configs:
+    for i, cfg in enumerate(bay_configs):
         x_offsets.append(x)
-        x += cfg.width
+        x += cfg.width - (cfg.side_thickness if i < n_bays - 1 else 0)
     total_width = x
 
     # Colours — alternate slightly between bays for clarity
@@ -458,7 +473,7 @@ def build_multi_bay_cabinet(
 
     # ── Carcass bays ───────────────────────────────────────────────────────────
     for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-        bay_assy, bay_parts = build_cabinet(cfg)
+        bay_assy, bay_parts = build_cabinet(cfg, suppress_left_side=(bay_idx > 0))
         col = carcass_colours[bay_idx % len(carcass_colours)]
         assy.add(bay_assy, name=f"bay_{bay_idx}",
                  loc=cq.Location((bx, 0, 0)),
