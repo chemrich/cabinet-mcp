@@ -12,6 +12,7 @@ from cadquery_furniture.evaluation import (
     Severity,
     check_cumulative_heights,
     check_drawer_hardware_clearances,
+    check_drawer_carcass_clearances,
     check_shelf_deflection,
     check_back_panel_fit,
     check_dado_alignment,
@@ -283,3 +284,93 @@ class TestEvaluateCabinetIntegration:
         cfg = CabinetConfig()
         result = evaluate_cabinet(cfg)
         assert isinstance(result, list)
+
+
+class TestDrawerCarcassClearances:
+    """Tests for check_drawer_carcass_clearances."""
+
+    def test_standard_cabinet_no_errors(self):
+        """A well-proportioned cabinet with standard drawers should pass."""
+        cfg = CabinetConfig(
+            width=600, height=720, depth=550,
+            drawer_config=[(150, "drawer"), (150, "drawer"), (150, "drawer")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) == 0
+
+    def test_no_drawer_config_is_silent(self):
+        """Cabinet with no drawers produces no issues."""
+        cfg = CabinetConfig(width=600, height=720, depth=550)
+        issues = check_drawer_carcass_clearances(cfg)
+        assert issues == []
+
+    def test_cabinet_too_narrow_for_slide(self):
+        """Interior width smaller than 2× nominal side clearance → ERROR."""
+        # Blum Tandem 550H needs 21 mm per side = 42 mm total.
+        # A 60 mm wide cabinet has interior_width = 60 - 36 = 24 mm < 42 mm.
+        cfg = CabinetConfig(
+            width=60, height=720, depth=550,
+            drawer_config=[(150, "drawer")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert any("width" in e.message.lower() or "narrow" in e.message.lower() for e in errors)
+
+    def test_short_drawer_height_error(self):
+        """Opening height below slide minimum produces an ERROR."""
+        # Blum Tandem 550H min_drawer_height = 68 mm; box_height = opening - 3 (vertical_gap).
+        # Opening of 60 mm → box_height = 57 mm < 68 mm.
+        cfg = CabinetConfig(
+            width=600, height=720, depth=550,
+            drawer_config=[(60, "drawer")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert any("height" in e.message.lower() for e in errors)
+
+    def test_tight_rear_clearance_warns(self):
+        """Very shallow cabinet: rear gap below 10 mm → WARNING."""
+        # Blum Tandem 550H: min slide = 270 mm, needs 4 mm bracket inset = 274 mm min
+        # interior.  back_rabbet_width = 9 mm, so depth=284 → interior_depth=275 mm.
+        # slide_length=270 mm, rear_gap=5 mm < 10 mm → WARNING.
+        cfg = CabinetConfig(
+            width=600, height=720, depth=284,
+            drawer_config=[(150, "drawer")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        warnings = [i for i in issues if i.severity == Severity.WARNING]
+        assert any("rear" in w.message.lower() or "clearance" in w.message.lower() for w in warnings)
+
+    def test_per_drawer_labelling(self):
+        """Each drawer issue should reference its index label."""
+        cfg = CabinetConfig(
+            width=60, height=720, depth=550,
+            drawer_config=[(150, "drawer"), (150, "drawer")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        labels = {i.part_a for i in issues if i.part_a}
+        assert any("drawer_0" in l for l in labels)
+
+    def test_door_slots_are_skipped(self):
+        """Slots of type 'door' or 'door_pair' should not be checked."""
+        cfg = CabinetConfig(
+            width=600, height=720, depth=550,
+            drawer_config=[(600, "door_pair")],
+        )
+        issues = check_drawer_carcass_clearances(cfg)
+        assert issues == []
+
+    def test_integrated_into_evaluate_cabinet(self):
+        """evaluate_cabinet surfaces carcass-clearance errors via the full runner."""
+        # Use a cabinet too narrow for the slide — the carcass check should fire.
+        cfg = CabinetConfig(
+            width=60, height=720, depth=550,
+            drawer_config=[(150, "drawer")],
+        )
+        all_issues = evaluate_cabinet(cfg)
+        carcass_errors = [
+            i for i in all_issues
+            if i.check == "drawer_carcass_clearance" and i.severity == Severity.ERROR
+        ]
+        assert len(carcass_errors) > 0

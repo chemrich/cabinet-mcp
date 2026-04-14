@@ -948,6 +948,75 @@ _s(Scenario(
 ))
 
 
+# ── 12. Drawer carcass clearance checks ──────────────────────────────────────
+
+_s(Scenario(
+    name="drawer_carcass_clearances_pass",
+    prompt="Evaluate a standard 600 mm cabinet with three 150 mm drawers — clearances should all pass.",
+    tags=["evaluation", "drawer"],
+    difficulty="standard",
+    description="Standard proportions: interior 564 mm wide, 541 mm deep, drawers 57 mm box height",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[150, "drawer"], [150, "drawer"], [150, "drawer"]],
+            },
+            label="standard drawers in 600 mm cabinet",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_TRUE),
+                Assertion("summary.errors", Op.EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="drawer_carcass_clearances_narrow_cabinet",
+    prompt="Evaluate a 100 mm wide cabinet with a drawer — should fail because the cabinet is too narrow for the slide.",
+    tags=["evaluation", "drawer", "edge_case"],
+    difficulty="advanced",
+    description="interior_width = 100 - 36 = 64 mm; Blum Tandem needs 42 mm side clearance total → box_width < 22 mm",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 100, "height": 720, "depth": 550,
+                "drawer_config": [[150, "drawer"]],
+            },
+            label="too-narrow cabinet for slide",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_FALSE),
+                Assertion("summary.errors", Op.GTE, 1),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="drawer_carcass_clearances_short_opening",
+    prompt="Evaluate a cabinet with a 60 mm drawer opening — too short for Blum Tandem 550H.",
+    tags=["evaluation", "drawer", "edge_case"],
+    difficulty="advanced",
+    description="box_height = 60 - 3 = 57 mm; Blum min is 68 mm",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[60, "drawer"]],
+            },
+            label="opening height below slide minimum",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_FALSE),
+                Assertion("summary.errors", Op.GTE, 1),
+            ],
+        ),
+    ],
+))
+
+
 # ─── Index helpers ────────────────────────────────────────────────────────────
 
 def scenarios_by_tag(tag: str) -> list[Scenario]:

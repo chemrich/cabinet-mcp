@@ -863,6 +863,184 @@ def check_drawer_in_opening(
     return issues
 
 
+def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Verify that every drawer box clears the carcass interior walls.
+
+    For each drawer opening in ``cab_cfg.drawer_config``, constructs the
+    corresponding DrawerConfig and checks:
+
+    - **Width / side clearance** — gap between each side of the box and the
+      nearest vertical panel (outer side or internal divider) is within the
+      slide's required min/max range.  In a multi-bay assembly the internal
+      dividers are shared side panels; ``interior_width`` already spans
+      between their inner faces, so this check covers all supports.
+    - **Depth / rear clearance** — drawer box does not reach the back panel;
+      a minimum rear clearance of 10 mm is recommended for the rear-mounting
+      bracket of undermount slides.
+    - **Height** — computed box height (opening_height − vertical_gap) is
+      positive and at least the slide's minimum drawer height.
+
+    Args:
+        cab_cfg: Cabinet configuration, including ``drawer_config``.
+
+    Returns:
+        List of Issue objects (empty if all drawers clear the carcass).
+    """
+    issues: list[Issue] = []
+    if not cab_cfg.drawer_config:
+        return issues
+
+    slide = get_slide(cab_cfg.drawer_slide)
+    MIN_REAR_CLEARANCE = 10.0  # mm — space needed for rear mounting bracket
+
+    for idx, (opening_h, slot_type) in enumerate(cab_cfg.drawer_config):
+        if slot_type != "drawer":
+            continue
+
+        label = f"drawer_{idx}"
+        dcfg = DrawerConfig(
+            opening_width=cab_cfg.interior_width,
+            opening_height=opening_h,
+            opening_depth=cab_cfg.interior_depth,
+            slide_key=cab_cfg.drawer_slide,
+        )
+
+        # Eagerly resolve box_depth — slide_length_for_depth raises ValueError
+        # if the cabinet is too shallow for any available slide.
+        try:
+            box_depth = dcfg.box_depth
+        except ValueError as exc:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: cabinet interior depth {cab_cfg.interior_depth:.1f} mm "
+                    f"is too shallow for any {slide.name} slide. {exc}"
+                ),
+                part_a=label,
+                value=cab_cfg.interior_depth,
+            ))
+            continue
+
+        # ── Width / side clearance ─────────────────────────────────────────
+        side_gap = (cab_cfg.interior_width - dcfg.box_width) / 2
+        min_box_width = dcfg.side_thickness * 2  # box walls can't overlap
+
+        if dcfg.box_width <= 0:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: interior width {cab_cfg.interior_width:.1f} mm is too narrow "
+                    f"for {slide.name} — computed box width {dcfg.box_width:.1f} mm is "
+                    f"non-positive. Minimum interior width for this slide: "
+                    f"{slide.nominal_side_clearance * 2 + 50:.0f} mm."
+                ),
+                part_a=label,
+                value=dcfg.box_width,
+                limit=0.0,
+            ))
+        elif dcfg.box_width < min_box_width:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: computed box width {dcfg.box_width:.1f} mm is narrower "
+                    f"than 2× side thickness ({min_box_width:.0f} mm) — box walls "
+                    f"would overlap. Widen the cabinet."
+                ),
+                part_a=label,
+                value=dcfg.box_width,
+                limit=min_box_width,
+            ))
+        elif side_gap < slide.min_side_clearance:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: side clearance {side_gap:.1f} mm < "
+                    f"{slide.name} minimum {slide.min_side_clearance:.1f} mm. "
+                    f"Widen the cabinet opening or use a slide with smaller clearance."
+                ),
+                part_a=label,
+                value=side_gap,
+                limit=slide.min_side_clearance,
+            ))
+        elif side_gap > slide.max_side_clearance:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.WARNING,
+                message=(
+                    f"{label}: side clearance {side_gap:.1f} mm > "
+                    f"{slide.name} maximum {slide.max_side_clearance:.1f} mm — "
+                    f"coupling may not reach the side panel."
+                ),
+                part_a=label,
+                value=side_gap,
+                limit=slide.max_side_clearance,
+            ))
+
+        # ── Depth / rear clearance ─────────────────────────────────────────
+        rear_gap = cab_cfg.interior_depth - box_depth
+        if rear_gap < 0:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: drawer box depth {box_depth:.1f} mm exceeds "
+                    f"carcass interior depth {cab_cfg.interior_depth:.1f} mm "
+                    f"by {-rear_gap:.1f} mm."
+                ),
+                part_a=label,
+                value=box_depth,
+                limit=cab_cfg.interior_depth,
+            ))
+        elif rear_gap < MIN_REAR_CLEARANCE:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.WARNING,
+                message=(
+                    f"{label}: only {rear_gap:.1f} mm clearance between drawer box "
+                    f"and back panel (recommended ≥ {MIN_REAR_CLEARANCE:.0f} mm for "
+                    f"{slide.name} rear-mount bracket)."
+                ),
+                part_a=label,
+                value=rear_gap,
+                limit=MIN_REAR_CLEARANCE,
+            ))
+
+        # ── Height ────────────────────────────────────────────────────────
+        if dcfg.box_height <= 0:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: opening height {opening_h:.1f} mm is smaller than "
+                    f"the vertical gap ({dcfg.vertical_gap:.1f} mm) — box height "
+                    f"would be {dcfg.box_height:.1f} mm."
+                ),
+                part_a=label,
+                value=dcfg.box_height,
+                limit=dcfg.vertical_gap,
+            ))
+        elif dcfg.box_height < slide.min_drawer_height:
+            issues.append(Issue(
+                check="drawer_carcass_clearance",
+                severity=Severity.ERROR,
+                message=(
+                    f"{label}: box height {dcfg.box_height:.1f} mm < "
+                    f"{slide.name} minimum {slide.min_drawer_height:.1f} mm. "
+                    f"Increase opening height to at least "
+                    f"{slide.min_drawer_height + dcfg.vertical_gap:.0f} mm."
+                ),
+                part_a=label,
+                value=dcfg.box_height,
+                limit=float(slide.min_drawer_height),
+            ))
+
+    return issues
+
+
 # ─── Full Evaluation Runner ──────────────────────────────────────────────────
 
 
@@ -892,6 +1070,7 @@ def evaluate_cabinet(
     all_issues.extend(check_back_panel_fit(cab_cfg))
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
+    all_issues.extend(check_drawer_carcass_clearances(cab_cfg))
 
     # ── Drawer hardware + joinery checks ────────────────────────────────
     if drawer_assemblies:
