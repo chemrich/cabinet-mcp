@@ -49,7 +49,8 @@ class TestCumulativeHeights:
         cfg = CabinetConfig(
             height=720,
             bottom_thickness=18,
-            drawer_config=[(702, "drawer")],  # exactly fills interior
+            top_thickness=18,
+            drawer_config=[(684, "drawer")],  # exactly fills interior (720 - 18 - 18)
         )
         issues = check_cumulative_heights(cfg)
         warnings = [i for i in issues if i.severity == Severity.WARNING]

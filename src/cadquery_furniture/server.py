@@ -202,6 +202,7 @@ async def list_tools() -> list[types.Tool]:
                     "depth":  {"type": "number", "description": "Exterior depth in mm."},
                     "side_thickness":   {"type": "number", "default": 18.0},
                     "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
                     "drawer_config": {
@@ -249,6 +250,7 @@ async def list_tools() -> list[types.Tool]:
                     "depth":  {"type": "number"},
                     "side_thickness":   {"type": "number", "default": 18.0},
                     "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
                     "drawer_config": {
@@ -587,7 +589,7 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
 
     # Interior dimensions
     interior_width  = cfg.width  - 2 * cfg.side_thickness
-    interior_height = cfg.height - cfg.bottom_thickness - cfg.back_rabbet_depth
+    interior_height = cfg.interior_height
     interior_depth  = cfg.depth  - cfg.back_thickness
 
     # Panel sizes (parametric only, no CQ needed)
@@ -603,6 +605,12 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
             "width_mm":  interior_width,
             "depth_mm":  cfg.depth - cfg.back_thickness,
             "thickness_mm": cfg.bottom_thickness,
+        },
+        "top_panel": {
+            "qty": 1,
+            "width_mm":  interior_width,
+            "depth_mm":  cfg.depth - cfg.back_thickness,
+            "thickness_mm": cfg.top_thickness,
         },
         "back_panel": {
             "qty": 1,
@@ -771,6 +779,15 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
             length=interior_width,
             width=interior_depth,
             thickness=cfg.bottom_thickness,
+            quantity=1,
+            grain_direction="length",
+            material="baltic_birch",
+        ),
+        CutlistPanel(
+            name="top",
+            length=interior_width,
+            width=interior_depth,
+            thickness=cfg.top_thickness,
             quantity=1,
             grain_direction="length",
             material="baltic_birch",

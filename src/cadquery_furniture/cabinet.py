@@ -49,6 +49,7 @@ class CabinetConfig:
     # Materials
     side_thickness: float = 18.0  # 3/4" Baltic birch
     bottom_thickness: float = 18.0
+    top_thickness: float = 18.0
     shelf_thickness: float = 18.0
     back_thickness: float = 6.0  # 1/4" plywood
 
@@ -105,8 +106,8 @@ class CabinetConfig:
 
     @property
     def interior_height(self) -> float:
-        """Height from top of bottom panel to top of cabinet."""
-        return self.height - self.bottom_thickness
+        """Height from top of bottom panel to underside of top panel."""
+        return self.height - self.bottom_thickness - self.top_thickness
 
     @property
     def back_panel_width(self) -> float:
@@ -168,6 +169,14 @@ def make_side_panel(cfg: CabinetConfig, mirror: bool = False) -> "cq.Workplane":
     )
     panel = panel.cut(bottom_dado)
 
+    # Cut dado for top panel (mirrors bottom dado, at z = height - top_thickness)
+    top_dado = (
+        cq.Workplane("XY")
+        .transformed(offset=(dado_x, 0, cfg.height - cfg.top_thickness))
+        .box(cfg.dado_depth, cfg.depth - cfg.back_rabbet_width, cfg.top_thickness, centered=False)
+    )
+    panel = panel.cut(top_dado)
+
     # Cut dados for fixed shelves
     for shelf_z in cfg.fixed_shelf_positions:
         shelf_dado = (
@@ -210,6 +219,18 @@ def make_bottom_panel(cfg: CabinetConfig) -> "cq.Workplane":
     return (
         cq.Workplane("XY")
         .box(panel_width, panel_depth, cfg.bottom_thickness, centered=False)
+    )
+
+
+def make_top_panel(cfg: CabinetConfig) -> "cq.Workplane":
+    """Create the top panel. Sits in dados at the top of both side panels."""
+    _require_cq()
+    panel_width = cfg.interior_width + (cfg.dado_depth * 2)
+    panel_depth = cfg.depth - cfg.back_rabbet_width
+
+    return (
+        cq.Workplane("XY")
+        .box(panel_width, panel_depth, cfg.top_thickness, centered=False)
     )
 
 
@@ -286,6 +307,16 @@ def build_cabinet(cfg: Optional[CabinetConfig] = None) -> tuple["cq.Assembly", l
         edge_band=["front"],
     ))
 
+    # ── Top panel ────────────────────────────────────────────────────────
+    top = make_top_panel(cfg)
+    parts.append(PartInfo(
+        name="top",
+        shape=top,
+        material_thickness=cfg.top_thickness,
+        grain_direction="width",
+        edge_band=["front"],
+    ))
+
     # ── Fixed shelves ────────────────────────────────────────────────────
     shelves = []
     for i, shelf_z in enumerate(cfg.fixed_shelf_positions):
@@ -332,6 +363,12 @@ def build_cabinet(cfg: Optional[CabinetConfig] = None) -> tuple["cq.Assembly", l
         shelf_x = cfg.side_thickness - cfg.dado_depth
         assy.add(shelf, name=f"shelf_{i}", loc=cq.Location((shelf_x, 0, shelf_z)),
                  color=cq.Color(0.80, 0.65, 0.45, 1.0))
+
+    # Top panel: sits in dados at the top of both sides
+    top_x = cfg.side_thickness - cfg.dado_depth
+    top_z = cfg.height - cfg.top_thickness
+    assy.add(top, name="top", loc=cq.Location((top_x, 0, top_z)),
+             color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
     # Back panel: sits in rabbets
     back_x = cfg.side_thickness - cfg.back_rabbet_depth
