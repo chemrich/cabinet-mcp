@@ -255,6 +255,49 @@ def make_back_panel(cfg: CabinetConfig) -> "cq.Workplane":
     )
 
 
+def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
+    """Create an interior vertical divider for multi-bay assemblies.
+
+    Unlike a standard side panel, the divider:
+    - Stops at ``depth - back_rabbet_width`` (flush with the back panel's front
+      face — does not extend into the back rabbet zone).
+    - Has dados for the bottom panel on *both* interior faces so adjacent bay
+      horizontal panels are properly supported.
+    - Has no back rabbet (the continuous back panel covers the back).
+    """
+    _require_cq()
+    panel_depth = cfg.depth - cfg.back_rabbet_width
+
+    panel = cq.Workplane("XY").box(cfg.side_thickness, panel_depth, cfg.height, centered=False)
+
+    # Bottom dado — left face (x = 0 side, facing the bay to the left)
+    panel = panel.cut(
+        cq.Workplane("XY")
+        .transformed(offset=(0, 0, 0))
+        .box(cfg.dado_depth, panel_depth, cfg.bottom_thickness, centered=False)
+    )
+    # Bottom dado — right face (x = side_thickness side, facing the bay to the right)
+    panel = panel.cut(
+        cq.Workplane("XY")
+        .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, 0))
+        .box(cfg.dado_depth, panel_depth, cfg.bottom_thickness, centered=False)
+    )
+    # Top dado — left face
+    panel = panel.cut(
+        cq.Workplane("XY")
+        .transformed(offset=(0, 0, cfg.height - cfg.top_thickness))
+        .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
+    )
+    # Top dado — right face
+    panel = panel.cut(
+        cq.Workplane("XY")
+        .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, cfg.height - cfg.top_thickness))
+        .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
+    )
+
+    return panel
+
+
 @dataclass
 class PartInfo:
     """Metadata for a part in the assembly."""
@@ -269,15 +312,19 @@ class PartInfo:
 def build_cabinet(
     cfg: Optional[CabinetConfig] = None,
     suppress_left_side: bool = False,
+    suppress_right_side: bool = False,
+    suppress_back: bool = False,
 ) -> tuple["cq.Assembly", list[PartInfo]]:
     """Build a complete cabinet assembly from configuration.
 
     Args:
         cfg:                Cabinet configuration (defaults to CabinetConfig()).
-        suppress_left_side: When True, omit the left side panel from both the
-                            assembly and the parts list.  Use this when the
-                            previous bay in a multi-bay assembly already
-                            provides the shared divider panel.
+        suppress_left_side:  When True, omit the left side panel.  Used when
+                             a dedicated interior divider panel takes its place.
+        suppress_right_side: When True, omit the right side panel.  Used when
+                             a dedicated interior divider panel takes its place.
+        suppress_back:       When True, omit the back panel.  Used when a
+                             single continuous back spans all bays.
 
     Returns:
         Tuple of (cq.Assembly, list of PartInfo for BOM/cutlist).
@@ -289,24 +336,25 @@ def build_cabinet(
     parts: list[PartInfo] = []
 
     # ── Side panels ──────────────────────────────────────────────────────
-    left_side = make_side_panel(cfg, mirror=False) if not suppress_left_side else None
-    right_side = make_side_panel(cfg, mirror=True)
+    left_side  = make_side_panel(cfg, mirror=False) if not suppress_left_side  else None
+    right_side = make_side_panel(cfg, mirror=True)  if not suppress_right_side else None
 
     if left_side is not None:
         parts.append(PartInfo(
             name="left_side",
             shape=left_side,
             material_thickness=cfg.side_thickness,
-            grain_direction="length",  # grain runs vertically (height)
+            grain_direction="length",
             edge_band=["front"],
         ))
-    parts.append(PartInfo(
-        name="right_side",
-        shape=right_side,
-        material_thickness=cfg.side_thickness,
-        grain_direction="length",
-        edge_band=["front"],
-    ))
+    if right_side is not None:
+        parts.append(PartInfo(
+            name="right_side",
+            shape=right_side,
+            material_thickness=cfg.side_thickness,
+            grain_direction="length",
+            edge_band=["front"],
+        ))
 
     # ── Bottom panel ─────────────────────────────────────────────────────
     bottom = make_bottom_panel(cfg)
@@ -342,14 +390,15 @@ def build_cabinet(
         ))
 
     # ── Back panel ───────────────────────────────────────────────────────
-    back = make_back_panel(cfg)
-    parts.append(PartInfo(
-        name="back",
-        shape=back,
-        material_thickness=cfg.back_thickness,
-        grain_direction="width",
-        notes="1/4 inch plywood",
-    ))
+    back = make_back_panel(cfg) if not suppress_back else None
+    if back is not None:
+        parts.append(PartInfo(
+            name="back",
+            shape=back,
+            material_thickness=cfg.back_thickness,
+            grain_direction="width",
+            notes="1/4 inch plywood",
+        ))
 
     # ── Assembly ─────────────────────────────────────────────────────────
     assy = cq.Assembly(name="base_cabinet")
@@ -359,10 +408,11 @@ def build_cabinet(
         assy.add(left_side, name="left_side", loc=cq.Location((0, 0, 0)),
                  color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
-    # Right side: sits at x = width - side_thickness
-    assy.add(right_side, name="right_side",
-             loc=cq.Location((cfg.width - cfg.side_thickness, 0, 0)),
-             color=cq.Color(0.87, 0.72, 0.53, 1.0))
+    # Right side: sits at x = width - side_thickness (omitted when suppress_right_side=True)
+    if right_side is not None:
+        assy.add(right_side, name="right_side",
+                 loc=cq.Location((cfg.width - cfg.side_thickness, 0, 0)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
     # Bottom: sits between sides, in the dados
     # X position: side_thickness - dado_depth (panel extends into dado)
@@ -382,11 +432,12 @@ def build_cabinet(
     assy.add(top, name="top", loc=cq.Location((top_x, 0, top_z)),
              color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
-    # Back panel: sits in rabbets
-    back_x = cfg.side_thickness - cfg.back_rabbet_depth
-    back_y = cfg.depth - cfg.back_rabbet_width
-    assy.add(back, name="back", loc=cq.Location((back_x, back_y, 0)),
-             color=cq.Color(0.75, 0.60, 0.40, 0.8))
+    # Back panel: sits in rabbets (omitted when suppress_back=True)
+    if back is not None:
+        back_x = cfg.side_thickness - cfg.back_rabbet_depth
+        back_y = cfg.depth - cfg.back_rabbet_width
+        assy.add(back, name="back", loc=cq.Location((back_x, back_y, 0)),
+                 color=cq.Color(0.75, 0.60, 0.40, 0.8))
 
     return assy, parts
 
@@ -473,7 +524,12 @@ def build_multi_bay_cabinet(
 
     # ── Carcass bays ───────────────────────────────────────────────────────────
     for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-        bay_assy, bay_parts = build_cabinet(cfg, suppress_left_side=(bay_idx > 0))
+        bay_assy, bay_parts = build_cabinet(
+            cfg,
+            suppress_left_side=(bay_idx > 0),           # divider provides left wall
+            suppress_right_side=(bay_idx < n_bays - 1), # divider provides right wall
+            suppress_back=True,                          # single continuous back added below
+        )
         col = carcass_colours[bay_idx % len(carcass_colours)]
         assy.add(bay_assy, name=f"bay_{bay_idx}",
                  loc=cq.Location((bx, 0, 0)),
@@ -487,6 +543,51 @@ def build_multi_bay_cabinet(
                 edge_band=list(p.edge_band),
                 notes=p.notes,
             ))
+
+    # ── Interior vertical dividers ─────────────────────────────────────────────
+    # One purpose-built divider per bay boundary, placed at x_offsets[1:].
+    # Depth = depth - back_rabbet_width so the back edge is flush with the
+    # front face of the continuous back panel (no protrusion behind the back).
+    divider_colour = cq.Color(0.87, 0.72, 0.53, 1.0)
+    for div_idx, (div_x, cfg) in enumerate(zip(x_offsets[1:], bay_configs)):
+        div_shape = make_interior_divider(cfg)
+        assy.add(div_shape, name=f"divider_{div_idx}",
+                 loc=cq.Location((div_x, 0, 0)),
+                 color=divider_colour)
+        all_parts.append(PartInfo(
+            name=f"divider_{div_idx}",
+            shape=div_shape,
+            material_thickness=cfg.side_thickness,
+            grain_direction="length",
+            edge_band=["front"],
+        ))
+
+    # ── Continuous back panel ──────────────────────────────────────────────────
+    # A single panel spanning all bays, fitting into the outer side-panel rabbets
+    # and running behind the shared interior dividers.
+    cfg0 = bay_configs[0]
+    cfg_last = bay_configs[-1]
+    cont_back_width = (
+        total_width
+        - (cfg0.side_thickness - cfg0.back_rabbet_depth)   # left rabbet offset
+        - (cfg_last.side_thickness - cfg_last.back_rabbet_depth)  # right rabbet offset
+    )
+    cont_back = (
+        cq.Workplane("XY")
+        .box(cont_back_width, cfg0.back_thickness, cfg0.back_panel_height, centered=False)
+    )
+    back_x = cfg0.side_thickness - cfg0.back_rabbet_depth
+    back_y = cfg0.depth - cfg0.back_rabbet_width
+    assy.add(cont_back, name="back",
+             loc=cq.Location((back_x, back_y, 0)),
+             color=cq.Color(0.75, 0.60, 0.40, 0.8))
+    all_parts.append(PartInfo(
+        name="back",
+        shape=cont_back,
+        material_thickness=cfg0.back_thickness,
+        grain_direction="width",
+        notes="1/4 inch plywood — single panel spanning all bays",
+    ))
 
     # ── Drawer boxes ───────────────────────────────────────────────────────────
     if include_drawers:
