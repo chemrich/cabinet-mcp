@@ -116,7 +116,8 @@ class CabinetConfig:
 
     @property
     def back_panel_height(self) -> float:
-        return self.height
+        """Back panel height — spans from carcass floor to underside of top panel."""
+        return self.height - self.top_thickness
 
 
 def _require_cq():
@@ -169,11 +170,12 @@ def make_side_panel(cfg: CabinetConfig, mirror: bool = False) -> "cq.Workplane":
     )
     panel = panel.cut(bottom_dado)
 
-    # Cut dado for top panel (mirrors bottom dado, at z = height - top_thickness)
+    # Cut dado for top panel — extends full depth so the top panel (which runs
+    # to the back exterior) seats flush in the dado along its entire length.
     top_dado = (
         cq.Workplane("XY")
         .transformed(offset=(dado_x, 0, cfg.height - cfg.top_thickness))
-        .box(cfg.dado_depth, cfg.depth - cfg.back_rabbet_width, cfg.top_thickness, centered=False)
+        .box(cfg.dado_depth, cfg.depth, cfg.top_thickness, centered=False)
     )
     panel = panel.cut(top_dado)
 
@@ -223,14 +225,18 @@ def make_bottom_panel(cfg: CabinetConfig) -> "cq.Workplane":
 
 
 def make_top_panel(cfg: CabinetConfig) -> "cq.Workplane":
-    """Create the top panel. Sits in dados at the top of both side panels."""
+    """Create the top panel. Sits in dados at the top of both side panels.
+
+    Extends to the full cabinet depth so the top surface is flush with the
+    back face of the side panels. The back panel stops at the underside of
+    this panel (back_panel_height = height - top_thickness).
+    """
     _require_cq()
     panel_width = cfg.interior_width + (cfg.dado_depth * 2)
-    panel_depth = cfg.depth - cfg.back_rabbet_width
 
     return (
         cq.Workplane("XY")
-        .box(panel_width, panel_depth, cfg.top_thickness, centered=False)
+        .box(panel_width, cfg.depth, cfg.top_thickness, centered=False)
     )
 
 
@@ -282,7 +288,7 @@ def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
         .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, 0))
         .box(cfg.dado_depth, panel_depth, cfg.bottom_thickness, centered=False)
     )
-    # Top dado — left face
+    # Top dado — left face (full panel depth to receive the full-depth top panel)
     panel = panel.cut(
         cq.Workplane("XY")
         .transformed(offset=(0, 0, cfg.height - cfg.top_thickness))
@@ -294,6 +300,8 @@ def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
         .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, cfg.height - cfg.top_thickness))
         .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
     )
+    # Note: divider depth = depth - back_rabbet_width (591 mm); the top panel
+    # extends 9 mm further back but sits above the divider, so no conflict.
 
     return panel
 
