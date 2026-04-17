@@ -13,6 +13,7 @@ from cadquery_furniture.evaluation import (
     check_cumulative_heights,
     check_drawer_hardware_clearances,
     check_drawer_carcass_clearances,
+    check_face_clearances,
     check_shelf_deflection,
     check_back_panel_fit,
     check_dado_alignment,
@@ -374,3 +375,103 @@ class TestDrawerCarcassClearances:
             if i.check == "drawer_carcass_clearance" and i.severity == Severity.ERROR
         ]
         assert len(carcass_errors) > 0
+
+
+class TestFaceClearances:
+    """Tests for check_face_clearances."""
+
+    def _bay(self, width, drawers):
+        return CabinetConfig(width=width, height=720, depth=550,
+                             drawer_config=drawers)
+
+    def test_single_bay_valid(self):
+        """Single bay, valid face stack — no issues."""
+        cfg = self._bay(600, [(150, "drawer"), (150, "drawer"), (150, "drawer")])
+        issues = check_face_clearances(
+            [cfg],
+            inner_overlay=18.0,
+            outer_overlay=18.0,
+            divider_thickness=18.0,
+            face_gap=4.0,
+            face_bottom_overhang=18.0,
+            face_top_overhang=18.0,
+        )
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) == 0
+
+    def test_horizontal_overlap_detected(self):
+        """inner_overlay too large for divider → faces overlap → ERROR."""
+        # 18 mm divider, inner_overlay=17 mm → gap = 18 - 34 = -16 mm
+        left  = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        right = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        issues = check_face_clearances(
+            [left, right],
+            inner_overlay=17.0,
+            divider_thickness=18.0,
+            face_gap=4.0,
+        )
+        errors = [i for i in issues if i.severity == Severity.ERROR
+                  and "overlap" in i.message.lower()]
+        assert len(errors) > 0
+
+    def test_correct_inner_overlay_for_18mm_divider(self):
+        """inner_overlay = (18 - 2) / 2 = 8 mm gives exactly 2 mm gap."""
+        left  = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        right = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        issues = check_face_clearances(
+            [left, right],
+            inner_overlay=8.0,
+            divider_thickness=18.0,
+            face_gap=4.0,
+        )
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) == 0
+
+    def test_negative_face_gap(self):
+        """face_gap < 0 → immediate ERROR."""
+        cfg = self._bay(600, [(150, "drawer"), (150, "drawer")])
+        issues = check_face_clearances([cfg], face_gap=-1.0)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) > 0
+
+    def test_face_height_zero_errors(self):
+        """Opening too small for face_gap → face height ≤ 0 → ERROR."""
+        # face_gap=10 mm: non-anchored face height = opening_h - 10.
+        # With opening_h=8: middle face_h = 8 - 10 = -2 mm → ERROR.
+        # Use a 3-slot config so the middle slot is neither first nor last.
+        cfg = self._bay(600, [(100, "drawer"), (8, "drawer"), (100, "drawer")])
+        issues = check_face_clearances([cfg], face_gap=10.0,
+                                       face_bottom_overhang=0.0, face_top_overhang=0.0)
+        errors = [i for i in issues if i.severity == Severity.ERROR
+                  and "face height" in i.message.lower()]
+        assert len(errors) > 0
+
+    def test_door_slots_included(self):
+        """door_pair slots participate in the face stack — their height is checked."""
+        cfg = self._bay(600, [(400, "door_pair"), (200, "drawer")])
+        issues = check_face_clearances(
+            [cfg],
+            face_gap=4.0,
+            face_bottom_overhang=18.0,
+            face_top_overhang=18.0,
+        )
+        # Both slots have positive face heights → no errors
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) == 0
+
+    def test_three_bay_correct_inner_overlay(self):
+        """Three-bay assembly with correct inner_overlay — no horizontal errors."""
+        left   = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        center = self._bay(500, [(150, "drawer"), (150, "drawer"), (150, "drawer")])
+        right  = self._bay(355, [(150, "drawer"), (150, "drawer")])
+        issues = check_face_clearances(
+            [left, center, right],
+            inner_overlay=8.0,
+            outer_overlay=18.0,
+            divider_thickness=18.0,
+            face_gap=4.0,
+            face_bottom_overhang=18.0,
+            face_top_overhang=18.0,
+        )
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert len(errors) == 0

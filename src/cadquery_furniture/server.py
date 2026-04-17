@@ -58,11 +58,14 @@ from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
-from mcp.server import Server
+from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-from .cabinet import CabinetConfig
-from .visualize import build_and_visualize as _build_and_visualize
+from .cabinet import CabinetConfig, build_multi_bay_cabinet as _build_multi_bay_cabinet
+from .auto_fix import auto_fix_cabinet as _auto_fix, AutoFixResult, fixable_checks
+from .describe import describe_design as _describe_design
+from .presets import PRESETS, get_preset, list_presets as _list_presets
+from .visualize import build_and_visualize as _build_and_visualize, visualize_assembly as _visualize_assembly
 from .cutlist import (
     CutlistPanel,
     SheetStock,
@@ -193,6 +196,14 @@ async def list_tools() -> list[types.Tool]:
 
                 carcass_joinery options: "dado_rabbet", "floating_tenon",
                 "pocket_screw", "biscuit", "dowel".
+
+                ── WORKFLOW ──
+                After calling this tool you MUST immediately call evaluate_cabinet
+                on the returned config before doing anything else. If errors are
+                found, call auto_fix_cabinet, then re-evaluate.  Once all errors
+                are resolved, call describe_design and present the prose summary
+                to the user.  Do NOT call visualize_cabinet until the user has
+                reviewed the description and explicitly approved.
             """),
             inputSchema={
                 "type": "object",
@@ -241,6 +252,14 @@ async def list_tools() -> list[types.Tool]:
                 a list of issues (errors, warnings, info). Pass the same arguments as
                 design_cabinet. Optionally include door_configs (list of DoorConfig dicts)
                 to also evaluate door hardware.
+
+                ── WORKFLOW ──
+                This tool MUST be called after every call to design_cabinet or
+                apply_preset.  If the result contains any severity=error issues,
+                call auto_fix_cabinet once with the same config, then re-evaluate.
+                If errors persist after auto-fix, describe the remaining errors to
+                the user and ask for guidance.  Only proceed to describe_design
+                (and eventually visualize_cabinet) when there are zero errors.
             """),
             inputSchema={
                 "type": "object",
@@ -421,6 +440,18 @@ async def list_tools() -> list[types.Tool]:
 
                 Pass the same cabinet parameters as design_cabinet.
                 Returns paths to the GLB and HTML files plus file size info.
+
+                Viewer shortcuts: X = x-ray drawer fronts, O = open drawers.
+
+                ── WORKFLOW ──
+                NEVER call this tool directly after design_cabinet or
+                apply_preset.  You MUST first:
+                  1. evaluate_cabinet → ensure zero errors (auto_fix_cabinet if
+                     needed)
+                  2. describe_design → present the prose summary to the user
+                  3. Wait for the user to explicitly approve or request changes
+                Only call visualize_cabinet after the user has approved the
+                evaluated, described design.
             """),
             inputSchema={
                 "type": "object",
@@ -467,6 +498,179 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["width", "height", "depth"],
             },
         ),
+        types.Tool(
+            name="list_presets",
+            description=textwrap.dedent("""\
+                Return the catalogue of named cabinet presets — validated starting
+                configurations for common cabinet types (kitchen base, dresser,
+                tool chest, bathroom vanity, wall cabinet, pantry, credenza,
+                sideboard, console table, media console, etc.).
+
+                Use this to discover preset names, then call apply_preset to load
+                one as a full design_cabinet-compatible config dict.
+
+                Optionally filter by category ("kitchen", "workshop", "bedroom",
+                "bathroom", "storage", "living_room") or by tag (e.g. "drawer",
+                "soft_close", "heavy_duty", "console", "credenza").
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["kitchen", "workshop", "bedroom", "bathroom", "storage", "living_room"],
+                        "description": "Filter by cabinet category.",
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "Filter by tag (e.g. 'drawer', 'soft_close', 'wide').",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="apply_preset",
+            description=textwrap.dedent("""\
+                Load a named preset and return its full configuration dict, ready
+                to pass directly to evaluate_cabinet.
+
+                Optionally supply an overrides dict to tweak individual fields
+                (e.g. change width, swap the drawer_slide, adjust depth) without
+                rebuilding from scratch.
+
+                Returns:
+                  - preset_name, display_name, description, category
+                  - config: the merged CabinetConfig fields as a flat dict
+                  - interior_height_mm: computed from the merged config
+                  - opening_stack_total_mm: sum of drawer_config heights
+                  - opening_stack_matches_interior: whether they are equal
+                    (mismatches indicate the overrides changed height but not
+                    the opening stack — you should update drawer_config too)
+
+                Use list_presets to discover valid preset names.
+
+                ── WORKFLOW ──
+                After calling this tool you MUST immediately call
+                evaluate_cabinet on the returned config.  If errors are found,
+                call auto_fix_cabinet, then re-evaluate.  Once clean, call
+                describe_design and present the summary to the user.  Do NOT
+                call visualize_cabinet until the user has approved.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Preset slug from list_presets (e.g. 'kitchen_base_3_drawer').",
+                    },
+                    "overrides": {
+                        "type": "object",
+                        "description": (
+                            "Optional dict of CabinetConfig fields to override after loading "
+                            "the preset (e.g. {\"width\": 750, \"drawer_slide\": \"blum_movento_760h\"})."
+                        ),
+                        "default": {},
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        types.Tool(
+            name="auto_fix_cabinet",
+            description=textwrap.dedent("""\
+                Attempt a single round of deterministic fixes on a cabinet
+                configuration.  Evaluates the config, applies known-safe
+                corrections (e.g. rebalancing an opening stack that overshoots
+                interior_height, aligning a back-panel rabbet with the back
+                thickness), then re-evaluates.
+
+                Returns:
+                  - config: the (possibly modified) config dict
+                  - changes: human-readable list of what was adjusted
+                  - initial_issues / final_issues: before and after
+                  - fixed: whether at least one error was resolved
+                  - clean: whether zero errors remain
+
+                ── WORKFLOW ──
+                Call this ONLY after evaluate_cabinet has returned one or more
+                severity=error issues.  After auto-fix completes, call
+                evaluate_cabinet again to confirm the result is clean.  If
+                errors remain, describe them to the user and ask for guidance.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number"},
+                    "height": {"type": "number"},
+                    "depth":  {"type": "number"},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                        "default": [],
+                    },
+                    "carcass_joinery": {
+                        "type": "string",
+                        "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
+                        "default": "dado_rabbet",
+                    },
+                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "adj_shelf_holes": {"type": "boolean", "default": False},
+                    "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
+            name="describe_design",
+            description=textwrap.dedent("""\
+                Generate a human-readable prose description of a cabinet
+                configuration — dimensions in both metric and imperial, opening
+                layout, hardware names, joinery method, and materials — suitable
+                for presenting to the user during design review.
+
+                Returns:
+                  - prose: a short paragraph summarising the design
+                  - dimensions, openings, hardware, materials: structured dicts
+
+                ── WORKFLOW ──
+                Call this after evaluate_cabinet returns zero errors (or after
+                auto_fix_cabinet has cleaned them).  Present the prose to the
+                user and wait for explicit approval before calling
+                visualize_cabinet.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number"},
+                    "height": {"type": "number"},
+                    "depth":  {"type": "number"},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                        "default": [],
+                    },
+                    "carcass_joinery": {
+                        "type": "string",
+                        "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
+                        "default": "dado_rabbet",
+                    },
+                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "adj_shelf_holes": {"type": "boolean", "default": False},
+                    "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
     ]
 
 
@@ -495,6 +699,14 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_compare_joinery(arguments)
         elif name == "visualize_cabinet":
             return await _tool_visualize_cabinet(arguments)
+        elif name == "list_presets":
+            return await _tool_list_presets(arguments)
+        elif name == "apply_preset":
+            return await _tool_apply_preset(arguments)
+        elif name == "auto_fix_cabinet":
+            return await _tool_auto_fix_cabinet(arguments)
+        elif name == "describe_design":
+            return await _tool_describe_design(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
@@ -894,12 +1106,21 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
 
     cfg = _build_cabinet_config(args)
 
-    result = _build_and_visualize(
-        cfg,
+    # Use build_multi_bay_cabinet so drawer boxes, drawer faces, and door
+    # panels are all included in the rendered assembly.
+    assy, parts = _build_multi_bay_cabinet([cfg])
+    result = _visualize_assembly(
+        assy,
+        parts,
         output_dir=output_dir,
         name=name,
         open_browser=open_browser,
         tolerance=tolerance,
+        info={
+            "width":  cfg.width,
+            "height": cfg.height,
+            "depth":  cfg.depth,
+        },
     )
 
     return _ok({
@@ -912,6 +1133,123 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
             "the 3D model (orbit with left-drag, pan with right-drag, scroll to zoom)."
         ),
     })
+
+
+# ── list_presets ──────────────────────────────────────────────────────────────
+
+async def _tool_list_presets(args: dict) -> list[types.TextContent]:
+    category = args.get("category")
+    tag      = args.get("tag")
+
+    presets = _list_presets(category=category, tag=tag)
+
+    return _ok({
+        "count": len(presets),
+        "presets": [p.summary() for p in presets],
+    })
+
+
+# ── apply_preset ──────────────────────────────────────────────────────────────
+
+async def _tool_apply_preset(args: dict) -> list[types.TextContent]:
+    name      = args.get("name", "")
+    overrides = args.get("overrides") or {}
+
+    try:
+        preset = get_preset(name)
+    except KeyError:
+        return _ok({
+            "error": f"Unknown preset {name!r}.",
+            "available": sorted(PRESETS.keys()),
+        })
+
+    # Merge: start from preset's config dict, apply caller overrides on top.
+    merged = preset.config_dict()
+    for key, value in overrides.items():
+        if key == "carcass_joinery" and isinstance(value, str):
+            merged[key] = value          # kept as string; _build_cabinet_config handles enum
+        else:
+            merged[key] = value
+
+    # Validate merged config builds without error.
+    try:
+        cfg = _build_cabinet_config(dict(merged))
+    except Exception as exc:
+        return _err(f"Override produced an invalid config: {type(exc).__name__}: {exc}")
+
+    interior_h = cfg.height - cfg.bottom_thickness - cfg.top_thickness
+    stack_total = sum(h for h, _ in cfg.drawer_config)
+    stack_matches = abs(stack_total - interior_h) < 0.01
+
+    result: dict[str, Any] = {
+        "preset_name":   preset.name,
+        "display_name":  preset.display_name,
+        "description":   preset.description,
+        "category":      preset.category,
+        "config":        merged,
+        "interior_height_mm":          interior_h,
+        "opening_stack_total_mm":      stack_total,
+        "opening_stack_matches_interior": stack_matches,
+    }
+
+    if not stack_matches and cfg.drawer_config:
+        diff = interior_h - stack_total
+        result["opening_stack_warning"] = (
+            f"Opening stack ({stack_total:.0f} mm) does not fill interior height "
+            f"({interior_h:.0f} mm) — {abs(diff):.0f} mm "
+            f"{'unaccounted for' if diff > 0 else 'over by'}. "
+            "Update drawer_config heights to match."
+        )
+
+    return _ok(result)
+
+
+# ── auto_fix_cabinet ─────────────────────────────────────────────────────────
+
+async def _tool_auto_fix_cabinet(args: dict) -> list[types.TextContent]:
+    cfg = _build_cabinet_config(args)
+    result: AutoFixResult = _auto_fix(cfg)
+
+    errors_before = sum(1 for i in result.initial_issues if i.severity == Severity.ERROR)
+    errors_after  = sum(1 for i in result.final_issues   if i.severity == Severity.ERROR)
+
+    # Re-serialise the (possibly modified) config so it can be passed back
+    # to evaluate_cabinet or describe_design directly.
+    fixed_cfg = result.config
+    config_dict: dict[str, Any] = {
+        "width":            fixed_cfg.width,
+        "height":           fixed_cfg.height,
+        "depth":            fixed_cfg.depth,
+        "side_thickness":   fixed_cfg.side_thickness,
+        "bottom_thickness": fixed_cfg.bottom_thickness,
+        "top_thickness":    fixed_cfg.top_thickness,
+        "shelf_thickness":  fixed_cfg.shelf_thickness,
+        "back_thickness":   fixed_cfg.back_thickness,
+        "drawer_config":    list(fixed_cfg.drawer_config),
+        "carcass_joinery":  fixed_cfg.carcass_joinery.value,
+        "door_hinge":       fixed_cfg.door_hinge,
+        "drawer_slide":     fixed_cfg.drawer_slide,
+        "adj_shelf_holes":  fixed_cfg.adj_shelf_holes,
+    }
+
+    return _ok({
+        "config":         config_dict,
+        "changes":        result.changes,
+        "errors_before":  errors_before,
+        "errors_after":   errors_after,
+        "fixed":          result.fixed,
+        "clean":          result.clean,
+        "initial_issues": _issues_to_dicts(result.initial_issues),
+        "final_issues":   _issues_to_dicts(result.final_issues),
+        "fixable_checks": fixable_checks(),
+    })
+
+
+# ── describe_design ──────────────────────────────────────────────────────────
+
+async def _tool_describe_design(args: dict) -> list[types.TextContent]:
+    cfg = _build_cabinet_config(args)
+    return _ok(_describe_design(cfg))
 
 
 # ─── Port management ──────────────────────────────────────────────────────────
@@ -967,7 +1305,7 @@ def _init_options() -> InitializationOptions:
         server_name="cabinet-mcp",
         server_version="0.1.0",
         capabilities=server.get_capabilities(
-            notification_options=None,
+            notification_options=NotificationOptions(),
             experimental_capabilities={},
         ),
     )

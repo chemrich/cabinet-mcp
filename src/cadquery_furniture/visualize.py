@@ -310,7 +310,9 @@ def _build_html(title: str, glb_b64: str, info: dict) -> str:
   <div id="help">
     Left-drag&nbsp;&nbsp;rotate<br>
     Right-drag&nbsp;&nbsp;pan<br>
-    Scroll&nbsp;&nbsp;zoom
+    Scroll&nbsp;&nbsp;zoom<br>
+    <span style="color: rgba(240, 192, 96, 0.55);">X</span>&nbsp;&nbsp;x-ray fronts<br>
+    <span style="color: rgba(240, 192, 96, 0.55);">O</span>&nbsp;&nbsp;open drawers
   </div>
 
   <script type="importmap">
@@ -392,6 +394,16 @@ controls.maxDistance      = 20000;
 controls.maxPolarAngle    = Math.PI / 2 + 0.18;
 
 // ── Load model ────────────────────────────────────────────────────────────────
+// Drawer pair bookkeeping for the X-ray & Open toggles.
+// Names come from cabinet.py:  "bay{{i}}_drawer{{j}}" (box)  +  "bay{{i}}_face{{j}}" (front).
+const drawerFronts = [];
+const drawerPairs  = new Map();       // key "i_j" → {{ box, face, pullVec }}
+
+function _pairFor(key) {{
+  if (!drawerPairs.has(key)) drawerPairs.set(key, {{}});
+  return drawerPairs.get(key);
+}}
+
 new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   const model = gltf.scene;
 
@@ -406,7 +418,42 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
       m.roughness  = 0.72;
       m.metalness  = 0.0;
     }});
+
+    // Bucket drawer meshes by (bay, slot) for the X-ray + Open toggles.
+    // Node names may appear on the mesh itself or on its parent Group.
+    const searchNames = [obj.name, obj.parent ? obj.parent.name : ''];
+    for (const nm of searchNames) {{
+      if (!nm) continue;
+      const m = nm.match(/^bay(\d+)_(face|drawer)(\d+)/);
+      if (!m) continue;
+      const key = m[1] + '_' + m[3];
+      const pair = _pairFor(key);
+      if (m[2] === 'face') {{
+        pair.face = obj;
+        drawerFronts.push(obj);
+      }} else {{
+        pair.box = obj;
+      }}
+      break;
+    }}
   }});
+
+  // Compute each drawer's pull vector once:  (face centre − box centre),
+  // then scale so the pull distance equals ~70% of the box depth along that axis.
+  for (const pair of drawerPairs.values()) {{
+    if (!pair.box || !pair.face) continue;
+    const boxBB   = new THREE.Box3().setFromObject(pair.box);
+    const faceBB  = new THREE.Box3().setFromObject(pair.face);
+    const dir     = faceBB.getCenter(new THREE.Vector3())
+                      .sub(boxBB.getCenter(new THREE.Vector3()));
+    if (dir.lengthSq() < 1e-6) continue;
+    dir.normalize();
+    const size    = boxBB.getSize(new THREE.Vector3());
+    const depth   = Math.abs(dir.x) * size.x
+                  + Math.abs(dir.y) * size.y
+                  + Math.abs(dir.z) * size.z;
+    pair.pullVec  = dir.multiplyScalar(depth * 0.70);
+  }}
 
   scene.add(model);
 
@@ -437,6 +484,52 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   el.textContent = 'Error loading model: ' + (err.message || err);
   el.style.color = '#f06060';
   console.error(err);
+}});
+
+// ── Toggles (X = x-ray fronts, O = open drawers) ──────────────────────────────
+let xrayOn       = false;
+let drawersOpen  = false;
+const xrayCache  = new WeakMap();    // mesh → {{ orig, xray }}
+
+function _makeXrayMaterial(src) {{
+  const x = src.clone();
+  x.transparent = true;
+  x.opacity     = 0.22;
+  x.depthWrite  = false;
+  x.side        = THREE.DoubleSide;
+  return x;
+}}
+
+function toggleXray() {{
+  xrayOn = !xrayOn;
+  for (const front of drawerFronts) {{
+    if (!xrayCache.has(front)) {{
+      const orig = front.material;
+      const xray = Array.isArray(orig) ? orig.map(_makeXrayMaterial) : _makeXrayMaterial(orig);
+      xrayCache.set(front, {{ orig, xray }});
+    }}
+    const c = xrayCache.get(front);
+    front.material    = xrayOn ? c.xray : c.orig;
+    front.castShadow  = !xrayOn;   // translucent fronts shouldn't cast hard shadows
+  }}
+}}
+
+function toggleOpenDrawers() {{
+  const sign = drawersOpen ? -1 : 1;
+  for (const pair of drawerPairs.values()) {{
+    if (!pair.pullVec || !pair.box || !pair.face) continue;
+    const delta = pair.pullVec.clone().multiplyScalar(sign);
+    pair.box.position.add(delta);
+    pair.face.position.add(delta);
+  }}
+  drawersOpen = !drawersOpen;
+}}
+
+window.addEventListener('keydown', (e) => {{
+  // Ignore when modifier keys are held so we don't clash with browser shortcuts.
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'x' || e.key === 'X') {{ toggleXray();        e.preventDefault(); }}
+  if (e.key === 'o' || e.key === 'O') {{ toggleOpenDrawers(); e.preventDefault(); }}
 }});
 
 // ── Render loop ───────────────────────────────────────────────────────────────

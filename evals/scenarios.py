@@ -890,9 +890,9 @@ _s(Scenario(
 _s(Scenario(
     name="full_kitchen_workflow",
     prompt=(
-        "I need a 900 mm base cabinet with two 150 mm drawers and a 400 mm door "
-        "opening. Use QQQ drawers, Domino carcass, BLUMOTION full-overlay hinges. "
-        "Generate the full cutlist."
+        "I need a 900 mm wide, 750 mm tall base cabinet with two 150 mm drawers "
+        "and a 400 mm door opening. Use QQQ drawers, Domino carcass, BLUMOTION "
+        "full-overlay hinges. Generate the full cutlist."
     ),
     tags=["kitchen"],
     difficulty="advanced",
@@ -909,7 +909,7 @@ _s(Scenario(
         ToolCall(
             tool="design_cabinet",
             args={
-                "width": 900, "height": 720, "depth": 550,
+                "width": 900, "height": 750, "depth": 550,
                 "drawer_config": [[400, "door"], [150, "drawer"], [150, "drawer"]],
                 "carcass_joinery": "floating_tenon",
                 "door_hinge": "blum_clip_top_blumotion_110_full",
@@ -923,7 +923,7 @@ _s(Scenario(
         ToolCall(
             tool="evaluate_cabinet",
             args={
-                "width": 900, "height": 720, "depth": 550,
+                "width": 900, "height": 750, "depth": 550,
                 "drawer_config": [[400, "door"], [150, "drawer"], [150, "drawer"]],
                 "carcass_joinery": "floating_tenon",
             },
@@ -935,7 +935,7 @@ _s(Scenario(
         ToolCall(
             tool="generate_cutlist",
             args={
-                "width": 900, "height": 720, "depth": 550,
+                "width": 900, "height": 750, "depth": 550,
                 "format": "both",
             },
             label="kitchen cutlist",
@@ -1011,6 +1011,535 @@ _s(Scenario(
             assertions=[
                 Assertion("summary.pass",   Op.IS_FALSE),
                 Assertion("summary.errors", Op.GTE, 1),
+            ],
+        ),
+    ],
+))
+
+
+# ── 8. Presets ────────────────────────────────────────────────────────────────
+
+_s(Scenario(
+    name="list_all_presets",
+    prompt="Show me all the available cabinet presets.",
+    tags=["presets"],
+    difficulty="basic",
+    description="list_presets with no filters should return all 9 presets.",
+    tool_calls=[
+        ToolCall(
+            tool="list_presets",
+            args={},
+            label="list all presets",
+            assertions=[
+                Assertion("count",   Op.GTE, 9),
+                Assertion("presets", Op.LEN_GTE, 9),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="list_kitchen_presets",
+    prompt="Show me only kitchen presets.",
+    tags=["presets", "kitchen"],
+    difficulty="basic",
+    description="Filtering by category=kitchen should return at least 3 kitchen presets.",
+    tool_calls=[
+        ToolCall(
+            tool="list_presets",
+            args={"category": "kitchen"},
+            label="kitchen presets only",
+            assertions=[
+                Assertion("count",   Op.GTE, 3),
+                Assertion("presets", Op.LEN_GTE, 3),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_kitchen_base_3_drawer",
+    prompt="Load the kitchen_base_3_drawer preset and check it's valid.",
+    tags=["presets", "kitchen", "drawer"],
+    difficulty="basic",
+    description=(
+        "apply_preset should return a 600×720×550 config with 3 drawers summing to interior height."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "kitchen_base_3_drawer"},
+            label="load kitchen 3-drawer preset",
+            assertions=[
+                Assertion("preset_name",    Op.EQ, "kitchen_base_3_drawer"),
+                Assertion("config.width",   Op.EQ, 600),
+                Assertion("config.height",  Op.EQ, 720),
+                Assertion("config.depth",   Op.EQ, 550),
+                Assertion("interior_height_mm",  Op.EQ, 684),
+                Assertion("opening_stack_total_mm", Op.EQ, 684),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[300, "drawer"], [192, "drawer"], [192, "drawer"]],
+                "drawer_slide": "blum_tandem_550h",
+            },
+            label="evaluate preset config",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_TRUE),
+                Assertion("summary.errors", Op.EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_preset_with_overrides",
+    prompt=(
+        "Load the kitchen_base_3_drawer preset but make it 750 mm wide "
+        "and use Blum Movento 760H slides."
+    ),
+    tags=["presets", "kitchen", "drawer"],
+    difficulty="standard",
+    description=(
+        "apply_preset with overrides: width→750, drawer_slide→blum_movento_760h. "
+        "Config should reflect the overrides; stack still matches interior height."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={
+                "name": "kitchen_base_3_drawer",
+                "overrides": {"width": 750, "drawer_slide": "blum_movento_760h"},
+            },
+            label="preset + overrides",
+            assertions=[
+                Assertion("config.width",        Op.EQ, 750),
+                Assertion("config.drawer_slide",  Op.EQ, "blum_movento_760h"),
+                Assertion("config.height",        Op.EQ, 720),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_preset_height_override_warns",
+    prompt=(
+        "Load the workshop_tool_chest preset but change its height to 1000 mm — "
+        "the opening stack should no longer match."
+    ),
+    tags=["presets", "workshop", "edge_case"],
+    difficulty="standard",
+    description=(
+        "Changing height without updating drawer_config should trigger "
+        "opening_stack_matches_interior=false and include a warning message."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={
+                "name": "workshop_tool_chest",
+                "overrides": {"height": 1000},
+            },
+            label="height override without stack update",
+            assertions=[
+                Assertion("config.height", Op.EQ, 1000),
+                Assertion("opening_stack_matches_interior", Op.IS_FALSE),
+                Assertion("opening_stack_warning", Op.HAS_KEY, True),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_preset_unknown_name",
+    prompt="Try to load a preset called 'nonexistent_preset'.",
+    tags=["presets", "edge_case"],
+    difficulty="basic",
+    description="apply_preset with an invalid name should return an ERROR response, not crash.",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "nonexistent_preset"},
+            label="unknown preset name",
+            assertions=[
+                # Handler returns JSON {error: "...", available: [...]}
+                Assertion("error",     Op.HAS_KEY, True),
+                Assertion("available", Op.HAS_KEY, True),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_workshop_tool_chest",
+    prompt="Load the workshop tool chest preset and confirm heavy-duty slides and pocket screw joinery.",
+    tags=["presets", "workshop", "drawer"],
+    difficulty="standard",
+    description="workshop_tool_chest: 6 equal drawers, Movento 769 slides, pocket screw carcass.",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "workshop_tool_chest"},
+            label="load workshop tool chest",
+            assertions=[
+                Assertion("preset_name",         Op.EQ, "workshop_tool_chest"),
+                Assertion("config.width",         Op.EQ, 600),
+                Assertion("config.height",        Op.EQ, 900),
+                Assertion("config.drawer_slide",  Op.EQ, "blum_movento_769"),
+                Assertion("config.carcass_joinery", Op.EQ, "pocket_screw"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+
+# ── 9. Living room / foyer presets ────────────────────────────────────────────
+
+_s(Scenario(
+    name="list_living_room_presets",
+    prompt="Show me presets for living room furniture.",
+    tags=["presets", "living_room"],
+    difficulty="basic",
+    description="Filtering by category=living_room should return all 5 living room presets.",
+    tool_calls=[
+        ToolCall(
+            tool="list_presets",
+            args={"category": "living_room"},
+            label="living_room presets only",
+            assertions=[
+                Assertion("count",   Op.GTE, 5),
+                Assertion("presets", Op.LEN_GTE, 5),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_foyer_console_2_drawer",
+    prompt="Load the foyer_console_2_drawer preset and check dimensions and stack.",
+    tags=["presets", "living_room"],
+    difficulty="basic",
+    description=(
+        "foyer_console_2_drawer: 1200×800×350, interior_h=764, "
+        "open shelf + 2×100 mm drawers = 764."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "foyer_console_2_drawer"},
+            label="load foyer console preset",
+            assertions=[
+                Assertion("preset_name",    Op.EQ, "foyer_console_2_drawer"),
+                Assertion("config.width",   Op.EQ, 1200),
+                Assertion("config.height",  Op.EQ, 800),
+                Assertion("config.depth",   Op.EQ, 350),
+                Assertion("interior_height_mm",              Op.EQ, 764),
+                Assertion("opening_stack_total_mm",          Op.EQ, 764),
+                Assertion("opening_stack_matches_interior",  Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 1200, "height": 800, "depth": 350,
+                "drawer_config": [[564, "open"], [100, "drawer"], [100, "drawer"]],
+                "drawer_slide": "blum_tandem_550h",
+            },
+            label="evaluate foyer console",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_TRUE),
+                Assertion("summary.errors", Op.EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_living_room_credenza",
+    prompt="Load the living_room_credenza preset — check it has full-extension slides, soft-close hinges, and adj shelf holes.",
+    tags=["presets", "living_room"],
+    difficulty="standard",
+    description=(
+        "living_room_credenza: 1600×800×450, door pair below + 2 frieze drawers, "
+        "Tandem+ slides, BLUMOTION hinges, adj_shelf_holes=True."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "living_room_credenza"},
+            label="load credenza preset",
+            assertions=[
+                Assertion("preset_name",              Op.EQ, "living_room_credenza"),
+                Assertion("config.width",              Op.EQ, 1600),
+                Assertion("config.depth",              Op.EQ, 450),
+                Assertion("config.drawer_slide",       Op.EQ, "blum_tandem_plus_563h"),
+                Assertion("config.door_hinge",         Op.EQ, "blum_clip_top_blumotion_110_full"),
+                Assertion("config.adj_shelf_holes",    Op.IS_TRUE),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_living_room_sideboard",
+    prompt="Load the living_room_sideboard preset and verify it passes evaluation.",
+    tags=["presets", "living_room"],
+    difficulty="standard",
+    description=(
+        "living_room_sideboard: 1800×900×500, door pair + 2 drawers, "
+        "interior_h=864, stack=864."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "living_room_sideboard"},
+            label="load sideboard preset",
+            assertions=[
+                Assertion("preset_name",   Op.EQ, "living_room_sideboard"),
+                Assertion("config.width",  Op.EQ, 1800),
+                Assertion("config.height", Op.EQ, 900),
+                Assertion("interior_height_mm",             Op.EQ, 864),
+                Assertion("opening_stack_total_mm",         Op.EQ, 864),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 1800, "height": 900, "depth": 500,
+                "drawer_config": [[614, "door_pair"], [125, "drawer"], [125, "drawer"]],
+                "drawer_slide": "blum_tandem_plus_563h",
+            },
+            label="evaluate sideboard",
+            assertions=[
+                Assertion("summary.pass",   Op.IS_TRUE),
+                Assertion("summary.errors", Op.EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="apply_media_console",
+    prompt="Load the media_console preset — check it's low-profile with a door pair and open shelf.",
+    tags=["presets", "living_room"],
+    difficulty="basic",
+    description=(
+        "media_console: 1800×600×450, door pair (264) + open shelf (300) = 564 interior."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "media_console"},
+            label="load media console preset",
+            assertions=[
+                Assertion("preset_name",   Op.EQ, "media_console"),
+                Assertion("config.width",  Op.EQ, 1800),
+                Assertion("config.height", Op.EQ, 600),
+                Assertion("interior_height_mm",             Op.EQ, 564),
+                Assertion("opening_stack_total_mm",         Op.EQ, 564),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+
+# ── 10. Auto-fix & describe workflow ──────────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="auto_fix_oversized_stack",
+    prompt="Fix a cabinet where the opening stack exceeds interior height.",
+    tags=["auto_fix", "workflow"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="auto_fix_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[300, "drawer"], [300, "drawer"], [300, "drawer"]],
+            },
+            assertions=[
+                Assertion("fixed",        Op.IS_TRUE),
+                Assertion("clean",        Op.IS_TRUE),
+                Assertion("errors_before", Op.GT, 0),
+                Assertion("errors_after",  Op.EQ, 0),
+                Assertion("changes",       Op.LEN_GTE, 1),
+                Assertion("config.drawer_config", Op.LEN_EQ, 3),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="auto_fix_undersized_stack",
+    prompt="Auto-fix on a cabinet where the opening stack is shorter than interior — no error, so no fix needed.",
+    tags=["auto_fix", "workflow"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="auto_fix_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[200, "drawer"], [200, "drawer"]],
+            },
+            assertions=[
+                # Shortfall is a valid design (open space at top), not an error.
+                Assertion("errors_before", Op.EQ, 0),
+                Assertion("errors_after",  Op.EQ, 0),
+                Assertion("clean",         Op.IS_TRUE),
+                Assertion("changes",       Op.LEN_EQ, 0),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="auto_fix_clean_config",
+    prompt="Run auto-fix on a config that already passes evaluation.",
+    tags=["auto_fix", "workflow"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="auto_fix_cabinet",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[342, "drawer"], [342, "drawer"]],
+            },
+            assertions=[
+                Assertion("errors_before", Op.EQ, 0),
+                Assertion("errors_after",  Op.EQ, 0),
+                Assertion("changes",       Op.LEN_EQ, 0),
+                Assertion("clean",         Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="describe_basic_cabinet",
+    prompt="Describe a simple 600×720×550 cabinet with two drawers.",
+    tags=["describe", "workflow"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="describe_design",
+            args={
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[342, "drawer"], [342, "drawer"]],
+            },
+            assertions=[
+                Assertion("prose",      Op.CONTAINS, "600 mm"),
+                Assertion("prose",      Op.CONTAINS, "720 mm"),
+                Assertion("prose",      Op.CONTAINS, "drawer"),
+                Assertion("dimensions", Op.HAS_KEY,  "exterior"),
+                Assertion("dimensions", Op.HAS_KEY,  "interior"),
+                Assertion("openings.counts.drawer", Op.EQ, 2),
+                Assertion("openings.stack_fills_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="describe_credenza_preset",
+    prompt="Describe the living room credenza preset.",
+    tags=["describe", "workflow", "living_room"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "living_room_credenza"},
+            assertions=[
+                Assertion("config", Op.HAS_KEY, "width"),
+            ],
+        ),
+        ToolCall(
+            tool="describe_design",
+            args={
+                "width": 1600, "height": 800, "depth": 450,
+                "drawer_config": [[564, "door_pair"], [100, "drawer"], [100, "drawer"]],
+                "drawer_slide": "blum_tandem_plus_566h",
+                "door_hinge": "blum_clip_top_110_full",
+                "adj_shelf_holes": True,
+            },
+            assertions=[
+                Assertion("prose",      Op.CONTAINS, "1600 mm"),
+                Assertion("prose",      Op.CONTAINS, "door"),
+                Assertion("prose",      Op.CONTAINS, "drawer"),
+                Assertion("hardware",   Op.HAS_KEY,  "drawer_slide"),
+                Assertion("hardware",   Op.HAS_KEY,  "door_hinge"),
+                Assertion("materials.adj_shelf_holes", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="full_workflow_design_eval_fix_describe",
+    prompt="Full workflow: design → evaluate → auto-fix → describe a broken config.",
+    tags=["workflow", "auto_fix", "describe"],
+    difficulty="advanced",
+    tool_calls=[
+        # Step 1: Design a cabinet with an oversized stack
+        ToolCall(
+            tool="design_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "drawer_config": [[200, "door_pair"], [200, "drawer"], [200, "drawer"], [200, "drawer"]],
+            },
+            assertions=[
+                Assertion("opening_stack", Op.LEN_EQ, 4),
+            ],
+        ),
+        # Step 2: Evaluate — should have errors (800 > 684 interior)
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "drawer_config": [[200, "door_pair"], [200, "drawer"], [200, "drawer"], [200, "drawer"]],
+            },
+            assertions=[
+                Assertion("summary.errors", Op.GT, 0),
+                Assertion("summary.pass",   Op.IS_FALSE),
+            ],
+        ),
+        # Step 3: Auto-fix
+        ToolCall(
+            tool="auto_fix_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "drawer_config": [[200, "door_pair"], [200, "drawer"], [200, "drawer"], [200, "drawer"]],
+            },
+            assertions=[
+                Assertion("fixed", Op.IS_TRUE),
+                Assertion("clean", Op.IS_TRUE),
+                Assertion("config.drawer_config", Op.LEN_EQ, 4),
+            ],
+        ),
+        # Step 4: Describe the fixed config (use the known-good rebalanced values)
+        # We assert on the describe call using the original dimensions since
+        # auto_fix only changes drawer_config; the tool call uses the original
+        # envelope and the auto-fix-corrected stack will have already filled interior.
+        # For simplicity we call describe on the *original* envelope with the
+        # auto-fix rebalanced stack; the test just needs prose output.
+        ToolCall(
+            tool="describe_design",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "drawer_config": [[171, "door_pair"], [171, "drawer"], [171, "drawer"], [171, "drawer"]],
+            },
+            assertions=[
+                Assertion("prose",      Op.CONTAINS, "900 mm"),
+                Assertion("prose",      Op.CONTAINS, "drawer"),
+                Assertion("openings.stack_fills_interior", Op.IS_TRUE),
             ],
         ),
     ],

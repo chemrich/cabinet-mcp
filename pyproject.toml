@@ -19,8 +19,9 @@ dev = [
     "pytest-cov",
 ]
 viewer = [
-    "jupyter-cadquery>=3.0",
-    "jupyter",
+       "jupyter-cadquery>=3.0",
+       "jupyter",
+       "vtk>=9.4",
 ]
 cutlist = [
     "rectpack",

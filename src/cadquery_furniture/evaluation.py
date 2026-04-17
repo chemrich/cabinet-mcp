@@ -1041,6 +1041,189 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
     return issues
 
 
+def check_face_clearances(
+    bay_configs: "list[CabinetConfig]",
+    inner_overlay: float = 17.0,
+    outer_overlay: float = 18.0,
+    divider_thickness: float = 18.0,
+    face_gap: float = 4.0,
+    face_bottom_overhang: float = 0.0,
+    face_top_overhang: float = 0.0,
+    min_face_gap: float = 2.0,
+) -> list[Issue]:
+    """Check clearances between all drawer and door faces in a multi-bay assembly.
+
+    Two families of checks:
+
+    **Vertical** (within each bay):
+    The face stack is anchored top and bottom.  ``face_gap`` is the **total**
+    clearance between adjacent faces — half is trimmed from the top of the lower
+    face and half from the bottom of the upper face, so the gap straddles the
+    opening boundary symmetrically.  Checks:
+    - ``face_gap ≥ 0`` (ERROR if negative — faces would physically overlap).
+    - ``face_gap ≥ min_face_gap`` (WARNING if the gap is tight).
+    - Each computed face height > 0 (ERROR if the opening is too shallow for
+      the face gap).
+
+    **Horizontal** (at bay boundaries):
+    The gap between adjacent bay faces at a shared divider =
+    ``divider_thickness − 2 × inner_overlay``.  Checks:
+    - Gap ≥ 0 (ERROR if faces overlap — common when inner_overlay was sized
+      for the old double-wall divider and the assembly switched to a thinner
+      single divider).
+    - Gap ≥ min_face_gap (WARNING if gap is present but tight).
+
+    Applies to all slot types in ``drawer_config`` (drawer, door, door_pair)
+    since every opening contributes a face panel.
+
+    Args:
+        bay_configs:          Ordered list of CabinetConfig, left to right.
+        inner_overlay:        Face overhang on interior bay dividers (mm).
+        outer_overlay:        Face overhang on outermost cabinet edges (mm).
+        divider_thickness:    Dedicated interior divider panel thickness (mm).
+        face_gap:             Total vertical clearance between adjacent faces (mm).
+                              Half is removed from the top of the lower face and
+                              half from the bottom of the upper face.
+        face_bottom_overhang: How far the lowest face extends below the bottom
+                              panel top surface (mm).
+        face_top_overhang:    How far the highest face extends above the top
+                              panel bottom surface (mm).
+        min_face_gap:         Minimum acceptable clearance between any two faces.
+
+    Returns:
+        List of Issue objects; empty list means all faces clear one another.
+    """
+    issues: list[Issue] = []
+    n_bays = len(bay_configs)
+
+    # ── face_gap sanity ───────────────────────────────────────────────────────
+    if face_gap < 0:
+        issues.append(Issue(
+            check="face_clearance",
+            severity=Severity.ERROR,
+            message=(
+                f"face_gap {face_gap:.1f} mm is negative — "
+                f"faces will overlap vertically."
+            ),
+            value=face_gap,
+            limit=0.0,
+        ))
+        return issues  # vertical positions are undefined; skip remaining checks
+
+    if face_gap < min_face_gap:
+        issues.append(Issue(
+            check="face_clearance",
+            severity=Severity.WARNING,
+            message=(
+                f"Vertical face gap {face_gap:.1f} mm is below "
+                f"the {min_face_gap:.0f} mm minimum."
+            ),
+            value=face_gap,
+            limit=min_face_gap,
+        ))
+
+    # ── Horizontal gaps at bay boundaries ─────────────────────────────────────
+    if n_bays > 1:
+        h_gap = divider_thickness - 2 * inner_overlay
+        correct_overlay = (divider_thickness - min_face_gap) / 2
+
+        for boundary in range(n_bays - 1):
+            left_cfg  = bay_configs[boundary]
+            right_cfg = bay_configs[boundary + 1]
+
+            left_has_faces  = bool(left_cfg.drawer_config)
+            right_has_faces = bool(right_cfg.drawer_config)
+            if not (left_has_faces and right_has_faces):
+                continue
+
+            if h_gap < 0:
+                issues.append(Issue(
+                    check="face_clearance",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"Bay {boundary}–{boundary + 1}: faces overlap by "
+                        f"{-h_gap:.1f} mm at the {divider_thickness:.0f} mm divider. "
+                        f"inner_overlay {inner_overlay:.0f} mm × 2 = "
+                        f"{2 * inner_overlay:.0f} mm > divider width. "
+                        f"Set inner_overlay ≤ {correct_overlay:.1f} mm for a "
+                        f"{min_face_gap:.0f} mm gap."
+                    ),
+                    value=h_gap,
+                    limit=0.0,
+                ))
+            elif h_gap < min_face_gap:
+                issues.append(Issue(
+                    check="face_clearance",
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Bay {boundary}–{boundary + 1}: horizontal gap "
+                        f"{h_gap:.1f} mm < {min_face_gap:.0f} mm minimum."
+                    ),
+                    value=h_gap,
+                    limit=min_face_gap,
+                ))
+
+    # ── Per-bay vertical face heights and inter-face gaps ─────────────────────
+    for bay_idx, cfg in enumerate(bay_configs):
+        if not cfg.drawer_config:
+            continue
+
+        z_face_start = cfg.bottom_thickness - face_bottom_overhang
+        z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
+
+        # All slot types (drawer, door, door_pair) contribute a face panel.
+        face_slots: list[tuple[int, float, float]] = []  # (slot_idx, opening_h, opening_z)
+        z_acc = cfg.bottom_thickness
+        for slot_idx, (opening_h, _slot_type) in enumerate(cfg.drawer_config):
+            face_slots.append((slot_idx, opening_h, z_acc))
+            z_acc += opening_h
+
+        n_faces = len(face_slots)
+        prev_face_z_top: Optional[float] = None
+
+        for face_num, (slot_idx, opening_h, opening_z) in enumerate(face_slots):
+            is_first = face_num == 0
+            is_last  = face_num == n_faces - 1
+
+            face_z_bot = z_face_start if is_first else opening_z + face_gap / 2
+            face_z_top = z_face_end   if is_last  else opening_z + opening_h - face_gap / 2
+            face_h     = face_z_top - face_z_bot
+            label      = f"bay{bay_idx}_slot{slot_idx}"
+
+            if face_h <= 0:
+                issues.append(Issue(
+                    check="face_clearance",
+                    severity=Severity.ERROR,
+                    message=(
+                        f"{label}: computed face height {face_h:.1f} mm ≤ 0. "
+                        f"Opening {opening_h:.0f} mm is too small to accommodate "
+                        f"face_gap {face_gap:.0f} mm (±{face_gap / 2:.1f} mm per side)."
+                    ),
+                    part_a=label,
+                    value=face_h,
+                    limit=0.0,
+                ))
+
+            if prev_face_z_top is not None:
+                inter_gap = face_z_bot - prev_face_z_top
+                if inter_gap < min_face_gap:
+                    issues.append(Issue(
+                        check="face_clearance",
+                        severity=Severity.ERROR if inter_gap < 0 else Severity.WARNING,
+                        message=(
+                            f"{label}: vertical gap to preceding face "
+                            f"{inter_gap:.1f} mm < {min_face_gap:.0f} mm minimum."
+                        ),
+                        part_a=label,
+                        value=inter_gap,
+                        limit=min_face_gap,
+                    ))
+
+            prev_face_z_top = face_z_top
+
+    return issues
+
+
 # ─── Full Evaluation Runner ──────────────────────────────────────────────────
 
 

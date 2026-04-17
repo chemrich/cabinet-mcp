@@ -50,6 +50,10 @@ from cadquery_furniture.server import (
     _tool_design_drawer,
     _tool_generate_cutlist,
     _tool_compare_joinery,
+    _tool_list_presets,
+    _tool_apply_preset,
+    _tool_auto_fix_cabinet,
+    _tool_describe_design,
 )
 
 # ─── Tool dispatch ────────────────────────────────────────────────────────────
@@ -63,6 +67,10 @@ TOOL_DISPATCH = {
     "design_drawer":        _tool_design_drawer,
     "generate_cutlist":     _tool_generate_cutlist,
     "compare_joinery":      _tool_compare_joinery,
+    "list_presets":         _tool_list_presets,
+    "apply_preset":         _tool_apply_preset,
+    "auto_fix_cabinet":     _tool_auto_fix_cabinet,
+    "describe_design":      _tool_describe_design,
 }
 
 

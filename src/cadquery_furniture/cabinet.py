@@ -457,7 +457,7 @@ def build_multi_bay_cabinet(
     face_thickness: float = 18.0,
     outer_overlay: float = 18.0,
     inner_overlay: float = 17.0,
-    face_v_gap: float = 2.0,
+    face_gap: float = 4.0,
     face_bottom_overhang: float = 0.0,
     face_top_overhang: float = 0.0,
     include_drawers: bool = True,
@@ -469,8 +469,8 @@ def build_multi_bay_cabinet(
     Bay 0 is leftmost; the outer edges of bay 0 and bay[-1] are flush with
     the full cabinet exterior.  Drawer faces span the dividers using
     ``outer_overlay`` on the two outermost edges and ``inner_overlay`` on
-    all interior bay joints, leaving a ``inner_overlay * 2 - bay_side_thickness``
-    gap between adjacent bay faces (typically 2 mm).
+    all interior bay joints, leaving a ``divider_thickness - 2 * inner_overlay``
+    gap between adjacent bay faces.
 
     The face stack is anchored at top and bottom:
     - Bottom of lowest face = ``bottom_thickness - face_bottom_overhang``
@@ -478,16 +478,21 @@ def build_multi_bay_cabinet(
     - Top of highest face  = ``height - top_thickness + face_top_overhang``
       (0 = faces end at underside of top panel; set to top_thickness for flush-to-carcass-exterior)
 
+    Between adjacent faces ``face_gap`` is the **total** clearance between the
+    bottom edge of the upper face and the top edge of the lower face.  Half of
+    ``face_gap`` is trimmed from each side of the opening boundary, so both
+    faces share the gap symmetrically.
+
     Args:
         bay_configs:          Ordered list of CabinetConfig, left to right.
         foot_height:          Adjustable-foot height in mm (default 102 mm = 4″).
         foot_diameter:        Foot cylinder diameter in mm.
         face_thickness:       Drawer face panel thickness in mm.
         outer_overlay:        Face overhang on outermost cabinet edges (flush = side_thickness).
-        inner_overlay:        Face overhang on interior bay dividers (leaves 2 mm gap
-                              when both adjacent faces each claim inner_overlay on an
-                              18 mm divider: 18 - 17 - 17 + 36 = 2 mm).
-        face_v_gap:           Vertical gap between adjacent drawer faces (mm).
+        inner_overlay:        Face overhang on interior bay dividers.
+        face_gap:             Total vertical gap between adjacent faces (mm).  Half is
+                              trimmed from the top of the lower face and half from the
+                              bottom of the upper face.
         face_bottom_overhang: How far the bottom face extends below the top surface of
                               the bottom panel (default 0 = starts at top of bottom panel).
         face_top_overhang:    How far the top face extends above the underside of the top
@@ -667,17 +672,20 @@ def build_multi_bay_cabinet(
                 is_first = face_num == 0
                 is_last  = face_num == n_faces - 1
 
-                # Bottom edge of this face
+                # Bottom edge of this face.
+                # Non-first faces start face_gap/2 above the opening boundary so
+                # the gap straddles the boundary symmetrically.
                 if is_first:
                     face_z_bot = z_face_start
                 else:
-                    face_z_bot = opening_z + face_v_gap
+                    face_z_bot = opening_z + face_gap / 2
 
-                # Top edge of this face
+                # Top edge of this face.
+                # Non-last faces end face_gap/2 below the next opening boundary.
                 if is_last:
                     face_z_top = z_face_end
                 else:
-                    face_z_top = opening_z + opening_h - face_v_gap
+                    face_z_top = opening_z + opening_h - face_gap / 2
 
                 face_h = face_z_top - face_z_bot
                 face_shape = (
@@ -696,6 +704,67 @@ def build_multi_bay_cabinet(
                     grain_direction="width",
                     edge_band=["all"],
                 ))
+
+    # ── Door panels ────────────────────────────────────────────────────────────
+    # Render a flat face panel for every "door" or "door_pair" slot.
+    # "door_pair" splits into two panels with a 3 mm centre gap.
+    if include_faces:
+        door_gap_centre = 3.0
+        for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
+            if not cfg.drawer_config:
+                continue
+
+            is_leftmost  = bay_idx == 0
+            is_rightmost = bay_idx == n_bays - 1
+            left_ov  = outer_overlay if is_leftmost  else inner_overlay
+            right_ov = outer_overlay if is_rightmost else inner_overlay
+            face_w   = left_ov + cfg.interior_width + right_ov
+            face_x   = 0.0 if is_leftmost else bx + cfg.side_thickness - inner_overlay
+
+            z_acc = cfg.bottom_thickness
+            for slot_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
+                if slot_type in ("door", "door_pair"):
+                    if slot_type == "door_pair":
+                        door_w = (face_w - door_gap_centre) / 2
+                        for i, dx in enumerate(
+                            [face_x, face_x + door_w + door_gap_centre]
+                        ):
+                            ds = (
+                                cq.Workplane("XY")
+                                .box(door_w, face_thickness, opening_h, centered=False)
+                            )
+                            assy.add(
+                                ds,
+                                name=f"bay{bay_idx}_door{slot_idx}_{i}",
+                                loc=cq.Location((dx, -face_thickness, z_acc)),
+                                color=face_colour,
+                            )
+                            all_parts.append(PartInfo(
+                                name=f"bay{bay_idx}_door{slot_idx}_{i}",
+                                shape=ds,
+                                material_thickness=face_thickness,
+                                grain_direction="length",
+                                edge_band=["all"],
+                            ))
+                    else:
+                        ds = (
+                            cq.Workplane("XY")
+                            .box(face_w, face_thickness, opening_h, centered=False)
+                        )
+                        assy.add(
+                            ds,
+                            name=f"bay{bay_idx}_door{slot_idx}",
+                            loc=cq.Location((face_x, -face_thickness, z_acc)),
+                            color=face_colour,
+                        )
+                        all_parts.append(PartInfo(
+                            name=f"bay{bay_idx}_door{slot_idx}",
+                            shape=ds,
+                            material_thickness=face_thickness,
+                            grain_direction="length",
+                            edge_band=["all"],
+                        ))
+                z_acc += opening_h
 
     # ── Feet ───────────────────────────────────────────────────────────────────
     if include_feet:
