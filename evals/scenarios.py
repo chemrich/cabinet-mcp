@@ -276,6 +276,135 @@ _s(Scenario(
     ],
 ))
 
+# Standard height snapping scenarios
+
+_s(Scenario(
+    name="standard_height_snap_6inch",
+    prompt=(
+        "Design a drawer for a 500 mm opening, 190 mm tall, 450 mm deep. "
+        "Use standard industry box heights."
+    ),
+    tags=["drawer", "standard_height"],
+    difficulty="basic",
+    description=(
+        "Opening 190 mm → raw = 190 - 14 (bottom clearance) - 12 (vertical gap) = 164 mm. "
+        "164 mm fits a 6\" (152 mm) box; should snap to 152 mm."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width": 500,
+                "opening_height": 190,
+                "opening_depth": 450,
+                "use_standard_height": True,
+            },
+            label="snap to 6\" box height",
+            assertions=[
+                Assertion("standard_box_height_mm", Op.APPROX, 152.0),
+                Assertion("box_height_mm",           Op.APPROX, 152.0),
+                Assertion("box_height_raw_mm",        Op.GT,     152.0),
+                Assertion("use_standard_height",      Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="standard_height_snap_4inch",
+    prompt=(
+        "Design a small drawer for a 500 mm opening, 140 mm tall, 450 mm deep. "
+        "Use standard industry box heights."
+    ),
+    tags=["drawer", "standard_height"],
+    difficulty="basic",
+    description=(
+        "Opening 140 mm → raw = 140 - 14 - 12 = 114 mm. "
+        "114 mm fits a 4\" (102 mm) box; should snap to 102 mm."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width": 500,
+                "opening_height": 140,
+                "opening_depth": 450,
+                "use_standard_height": True,
+            },
+            label="snap to 4\" box height",
+            assertions=[
+                Assertion("standard_box_height_mm", Op.APPROX, 102.0),
+                Assertion("box_height_mm",           Op.APPROX, 102.0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="standard_height_opt_out",
+    prompt=(
+        "Design a drawer for a 500 mm opening, 190 mm tall, 450 mm deep. "
+        "Use the exact computed height, not a standard size."
+    ),
+    tags=["drawer", "standard_height"],
+    difficulty="basic",
+    description=(
+        "use_standard_height=False should return the raw height (164 mm for opening=190). "
+        "The standard_box_height_mm field is still reported (152 mm) for reference."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width": 500,
+                "opening_height": 190,
+                "opening_depth": 450,
+                "use_standard_height": False,
+            },
+            label="exact computed height (no snap)",
+            assertions=[
+                Assertion("use_standard_height",     Op.IS_FALSE),
+                # raw and actual box_height should both be 164 (190 - 14 - 12)
+                Assertion("box_height_raw_mm",        Op.APPROX, 164.0),
+                Assertion("box_height_mm",            Op.APPROX, 164.0),
+                # standard height still reported for reference
+                Assertion("standard_box_height_mm",  Op.APPROX, 152.0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="standard_height_exact_match",
+    prompt=(
+        "Design a drawer whose opening maps to exactly 203 mm (8\") of raw box height "
+        "after clearances — confirm the snap lands exactly on the standard size."
+    ),
+    tags=["drawer", "standard_height"],
+    difficulty="standard",
+    description=(
+        "opening=229 → raw = 229 - 14 - 12 = 203 mm exactly. "
+        "Should snap to 203 mm (8\") with no reduction."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width": 500,
+                "opening_height": 229,   # 229 - 14 - 12 = 203 exactly
+                "opening_depth": 450,
+                "use_standard_height": True,
+            },
+            label="snap to 8\" exactly",
+            assertions=[
+                Assertion("standard_box_height_mm", Op.APPROX, 203.0),
+                Assertion("box_height_mm",           Op.APPROX, 203.0),
+                Assertion("box_height_raw_mm",        Op.APPROX, 203.0),
+            ],
+        ),
+    ],
+))
+
 
 # ── 3. Doors ──────────────────────────────────────────────────────────────────
 
@@ -1540,6 +1669,213 @@ SCENARIOS.append(Scenario(
                 Assertion("prose",      Op.CONTAINS, "900 mm"),
                 Assertion("prose",      Op.CONTAINS, "drawer"),
                 Assertion("openings.stack_fills_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+
+# ── 13. Legs / feet ──────────────────────────────────────────────────────────
+
+_s(Scenario(
+    name="legs_default_richelieu",
+    prompt="Add legs to my 600 mm wide, 550 mm deep base cabinet using the default Richelieu hardware.",
+    tags=["legs", "hardware"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="design_legs",
+            args={"cabinet_width": 600, "cabinet_depth": 550},
+            label="default 4-corner Richelieu legs",
+            assertions=[
+                Assertion("leg.part_number",  Op.EQ,    "176138106"),
+                Assertion("leg.height_mm",    Op.APPROX, 100.0),
+                Assertion("count",            Op.EQ,     4),
+                Assertion("pattern",          Op.EQ,     "corners"),
+                Assertion("total_height_mm",  Op.APPROX, 100.0),
+                Assertion("placement_mm",     Op.LEN_EQ, 4),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="legs_load_check",
+    prompt=(
+        "I have a 900 mm wide cabinet with an estimated total weight of 80 kg. "
+        "Check if 4 Richelieu legs can handle the load."
+    ),
+    tags=["legs", "hardware"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_legs",
+            args={
+                "cabinet_width": 900,
+                "cabinet_depth": 550,
+                "cabinet_weight_kg": 80.0,
+            },
+            label="load check 80 kg / 4 legs",
+            assertions=[
+                Assertion("load_per_leg_kg", Op.APPROX, 20.0),
+                Assertion("load_check",      Op.HAS_KEY, True),
+                # 20 kg per leg vs 50 kg capacity — should be well within limits
+                Assertion("leg.load_capacity_kg", Op.GTE, 20.0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="legs_corners_and_midspan",
+    prompt="Add 6 legs to a wide 1200 mm cabinet using the corners-and-midspan pattern.",
+    tags=["legs", "hardware"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_legs",
+            args={
+                "cabinet_width": 1200,
+                "cabinet_depth": 600,
+                "leg_pattern": "corners_and_midspan",
+                "count": 6,
+            },
+            label="6-leg corners-and-midspan",
+            assertions=[
+                Assertion("count",        Op.EQ,     6),
+                Assertion("pattern",      Op.EQ,     "corners_and_midspan"),
+                Assertion("placement_mm", Op.LEN_EQ, 6),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="legs_list_hardware_includes_legs",
+    prompt="Show me all available leg hardware.",
+    tags=["legs", "hardware"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="list_hardware",
+            args={"category": "legs"},
+            label="list leg hardware",
+            assertions=[
+                Assertion("legs",                        Op.HAS_KEY, True),
+                Assertion("legs.richelieu_176138106",     Op.HAS_KEY, True),
+                Assertion("legs.richelieu_adjustable_40mm", Op.HAS_KEY, True),
+            ],
+        ),
+    ],
+))
+
+
+# ── 14. Multi-column cabinets ─────────────────────────────────────────────────
+
+_s(Scenario(
+    name="multi_column_drawers_and_door",
+    prompt=(
+        "Design a 900 mm wide, 720 mm tall, 550 mm deep cabinet with two columns: "
+        "a left column of three equal drawers and a right column with a single door."
+    ),
+    tags=["multi_column"],
+    difficulty="standard",
+    description=(
+        "interior_width = 900 - 2×18 = 864 mm. "
+        "Left column 432 mm (3 drawers × 228 mm). Right column 432 mm (1 door × 684 mm). "
+        "Column widths sum = 864 mm = interior_width."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_multi_column_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "columns": [
+                    {"width_mm": 432, "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
+                    {"width_mm": 432, "drawer_config": [[684, "door"]]},
+                ],
+            },
+            label="2-column drawers+door",
+            assertions=[
+                Assertion("column_count",          Op.EQ,     2),
+                Assertion("columns_fill_interior", Op.IS_TRUE),
+                Assertion("column_widths_sum_mm",  Op.APPROX, 864.0),
+                Assertion("interior_width_mm",     Op.APPROX, 864.0),
+                Assertion("columns",               Op.LEN_EQ, 2),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="multi_column_width_mismatch_error",
+    prompt="Verify that column widths that don't add up produce a validation error.",
+    tags=["multi_column", "evaluation"],
+    difficulty="standard",
+    description=(
+        "Cabinet interior = 864 mm but columns sum to 500 mm — evaluator must flag error."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_multi_column_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "columns": [
+                    {"width_mm": 250, "drawer_config": [[684, "drawer"]]},
+                    {"width_mm": 250, "drawer_config": [[684, "door"]]},
+                ],
+            },
+            label="columns don't fill interior",
+            assertions=[
+                # The tool itself returns the mismatch flag
+                Assertion("columns_fill_interior", Op.IS_FALSE),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={
+                "width": 900, "height": 720, "depth": 550,
+                "columns": [
+                    {"width_mm": 250, "drawer_config": [[684, "drawer"]]},
+                    {"width_mm": 250, "drawer_config": [[684, "door"]]},
+                ],
+            },
+            label="evaluator flags column width error",
+            assertions=[
+                Assertion("summary", Op.HAS_ERROR),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="multi_column_three_column_dresser",
+    prompt=(
+        "Design a 1200 mm wide, 900 mm tall, 500 mm deep dresser with three equal columns "
+        "of drawers."
+    ),
+    tags=["multi_column"],
+    difficulty="advanced",
+    description=(
+        "interior_width = 1200 - 36 = 1164 mm. "
+        "Three equal columns = 388 mm each. Each column: 4 drawers × 216 mm = 864 mm interior."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="design_multi_column_cabinet",
+            args={
+                "width": 1200, "height": 900, "depth": 500,
+                "columns": [
+                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                ],
+            },
+            label="3-column dresser",
+            assertions=[
+                Assertion("column_count",          Op.EQ,     3),
+                Assertion("columns_fill_interior", Op.IS_TRUE),
+                Assertion("panels.column_divider.qty", Op.EQ, 2),
             ],
         ),
     ],

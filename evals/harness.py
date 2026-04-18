@@ -45,6 +45,7 @@ from cadquery_furniture.server import (
     _tool_list_hardware,
     _tool_list_joinery,
     _tool_design_cabinet,
+    _tool_design_multi_column_cabinet,
     _tool_evaluate_cabinet,
     _tool_design_door,
     _tool_design_drawer,
@@ -54,6 +55,7 @@ from cadquery_furniture.server import (
     _tool_apply_preset,
     _tool_auto_fix_cabinet,
     _tool_describe_design,
+    _tool_design_legs,
 )
 
 # ─── Tool dispatch ────────────────────────────────────────────────────────────
@@ -70,7 +72,9 @@ TOOL_DISPATCH = {
     "list_presets":         _tool_list_presets,
     "apply_preset":         _tool_apply_preset,
     "auto_fix_cabinet":     _tool_auto_fix_cabinet,
-    "describe_design":      _tool_describe_design,
+    "describe_design":              _tool_describe_design,
+    "design_legs":                  _tool_design_legs,
+    "design_multi_column_cabinet":  _tool_design_multi_column_cabinet,
 }
 
 

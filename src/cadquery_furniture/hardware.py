@@ -767,3 +767,129 @@ def get_hinge(name: str) -> HingeSpec:
     if name not in HINGES:
         raise KeyError(f"Unknown hinge '{name}'. Available: {list(HINGES.keys())}")
     return HINGES[name]
+
+
+# ─── Legs / Feet ─────────────────────────────────────────────────────────────
+
+
+class LegPattern(Enum):
+    """Foot placement pattern for a cabinet base."""
+    CORNERS              = "corners"               # one foot at each corner
+    CORNERS_AND_MIDSPAN  = "corners_and_midspan"   # corners + one centred on each long side
+    ALONG_FRONT_BACK     = "along_front_back"      # evenly spaced rows front & back
+
+
+@dataclass(frozen=True)
+class LegSpec:
+    """Specifications for a cabinet leg / furniture foot.
+
+    All dimensions in millimetres unless otherwise noted.
+
+    Adjustable legs have a threaded stem; ``adjustment_range_mm`` is the total
+    travel.  Fixed legs have ``is_adjustable=False`` and ``adjustment_range_mm``
+    should be zero.
+
+    ``base_diameter_mm`` is the load-bearing pad or flange diameter (not the
+    stem).  ``stem_diameter_mm`` is the threaded section (0 for fixed legs).
+    """
+    name: str
+    manufacturer: str
+    height_mm: float                # nominal / mid-range height
+    base_diameter_mm: float         # floor pad / flange diameter
+    is_adjustable: bool
+    adjustment_range_mm: float      # total travel for adjustable legs; 0 for fixed
+    stem_diameter_mm: float         # threaded stem Ø; 0 for fixed legs
+    load_capacity_kg: float         # rated load per leg
+    finish: str                     # e.g. "brushed_nickel", "matte_black", "chrome"
+    part_number: str = ""
+    notes: str = ""
+
+
+# ── Richelieu 176138106 — Contemporary Square Leg, 100 mm, Brushed Nickel ────
+#
+# Fixed contemporary square metal leg from Richelieu's 1761 series.
+# Sold in packs of 2; load 50 kg (110 lb) per leg.  Has an integrated felt pad
+# to protect floors.  Height is 3-15/16" = ~100 mm, not a true 4".
+# Source: thebuilderssupply.com, dspoutlet.com product pages; Richelieu catalog.
+
+RICHELIEU_176138106 = LegSpec(
+    name="Richelieu Contemporary Square Leg 100mm",
+    manufacturer="Richelieu",
+    height_mm=100.0,           # 3-15/16" ≈ 100 mm
+    base_diameter_mm=38.0,     # square base ~38 mm × 38 mm; use diameter for cylinder approx
+    is_adjustable=False,
+    adjustment_range_mm=0.0,
+    stem_diameter_mm=0.0,
+    load_capacity_kg=50.0,
+    finish="brushed_nickel",
+    part_number="176138106",
+    notes="Square contemporary leg, integrated floor pad. Sold 2/pack.",
+)
+
+# ── Richelieu 17613B106 — Contemporary Square Leg, 100 mm, Matte Black ───────
+
+RICHELIEU_17613B106 = LegSpec(
+    name="Richelieu Contemporary Square Leg 100mm Matte Black",
+    manufacturer="Richelieu",
+    height_mm=100.0,
+    base_diameter_mm=38.0,
+    is_adjustable=False,
+    adjustment_range_mm=0.0,
+    stem_diameter_mm=0.0,
+    load_capacity_kg=50.0,
+    finish="matte_black",
+    part_number="17613B106",
+    notes="Square contemporary leg, integrated floor pad. Sold 2/pack.",
+)
+
+# ── Richelieu Adjustable Leg, 40–65 mm, Aluminium ────────────────────────────
+#
+# Economy adjustable leveling leg.  Common in flat-pack / Euro-style cabinets.
+# Threaded M8 stem; adjustment range ≈ 25 mm via threaded insert.
+# Source: woodcraft.com product page; Richelieu catalog.
+
+RICHELIEU_ADJUSTABLE_40MM = LegSpec(
+    name="Richelieu Adjustable Furniture Leg 40–65mm",
+    manufacturer="Richelieu",
+    height_mm=52.5,            # midpoint of 40–65 mm range
+    base_diameter_mm=50.0,     # round base flange
+    is_adjustable=True,
+    adjustment_range_mm=25.0,
+    stem_diameter_mm=8.0,      # M8 thread
+    load_capacity_kg=60.0,
+    finish="aluminum",
+    part_number="RICALEG40",   # generic / catalog-dependent
+    notes="Threaded M8 adjustable leg, 40–65 mm travel. For Euro-style cabinet bases.",
+)
+
+# ── Generic Hairpin Leg, 200 mm, Matte Black ─────────────────────────────────
+# Popular for media consoles, credenzas, and modern case pieces.
+
+HAIRPIN_200MM = LegSpec(
+    name="Hairpin Leg 200mm",
+    manufacturer="Generic",
+    height_mm=200.0,
+    base_diameter_mm=10.0,     # rod diameter (3-rod hairpin; footprint wider)
+    is_adjustable=False,
+    adjustment_range_mm=0.0,
+    stem_diameter_mm=0.0,
+    load_capacity_kg=30.0,
+    finish="matte_black",
+    part_number="",
+    notes="3-rod steel hairpin leg with mounting plate. Common in furniture stores.",
+)
+
+
+LEGS: dict[str, LegSpec] = {
+    "richelieu_176138106":       RICHELIEU_176138106,
+    "richelieu_17613b106":       RICHELIEU_17613B106,
+    "richelieu_adjustable_40mm": RICHELIEU_ADJUSTABLE_40MM,
+    "hairpin_200mm":             HAIRPIN_200MM,
+}
+
+
+def get_leg(name: str) -> LegSpec:
+    """Look up a leg spec by key."""
+    if name not in LEGS:
+        raise KeyError(f"Unknown leg '{name}'. Available: {list(LEGS.keys())}")
+    return LEGS[name]

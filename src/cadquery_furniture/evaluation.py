@@ -1224,6 +1224,47 @@ def check_face_clearances(
     return issues
 
 
+def check_column_widths(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Validate multi-column layout widths when ``columns`` is non-empty.
+
+    Checks:
+    - Each column width is positive.
+    - The sum of all column widths equals ``interior_width`` (±0.5 mm tolerance).
+    """
+    if not cab_cfg.columns:
+        return []
+
+    issues: list[Issue] = []
+    interior_w = cab_cfg.interior_width
+    col_sum = sum(c.width_mm for c in cab_cfg.columns)
+
+    for i, col in enumerate(cab_cfg.columns):
+        if col.width_mm <= 0:
+            issues.append(Issue(
+                severity=Severity.ERROR,
+                check="column_width_positive",
+                message=f"Column {i} has non-positive width ({col.width_mm:.1f} mm).",
+                part_a=f"column_{i}",
+                value=col.width_mm,
+                limit=0.0,
+            ))
+
+    if abs(col_sum - interior_w) > 0.5:
+        issues.append(Issue(
+            severity=Severity.ERROR,
+            check="column_widths_sum",
+            message=(
+                f"Column widths sum to {col_sum:.1f} mm but cabinet interior_width is "
+                f"{interior_w:.1f} mm (difference: {col_sum - interior_w:+.1f} mm)."
+            ),
+            part_a="columns",
+            value=col_sum,
+            limit=interior_w,
+        ))
+
+    return issues
+
+
 # ─── Full Evaluation Runner ──────────────────────────────────────────────────
 
 
@@ -1254,6 +1295,7 @@ def evaluate_cabinet(
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     all_issues.extend(check_drawer_carcass_clearances(cab_cfg))
+    all_issues.extend(check_column_widths(cab_cfg))
 
     # ── Drawer hardware + joinery checks ────────────────────────────────
     if drawer_assemblies:

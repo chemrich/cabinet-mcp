@@ -133,9 +133,9 @@ class TestDrawerConfigProperties:
         assert abs(cfg.box_width - (564 - 21.0 * 2)) < 0.1
 
     def test_box_height(self):
-        """Box height = opening height minus vertical gap."""
+        """Box height = opening height minus slide bottom clearance minus vertical gap."""
         cfg = DrawerConfig(opening_width=564, opening_height=150, opening_depth=541)
-        assert cfg.box_height == 150 - cfg.vertical_gap
+        assert cfg.box_height == 150 - cfg.slide.min_bottom_clearance - cfg.vertical_gap
 
     def test_box_depth_capped_by_slide(self):
         """Box depth must not exceed the slide length for the given opening depth."""

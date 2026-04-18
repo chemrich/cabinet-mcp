@@ -23,7 +23,7 @@ try:
 except ImportError:
     cq = None  # allow import for type checking / planning without cadquery installed
 
-from .hardware import DrawerSlideSpec, get_slide
+from .hardware import DrawerSlideSpec, get_slide, LegSpec, get_leg
 from .joinery import (
     CarcassJoinery,
     DominoSpec,
@@ -35,6 +35,25 @@ from .joinery import (
     DEFAULT_BISCUIT,
     DEFAULT_DOWEL,
 )
+
+
+@dataclass(frozen=True)
+class ColumnConfig:
+    """One vertical column within a single cabinet carcass.
+
+    A cabinet may have multiple side-by-side columns separated by interior
+    vertical dividers — e.g. a left column of three drawers next to a right
+    column with a single door.
+
+    ``width_mm`` is the **interior** width of the column (not including the
+    divider panel thickness).  The sum of all column widths must equal the
+    cabinet's ``interior_width``; the evaluator enforces this.
+
+    ``drawer_config`` follows the same format as ``CabinetConfig.drawer_config``:
+    a list of ``(height_mm, slot_type)`` pairs stacked bottom-to-top.
+    """
+    width_mm: float
+    drawer_config: tuple[tuple[float, str], ...]  # frozen-friendly tuple of tuples
 
 
 @dataclass
@@ -79,10 +98,22 @@ class CabinetConfig:
     #   "shelf"      — a fixed or adjustable shelf opening
     #   "open"       — open compartment (no door/drawer)
     drawer_config: list[tuple[float, str]] = field(default_factory=list)
+
+    # Multi-column layout.  When non-empty, the cabinet interior is divided into
+    # side-by-side vertical columns by interior dividers.  In this mode
+    # ``drawer_config`` is ignored; each ColumnConfig carries its own stack.
+    # Column widths must sum to ``interior_width``; the evaluator checks this.
+    columns: list[ColumnConfig] = field(default_factory=list)
+
     drawer_slide: str = "blum_tandem_550h"
 
     # Door hardware
     door_hinge: str = "blum_clip_top_110_full"
+
+    # Leg / foot hardware (used by build_multi_bay_cabinet and design_legs)
+    leg_key: str = "richelieu_176138106"
+    leg_count: int = 4
+    leg_inset: float = 30.0  # foot centre inset from cabinet edge (mm)
 
     # Carcass joinery method
     carcass_joinery: CarcassJoinery = CarcassJoinery.DADO_RABBET
@@ -452,8 +483,8 @@ def build_cabinet(
 
 def build_multi_bay_cabinet(
     bay_configs: list["CabinetConfig"],
-    foot_height: float = 102.0,
-    foot_diameter: float = 50.0,
+    foot_height: Optional[float] = None,
+    foot_diameter: Optional[float] = None,
     face_thickness: float = 18.0,
     outer_overlay: float = 18.0,
     inner_overlay: float = 17.0,
@@ -463,6 +494,7 @@ def build_multi_bay_cabinet(
     include_drawers: bool = True,
     include_faces: bool = True,
     include_feet: bool = True,
+    feet_at_dividers: bool = True,
 ) -> tuple["cq.Assembly", list["PartInfo"]]:
     """Build a multi-bay cabinet assembly with bays positioned side-by-side.
 
@@ -624,7 +656,7 @@ def build_multi_bay_cabinet(
 
                     drw_x = bx + cfg.side_thickness + slide.nominal_side_clearance
                     drw_y = dcfg.front_gap
-                    drw_z = z
+                    drw_z = z + slide.min_bottom_clearance
 
                     assy.add(drw_assy, name=f"bay{bay_idx}_drawer{drw_idx}",
                              loc=cq.Location((drw_x, drw_y, drw_z)),
@@ -768,22 +800,34 @@ def build_multi_bay_cabinet(
 
     # ── Feet ───────────────────────────────────────────────────────────────────
     if include_feet:
-        depth      = bay_configs[0].depth
-        foot_inset = 30.0
+        cfg0       = bay_configs[0]
+        depth      = cfg0.depth
+        foot_inset = cfg0.leg_inset
 
-        # X positions: outer edges + under each bay divider
-        foot_xs = [foot_inset, total_width - foot_inset] + list(x_offsets[1:])
+        # Resolve leg spec from the first bay's config; fall back to caller overrides
+        try:
+            leg_spec = get_leg(cfg0.leg_key)
+            _foot_height   = foot_height   if foot_height   is not None else leg_spec.height_mm
+            _foot_diameter = foot_diameter if foot_diameter is not None else leg_spec.base_diameter_mm
+        except KeyError:
+            _foot_height   = foot_height   if foot_height   is not None else 102.0
+            _foot_diameter = foot_diameter if foot_diameter is not None else 50.0
+
+        # X positions: outer corners only, or also under each interior divider
+        foot_xs = [foot_inset, total_width - foot_inset]
+        if feet_at_dividers:
+            foot_xs += list(x_offsets[1:])
         foot_ys = [foot_inset, depth - foot_inset]
 
         foot_shape = (
             cq.Workplane("XY")
-            .cylinder(foot_height, foot_diameter / 2, centered=(True, True, False))
+            .cylinder(_foot_height, _foot_diameter / 2, centered=(True, True, False))
         )
         fi = 0
         for fx in foot_xs:
             for fy in foot_ys:
                 assy.add(foot_shape, name=f"foot_{fi}",
-                         loc=cq.Location((fx, fy, -foot_height)),
+                         loc=cq.Location((fx, fy, -_foot_height)),
                          color=foot_colour)
                 fi += 1
 

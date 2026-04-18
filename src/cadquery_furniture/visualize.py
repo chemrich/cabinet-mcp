@@ -422,7 +422,8 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     // Bucket drawer meshes by (bay, slot) for the X-ray + Open toggles.
     // Node names may appear on the mesh itself or on its parent Group.
     const searchNames = [obj.name, obj.parent ? obj.parent.name : ''];
-    for (const nm of searchNames) {{
+    for (let si = 0; si < searchNames.length; si++) {{
+      const nm = searchNames[si];
       if (!nm) continue;
       const m = nm.match(/^bay(\d+)_(face|drawer)(\d+)/);
       if (!m) continue;
@@ -432,7 +433,11 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
         pair.face = obj;
         drawerFronts.push(obj);
       }} else {{
-        pair.box = obj;
+        // Drawer boxes are Assembly Groups (not Mesh nodes), so they are
+        // matched via obj.parent.name (si === 1).  Store the parent Group
+        // so that position.add() moves all child meshes together.
+        const node = si === 1 ? obj.parent : obj;
+        if (!pair.box) pair.box = node;
       }}
       break;
     }}

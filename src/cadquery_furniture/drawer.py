@@ -30,6 +30,46 @@ from .joinery import (
 )
 
 
+# ─── Standard drawer box heights ──────────────────────────────────────────────
+# Industry-standard box heights in mm (3"–12" in 1" increments).
+# Manufacturers (Eagle Woodworking, Drawer Connection, etc.) stock these sizes
+# natively, making batch ordering and interchangeable spares straightforward.
+STANDARD_BOX_HEIGHTS: tuple[float, ...] = (
+    76.0,   # 3"
+    102.0,  # 4"
+    127.0,  # 5"
+    152.0,  # 6"
+    178.0,  # 7"
+    203.0,  # 8"
+    229.0,  # 9"
+    254.0,  # 10"
+    279.0,  # 11"
+    305.0,  # 12"
+)
+
+
+def snap_to_standard_box_height(raw_mm: float) -> float:
+    """Return the largest standard box height that fits within *raw_mm*.
+
+    If *raw_mm* is smaller than the smallest standard height (76 mm / 3"),
+    return *raw_mm* unchanged so callers never get a negative or zero result.
+
+    Examples
+    --------
+    >>> snap_to_standard_box_height(135)   # fits a 5" (127 mm) box
+    127.0
+    >>> snap_to_standard_box_height(102)   # exactly 4" — stays 4"
+    102.0
+    >>> snap_to_standard_box_height(60)    # below minimum — pass through
+    60.0
+    """
+    best = None
+    for h in STANDARD_BOX_HEIGHTS:
+        if h <= raw_mm:
+            best = h
+    return best if best is not None else raw_mm
+
+
 @dataclass
 class DrawerConfig:
     """Configuration for a single drawer box."""
@@ -50,13 +90,18 @@ class DrawerConfig:
 
     # Gaps / reveals
     front_gap: float = 2.0  # gap between drawer box front and cabinet face
-    vertical_gap: float = 3.0  # clearance above drawer box
+    vertical_gap: float = 12.0  # clearance above drawer box
 
     # Hardware
     slide_key: str = "blum_tandem_550h"
 
     # Corner joinery style
     joinery_style: DrawerJoineryStyle = DrawerJoineryStyle.BUTT
+
+    # Height snapping: when True, box_height snaps down to the nearest standard
+    # size (see STANDARD_BOX_HEIGHTS) so orders can be batched by common heights.
+    # Set to False to use the full computed clearance-adjusted height instead.
+    use_standard_height: bool = True
 
     # Drawer face (applied face, not the sub-front)
     applied_face: bool = True
@@ -83,8 +128,23 @@ class DrawerConfig:
 
     @property
     def box_height(self) -> float:
-        """Drawer box height (exterior)."""
-        return self.opening_height - self.vertical_gap
+        """Drawer box height (exterior).
+
+        When ``use_standard_height`` is True (default), the raw computed height
+        is snapped *down* to the nearest value in ``STANDARD_BOX_HEIGHTS`` so
+        that box orders can be batched by a small set of common sizes.  The
+        remaining clearance is absorbed into the vertical gap above the box.
+        """
+        raw = self.opening_height - self.slide.min_bottom_clearance - self.vertical_gap
+        if self.use_standard_height:
+            return snap_to_standard_box_height(raw)
+        return raw
+
+    @property
+    def standard_box_height(self) -> float:
+        """Always returns the snapped standard height regardless of use_standard_height."""
+        raw = self.opening_height - self.slide.min_bottom_clearance - self.vertical_gap
+        return snap_to_standard_box_height(raw)
 
     @property
     def box_depth(self) -> float:

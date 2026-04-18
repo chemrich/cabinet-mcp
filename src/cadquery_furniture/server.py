@@ -61,8 +61,9 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-from .cabinet import CabinetConfig, build_multi_bay_cabinet as _build_multi_bay_cabinet
+from .cabinet import CabinetConfig, ColumnConfig, build_multi_bay_cabinet as _build_multi_bay_cabinet
 from .auto_fix import auto_fix_cabinet as _auto_fix, AutoFixResult, fixable_checks
+from .proportions import graduated_drawer_heights as _grad_heights, column_widths as _col_widths, RATIO_PRESETS as _RATIO_PRESETS
 from .describe import describe_design as _describe_design
 from .presets import PRESETS, get_preset, list_presets as _list_presets
 from .visualize import build_and_visualize as _build_and_visualize, visualize_assembly as _visualize_assembly
@@ -76,7 +77,7 @@ from .cutlist import (
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
-from .hardware import HINGES, SLIDES, OverlayType
+from .hardware import HINGES, SLIDES, LEGS, OverlayType, LegPattern, get_leg
 from .joinery import (
     CarcassJoinery,
     DrawerJoineryStyle,
@@ -117,13 +118,23 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
 def _build_cabinet_config(args: dict) -> CabinetConfig:
     """
     Build a CabinetConfig from a flat dict of keyword arguments.
-    Handles nested list fields (drawer_config, fixed_shelf_positions).
+    Handles nested list fields (drawer_config, fixed_shelf_positions, columns).
     Enums are accepted as strings.
     """
     kwargs: dict[str, Any] = {}
     for key, value in args.items():
         if key == "carcass_joinery" and isinstance(value, str):
             kwargs[key] = CarcassJoinery(value)
+        elif key == "columns" and isinstance(value, list):
+            kwargs[key] = [
+                ColumnConfig(
+                    width_mm=float(c["width_mm"]),
+                    drawer_config=tuple(
+                        (float(h), str(t)) for h, t in c.get("drawer_config", [])
+                    ),
+                )
+                for c in value
+            ]
         else:
             kwargs[key] = value
     return CabinetConfig(**kwargs)
@@ -143,6 +154,11 @@ def _build_drawer_config(args: dict) -> DrawerConfig:
     return DrawerConfig(**kwargs)
 
 
+def _raw_box_height(cfg: DrawerConfig) -> float:
+    """Compute the clearance-adjusted height without standard snapping."""
+    return cfg.opening_height - cfg.slide.min_bottom_clearance - cfg.vertical_gap
+
+
 # ─── Server ───────────────────────────────────────────────────────────────────
 
 server = Server("cabinet-mcp")
@@ -158,7 +174,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="list_hardware",
             description=(
-                "Return the catalogue of available drawer slides and hinges. "
+                "Return the catalogue of available drawer slides, hinges, and legs. "
                 "Use this to discover valid key strings for other tools."
             ),
             inputSchema={
@@ -166,7 +182,7 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["slides", "hinges", "all"],
+                        "enum": ["slides", "hinges", "legs", "all"],
                         "description": "Which hardware category to list.",
                         "default": "all",
                     }
@@ -240,6 +256,156 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Hinge key from list_hardware. Default: blum_clip_top_110_full.",
                         "default": "blum_clip_top_110_full",
+                    },
+                    "num_drawers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Number of drawer openings. When provided without an explicit "
+                            "drawer_config, heights are auto-computed from drawer_proportion."
+                        ),
+                    },
+                    "drawer_proportion": {
+                        "type": "string",
+                        "enum": ["equal", "subtle", "classic", "golden"],
+                        "description": (
+                            "Height-graduation preset for auto-computed drawer stacks. "
+                            "equal=uniform, subtle=1.2×, classic=1.4×, golden=1.618× (φ). "
+                            "Default: classic."
+                        ),
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
+            name="design_multi_column_cabinet",
+            description=textwrap.dedent("""\
+                Design a cabinet with multiple side-by-side vertical columns sharing
+                a common carcass — e.g. a left column of drawers next to a right
+                column with a door, all within one set of exterior panels.
+
+                Columns are separated by interior vertical dividers (same thickness as
+                ``side_thickness``).  Column widths are interior measurements and must
+                sum to the cabinet's interior_width (= width − 2 × side_thickness).
+
+                Each column has its own ``drawer_config`` stack (same format as
+                design_cabinet: list of [height_mm, slot_type] pairs).
+
+                ── PROPORTION SHORTCUTS ──
+                Instead of spelling out every column width and drawer height, you can
+                let the tool compute proportional layouts automatically:
+
+                  • column_proportion + num_columns [+ wide_index]: auto-computes
+                    column widths using a named graduation preset.  wide_index marks
+                    the accent column (0-based); omit for equal widths.
+
+                  • drawer_proportion + num_drawers: auto-computes drawer heights
+                    within each column using a geometric graduation preset.
+
+                Presets: "equal" (uniform), "subtle" (1.2×), "classic" (1.4×),
+                "golden" (1.618× / φ).
+
+                Returns the same summary as design_cabinet plus:
+                  - columns: per-column breakdown (interior width, slot stack, divider x)
+                  - column_widths_sum_mm / interior_width_mm: for quick sanity check
+                  - proportions_used: which presets were applied (if any)
+
+                ── WORKFLOW ──
+                After calling this tool you MUST call evaluate_cabinet on the returned
+                config (using width/height/depth plus the columns array) before
+                presenting results.  The evaluator will flag any column-width errors.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number", "description": "Exterior width in mm."},
+                    "height": {"type": "number", "description": "Exterior height in mm."},
+                    "depth":  {"type": "number", "description": "Exterior depth in mm."},
+                    "columns": {
+                        "type": "array",
+                        "description": (
+                            "List of column definitions, left to right. "
+                            "Interior widths must sum to (width - 2 × side_thickness)."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "width_mm": {
+                                    "type": "number",
+                                    "description": "Interior width of this column in mm.",
+                                },
+                                "drawer_config": {
+                                    "type": "array",
+                                    "description": "Stack of [height_mm, slot_type] pairs bottom-to-top.",
+                                    "items": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "number"},
+                                            {"type": "string"},
+                                        ],
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                    },
+                                    "default": [],
+                                },
+                            },
+                            "required": ["width_mm"],
+                        },
+                        "minItems": 2,
+                    },
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
+                    "shelf_thickness":  {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "carcass_joinery": {
+                        "type": "string",
+                        "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
+                        "default": "dado_rabbet",
+                    },
+                    "drawer_slide": {
+                        "type": "string",
+                        "default": "blum_tandem_550h",
+                    },
+                    "door_hinge": {
+                        "type": "string",
+                        "default": "blum_clip_top_110_full",
+                    },
+                    "num_columns": {
+                        "type": "integer",
+                        "minimum": 2,
+                        "description": (
+                            "Number of columns. Use with column_proportion / wide_index "
+                            "as an alternative to supplying an explicit columns array."
+                        ),
+                    },
+                    "wide_index": {
+                        "type": "integer",
+                        "description": "0-based index of the wider accent column (used with column_proportion).",
+                    },
+                    "column_proportion": {
+                        "type": "string",
+                        "enum": ["equal", "subtle", "classic", "golden"],
+                        "description": (
+                            "Width-graduation preset for auto-computed column widths. "
+                            "Requires num_columns. Default: golden."
+                        ),
+                    },
+                    "num_drawers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Drawers per column when drawer_config is omitted from each column entry."
+                        ),
+                    },
+                    "drawer_proportion": {
+                        "type": "string",
+                        "enum": ["equal", "subtle", "classic", "golden"],
+                        "description": (
+                            "Height-graduation preset for auto-computed drawer heights. "
+                            "Default: classic."
+                        ),
                     },
                 },
                 "required": ["width", "height", "depth"],
@@ -337,6 +503,12 @@ async def list_tools() -> list[types.Tool]:
 
                 joinery_style options: "butt", "qqq", "half_lap", "drawer_lock".
                 slide_key: use list_hardware to see options (default: blum_tandem_550h).
+
+                By default, box_height_mm is snapped down to the nearest standard
+                industry size (3"–12" in 1" steps) so boxes can be batch-ordered.
+                Set use_standard_height=false to use the full clearance-adjusted height.
+                The response always includes both standard_box_height_mm and the raw
+                computed height for reference.
             """),
             inputSchema={
                 "type": "object",
@@ -358,6 +530,14 @@ async def list_tools() -> list[types.Tool]:
                     "front_back_thickness": {"type": "number", "default": 15.0},
                     "bottom_thickness":     {"type": "number", "default": 6.0},
                     "face_thickness":       {"type": "number", "default": 18.0},
+                    "use_standard_height": {
+                        "type": "boolean",
+                        "description": (
+                            "Snap box height to the nearest standard industry size "
+                            "(3\"–12\" in 1\" steps). Default true."
+                        ),
+                        "default": True,
+                    },
                 },
                 "required": ["opening_width", "opening_height", "opening_depth"],
             },
@@ -474,6 +654,26 @@ async def list_tools() -> list[types.Tool]:
                         "default": [],
                     },
                     "adj_shelf_holes": {"type": "boolean", "default": False},
+                    "num_bays": {
+                        "type": "integer",
+                        "description": "Number of identical side-by-side bays to render (default 1).",
+                        "default": 1,
+                    },
+                    "columns": {
+                        "type": "array",
+                        "description": "Multi-column layout from design_multi_column_cabinet. Each entry has width_mm and drawer_config.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "width_mm": {"type": "number"},
+                                "drawer_config": {
+                                    "type": "array",
+                                    "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                                },
+                            },
+                            "required": ["width_mm"],
+                        },
+                    },
                     "name": {
                         "type": "string",
                         "description": "Base filename stem for output files.",
@@ -671,6 +871,72 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["width", "height", "depth"],
             },
         ),
+        types.Tool(
+            name="design_legs",
+            description=textwrap.dedent("""\
+                Configure the legs / feet for a cabinet and return placement
+                coordinates, hardware specs, and load-per-leg.
+
+                Default: 4 corner feet using Richelieu 176138106 (100 mm brushed
+                nickel contemporary square leg, 50 kg per leg).
+
+                NOTE: the Richelieu 176138106 is 100 mm (3-15/16\"), not a true
+                4\" leg.  If you need exactly 4\" / 102 mm, choose a different SKU
+                or use an adjustable leg.
+
+                leg_pattern options:
+                  "corners"              — one foot at each corner (default, 4 legs)
+                  "corners_and_midspan"  — corners + one centred on each long side
+                  "along_front_back"     — count/2 evenly spaced across front and back
+
+                Use list_hardware (with category="legs") to see available leg keys.
+
+                Returns:
+                  - leg: hardware spec (name, height_mm, load_capacity_kg, part_number)
+                  - count: total number of legs
+                  - placement_mm: list of {x, y} positions (origin = front-left corner)
+                  - inset_mm: how far each foot is set in from the cabinet edge
+                  - load_per_leg_kg: cabinet_weight_kg / count (if weight provided)
+                  - total_height_mm: leg height (pass to cabinet design as base clearance)
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cabinet_width":  {"type": "number", "description": "Cabinet exterior width in mm."},
+                    "cabinet_depth":  {"type": "number", "description": "Cabinet exterior depth in mm."},
+                    "leg_key": {
+                        "type": "string",
+                        "description": (
+                            "Leg key from list_hardware (category=legs). "
+                            "Default: richelieu_176138106."
+                        ),
+                        "default": "richelieu_176138106",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of legs. Default: 4.",
+                        "default": 4,
+                    },
+                    "leg_pattern": {
+                        "type": "string",
+                        "enum": ["corners", "corners_and_midspan", "along_front_back"],
+                        "description": "Foot placement pattern. Default: corners.",
+                        "default": "corners",
+                    },
+                    "inset_mm": {
+                        "type": "number",
+                        "description": "How far each foot centre is set in from the cabinet edge. Default: 30 mm.",
+                        "default": 30.0,
+                    },
+                    "cabinet_weight_kg": {
+                        "type": "number",
+                        "description": "Estimated cabinet + contents weight for load-per-leg calc. Default: 0 (skipped).",
+                        "default": 0.0,
+                    },
+                },
+                "required": ["cabinet_width", "cabinet_depth"],
+            },
+        ),
     ]
 
 
@@ -687,6 +953,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_list_joinery(arguments)
         elif name == "design_cabinet":
             return await _tool_design_cabinet(arguments)
+        elif name == "design_multi_column_cabinet":
+            return await _tool_design_multi_column_cabinet(arguments)
         elif name == "evaluate_cabinet":
             return await _tool_evaluate_cabinet(arguments)
         elif name == "design_door":
@@ -707,6 +975,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_auto_fix_cabinet(arguments)
         elif name == "describe_design":
             return await _tool_describe_design(arguments)
+        elif name == "design_legs":
+            return await _tool_design_legs(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
@@ -747,6 +1017,22 @@ async def _tool_list_hardware(args: dict) -> list[types.TextContent]:
                 "part_number": h.part_number,
             }
             for key, h in HINGES.items()
+        }
+
+    if category in ("legs", "all"):
+        result["legs"] = {
+            key: {
+                "name": l.name,
+                "height_mm": l.height_mm,
+                "base_diameter_mm": l.base_diameter_mm,
+                "is_adjustable": l.is_adjustable,
+                "adjustment_range_mm": l.adjustment_range_mm,
+                "load_capacity_kg": l.load_capacity_kg,
+                "finish": l.finish,
+                "part_number": l.part_number,
+                "notes": l.notes,
+            }
+            for key, l in LEGS.items()
         }
 
     return _ok(result)
@@ -797,6 +1083,20 @@ async def _tool_list_joinery(args: dict) -> list[types.TextContent]:
 # ── design_cabinet ────────────────────────────────────────────────────────────
 
 async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
+    num_drawers       = args.pop("num_drawers", None)
+    drawer_proportion = args.pop("drawer_proportion", None)
+    proportions_used: dict = {}
+
+    if num_drawers and not args.get("drawer_config"):
+        preset = drawer_proportion or "classic"
+        side_t   = float(args.get("side_thickness",   18))
+        bottom_t = float(args.get("bottom_thickness", 18))
+        top_t    = float(args.get("top_thickness",    18))
+        interior_h = float(args["height"]) - bottom_t - top_t
+        heights = _grad_heights(interior_h, int(num_drawers), preset)
+        args["drawer_config"] = [[h, "drawer"] for h in heights]
+        proportions_used["drawer_proportion"] = preset
+
     cfg = _build_cabinet_config(args)
 
     # Interior dimensions
@@ -845,7 +1145,7 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         {"height_mm": h, "type": t} for h, t in cfg.drawer_config
     ]
 
-    return _ok({
+    result = {
         "exterior": {"width_mm": cfg.width, "height_mm": cfg.height, "depth_mm": cfg.depth},
         "interior": {
             "width_mm":  interior_width,
@@ -857,7 +1157,99 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         "opening_stack": opening_stack,
         "adj_shelf_holes": cfg.adj_shelf_holes,
         "door_hinge": cfg.door_hinge,
-    })
+    }
+    if proportions_used:
+        result["proportions_used"] = proportions_used
+    return _ok(result)
+
+
+# ── design_multi_column_cabinet ───────────────────────────────────────────────
+
+async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextContent]:
+    """Handler for the design_multi_column_cabinet tool."""
+    num_columns       = args.pop("num_columns",       None)
+    wide_index        = args.pop("wide_index",         None)
+    column_proportion = args.pop("column_proportion",  None)
+    num_drawers       = args.pop("num_drawers",        None)
+    drawer_proportion = args.pop("drawer_proportion",  None)
+    proportions_used: dict = {}
+
+    # ── Resolve column widths ──────────────────────────────────────────────────
+    if not args.get("columns"):
+        if not num_columns:
+            return _err("Provide either 'columns' or 'num_columns'.")
+        side_t     = float(args.get("side_thickness", 18))
+        interior_w = float(args["width"]) - 2 * side_t
+        col_preset = column_proportion or ("golden" if wide_index is not None else "equal")
+        widths = _col_widths(interior_w, int(num_columns), wide_index, col_preset)
+        proportions_used["column_proportion"] = col_preset
+        if wide_index is not None:
+            proportions_used["wide_index"] = wide_index
+        # Build placeholder column dicts (drawer_config filled below)
+        args["columns"] = [{"width_mm": w} for w in widths]
+
+    # ── Resolve drawer heights ─────────────────────────────────────────────────
+    if num_drawers:
+        bottom_t   = float(args.get("bottom_thickness", 18))
+        top_t      = float(args.get("top_thickness",    18))
+        interior_h = float(args["height"]) - bottom_t - top_t
+        drw_preset = drawer_proportion or "classic"
+        heights    = _grad_heights(interior_h, int(num_drawers), drw_preset)
+        proportions_used["drawer_proportion"] = drw_preset
+        # Fill in any column that has no explicit drawer_config
+        for col in args["columns"]:
+            if not col.get("drawer_config"):
+                col["drawer_config"] = [[h, "drawer"] for h in heights]
+
+    cfg = _build_cabinet_config(args)
+
+    interior_width  = cfg.interior_width
+    interior_height = cfg.interior_height
+    interior_depth  = cfg.depth - cfg.back_thickness
+
+    # Build per-column breakdown
+    col_x = 0.0  # running interior x from left column
+    col_details = []
+    for i, col in enumerate(cfg.columns):
+        stack = [{"height_mm": h, "type": t} for h, t in col.drawer_config]
+        stack_total = sum(h for h, _ in col.drawer_config)
+        col_details.append({
+            "index":             i,
+            "interior_width_mm": col.width_mm,
+            "divider_left_x_mm": col_x - cfg.side_thickness if i > 0 else 0.0,
+            "stack_total_mm":    stack_total,
+            "stack_fills_interior": abs(stack_total - interior_height) < 0.5,
+            "opening_stack":     stack,
+        })
+        col_x += col.width_mm + cfg.side_thickness  # account for divider between columns
+
+    col_sum = sum(c.width_mm for c in cfg.columns)
+    n_dividers = max(len(cfg.columns) - 1, 0)
+
+    panels = {
+        "side_panel":    {"qty": 2, "height_mm": cfg.height, "depth_mm": cfg.depth, "thickness_mm": cfg.side_thickness},
+        "bottom_panel":  {"qty": 1, "width_mm": interior_width, "depth_mm": interior_depth, "thickness_mm": cfg.bottom_thickness},
+        "top_panel":     {"qty": 1, "width_mm": interior_width, "depth_mm": interior_depth, "thickness_mm": cfg.top_thickness},
+        "back_panel":    {"qty": 1, "width_mm": interior_width, "height_mm": cfg.height,    "thickness_mm": cfg.back_thickness},
+        "column_divider": {"qty": n_dividers, "height_mm": cfg.height, "depth_mm": cfg.depth - cfg.back_rabbet_width, "thickness_mm": cfg.side_thickness},
+    }
+
+    result = {
+        "exterior":   {"width_mm": cfg.width, "height_mm": cfg.height, "depth_mm": cfg.depth},
+        "interior":   {"width_mm": interior_width, "height_mm": interior_height, "depth_mm": interior_depth},
+        "joinery":    cfg.carcass_joinery.value,
+        "panels":     panels,
+        "column_count":          len(cfg.columns),
+        "column_widths_sum_mm":  col_sum,
+        "interior_width_mm":     interior_width,
+        "columns_fill_interior": abs(col_sum - interior_width) < 0.5,
+        "columns":               col_details,
+        "adj_shelf_holes":       cfg.adj_shelf_holes,
+        "door_hinge":            cfg.door_hinge,
+    }
+    if proportions_used:
+        result["proportions_used"] = proportions_used
+    return _ok(result)
 
 
 # ── evaluate_cabinet ──────────────────────────────────────────────────────────
@@ -943,12 +1335,19 @@ async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
         joinery_info["lock_step_depth_x_mm"] = joinery.lock_step_depth_x
         joinery_info["lock_step_depth_y_mm"] = joinery.lock_step_depth_y
 
+    from .drawer import snap_to_standard_box_height, STANDARD_BOX_HEIGHTS
     slide_length = slide.slide_length_for_depth(cfg.opening_depth)
+    raw_height   = _raw_box_height(cfg)
+    std_height   = snap_to_standard_box_height(raw_height)
 
     return _ok({
-        "box_width_mm":  cfg.box_width,
-        "box_height_mm": cfg.box_height,
-        "box_depth_mm":  cfg.box_depth,
+        "box_width_mm":               cfg.box_width,
+        "box_height_mm":              cfg.box_height,   # snapped when use_standard_height=True
+        "box_height_raw_mm":          raw_height,       # clearance-adjusted, before snapping
+        "standard_box_height_mm":     std_height,       # always the snapped value for reference
+        "use_standard_height":        cfg.use_standard_height,
+        "standard_heights_available": list(STANDARD_BOX_HEIGHTS),
+        "box_depth_mm":               cfg.box_depth,
         "side_thickness_mm":       cfg.side_thickness,
         "front_back_thickness_mm": cfg.front_back_thickness,
         "bottom_thickness_mm":     cfg.bottom_thickness,
@@ -1099,16 +1498,46 @@ async def _tool_compare_joinery(args: dict) -> list[types.TextContent]:
 # ── visualize_cabinet ─────────────────────────────────────────────────────────
 
 async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
-    name       = str(args.pop("name", "cabinet"))
-    output_dir = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
+    name         = str(args.pop("name", "cabinet"))
+    output_dir   = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
     open_browser = bool(args.pop("open_browser", True))
-    tolerance  = float(args.pop("tolerance", 0.1))
+    tolerance    = float(args.pop("tolerance", 0.1))
+    num_bays     = int(args.pop("num_bays", 1))
+    columns_raw  = args.pop("columns", None)
 
     cfg = _build_cabinet_config(args)
 
-    # Use build_multi_bay_cabinet so drawer boxes, drawer faces, and door
-    # panels are all included in the rendered assembly.
-    assy, parts = _build_multi_bay_cabinet([cfg])
+    if columns_raw:
+        # Build one bay config per column so build_multi_bay_cabinet renders
+        # the correct dividers.  Bay exterior width = column interior width +
+        # 2×side_thickness; the multi-bay function handles shared dividers.
+        side_t = cfg.side_thickness
+        bay_configs = [
+            CabinetConfig(
+                width=float(col["width_mm"]) + 2 * side_t,
+                height=cfg.height,
+                depth=cfg.depth,
+                side_thickness=side_t,
+                bottom_thickness=cfg.bottom_thickness,
+                top_thickness=cfg.top_thickness,
+                back_thickness=cfg.back_thickness,
+                shelf_thickness=cfg.shelf_thickness,
+                drawer_slide=cfg.drawer_slide,
+                drawer_config=tuple(
+                    (float(h), str(t))
+                    for h, t in col.get("drawer_config", [])
+                ),
+            )
+            for col in columns_raw
+        ]
+        total_width = cfg.width
+        info = {"width": total_width, "height": cfg.height, "depth": cfg.depth,
+                "columns": len(bay_configs)}
+    else:
+        bay_configs = [cfg] * num_bays
+        info = {"width": cfg.width * num_bays, "height": cfg.height, "depth": cfg.depth}
+
+    assy, parts = _build_multi_bay_cabinet(bay_configs, feet_at_dividers=(columns_raw is None))
     result = _visualize_assembly(
         assy,
         parts,
@@ -1116,11 +1545,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         name=name,
         open_browser=open_browser,
         tolerance=tolerance,
-        info={
-            "width":  cfg.width,
-            "height": cfg.height,
-            "depth":  cfg.depth,
-        },
+        info=info,
     )
 
     return _ok({
@@ -1230,6 +1655,9 @@ async def _tool_auto_fix_cabinet(args: dict) -> list[types.TextContent]:
         "door_hinge":       fixed_cfg.door_hinge,
         "drawer_slide":     fixed_cfg.drawer_slide,
         "adj_shelf_holes":  fixed_cfg.adj_shelf_holes,
+        "leg_key":          fixed_cfg.leg_key,
+        "leg_count":        fixed_cfg.leg_count,
+        "leg_inset":        fixed_cfg.leg_inset,
     }
 
     return _ok({
@@ -1250,6 +1678,126 @@ async def _tool_auto_fix_cabinet(args: dict) -> list[types.TextContent]:
 async def _tool_describe_design(args: dict) -> list[types.TextContent]:
     cfg = _build_cabinet_config(args)
     return _ok(_describe_design(cfg))
+
+
+# ── design_legs ───────────────────────────────────────────────────────────────
+
+def _compute_leg_positions(
+    width: float,
+    depth: float,
+    count: int,
+    pattern: str,
+    inset: float,
+) -> list[dict[str, float]]:
+    """Return a list of {x, y} foot-centre coordinates.
+
+    Origin is the front-left corner of the cabinet.  X runs left→right,
+    Y runs front→back.
+    """
+    positions: list[dict[str, float]] = []
+
+    if pattern == "corners":
+        positions = [
+            {"x": inset,         "y": inset},
+            {"x": width - inset, "y": inset},
+            {"x": inset,         "y": depth - inset},
+            {"x": width - inset, "y": depth - inset},
+        ]
+        # If more than 4 feet requested, add evenly-spaced extras along front/back
+        extra = count - 4
+        if extra > 0:
+            spacing = width / (extra + 1)
+            for i in range(extra):
+                x = spacing * (i + 1)
+                positions.append({"x": x, "y": inset})
+                positions.append({"x": x, "y": depth - inset})
+
+    elif pattern == "corners_and_midspan":
+        positions = [
+            {"x": inset,         "y": inset},
+            {"x": width - inset, "y": inset},
+            {"x": inset,         "y": depth - inset},
+            {"x": width - inset, "y": depth - inset},
+            {"x": width / 2,     "y": inset},
+            {"x": width / 2,     "y": depth - inset},
+        ]
+
+    elif pattern == "along_front_back":
+        half = max(count // 2, 1)
+        spacing = (width - 2 * inset) / (half - 1) if half > 1 else 0.0
+        for i in range(half):
+            x = inset + spacing * i if half > 1 else width / 2
+            positions.append({"x": x, "y": inset})
+            positions.append({"x": x, "y": depth - inset})
+
+    # Trim or pad to exactly count feet
+    return positions[:count]
+
+
+async def _tool_design_legs(args: dict) -> list[types.TextContent]:
+    cab_width  = float(args.get("cabinet_width",  600.0))
+    cab_depth  = float(args.get("cabinet_depth",  550.0))
+    leg_key    = str(args.get("leg_key",   "richelieu_176138106"))
+    count      = int(args.get("count",     4))
+    pattern    = str(args.get("leg_pattern", "corners"))
+    inset      = float(args.get("inset_mm", 30.0))
+    cab_weight = float(args.get("cabinet_weight_kg", 0.0))
+
+    try:
+        leg = get_leg(leg_key)
+    except KeyError as exc:
+        return _err(str(exc))
+
+    positions = _compute_leg_positions(cab_width, cab_depth, count, pattern, inset)
+    actual_count = len(positions)
+
+    load_per_leg: float | None = None
+    load_note: str = ""
+    if cab_weight > 0 and actual_count > 0:
+        load_per_leg = cab_weight / actual_count
+        capacity = leg.load_capacity_kg
+        if load_per_leg > capacity:
+            load_note = (
+                f"WARNING: load per leg ({load_per_leg:.1f} kg) exceeds "
+                f"rated capacity ({capacity:.1f} kg). Add more legs or choose a heavier spec."
+            )
+        else:
+            load_note = (
+                f"OK — {load_per_leg:.1f} kg per leg vs {capacity:.1f} kg rated "
+                f"({(load_per_leg / capacity * 100):.0f}% capacity)."
+            )
+
+    packs_needed = -(-actual_count // 2) if "richelieu" in leg_key else actual_count  # ceiling div
+    ordering_note = (
+        f"Sold in 2-packs — order {packs_needed} pack(s) for {actual_count} legs."
+        if "richelieu" in leg_key
+        else f"Order {actual_count} individual legs."
+    )
+
+    result: dict[str, Any] = {
+        "leg": {
+            "key":               leg_key,
+            "name":              leg.name,
+            "height_mm":         leg.height_mm,
+            "base_diameter_mm":  leg.base_diameter_mm,
+            "is_adjustable":     leg.is_adjustable,
+            "load_capacity_kg":  leg.load_capacity_kg,
+            "finish":            leg.finish,
+            "part_number":       leg.part_number,
+            "notes":             leg.notes,
+        },
+        "count":           actual_count,
+        "pattern":         pattern,
+        "inset_mm":        inset,
+        "total_height_mm": leg.height_mm,
+        "placement_mm":    positions,
+        "ordering":        ordering_note,
+    }
+    if load_per_leg is not None:
+        result["load_per_leg_kg"] = round(load_per_leg, 2)
+        result["load_check"]      = load_note
+
+    return _ok(result)
 
 
 # ─── Port management ──────────────────────────────────────────────────────────
