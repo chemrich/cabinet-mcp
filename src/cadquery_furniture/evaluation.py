@@ -24,7 +24,16 @@ except ImportError:
 from .cabinet import CabinetConfig
 from .drawer import DrawerConfig
 from .door import DoorConfig
-from .hardware import DrawerSlideSpec, HingeSpec, OverlayType, get_slide, get_hinge
+from .hardware import (
+    DrawerSlideSpec,
+    HingeSpec,
+    MountStyle,
+    OverlayType,
+    PullSpec,
+    get_slide,
+    get_hinge,
+    get_pull,
+)
 from .joinery import (
     DrawerJoineryStyle,
     CarcassJoinery,
@@ -33,6 +42,7 @@ from .joinery import (
     BiscuitSpec,
     DownelSpec,
 )
+from .pulls import DUAL_PULL_THRESHOLD_MM, pull_fits_face, recommend_pull_count
 
 
 class Severity(Enum):
@@ -727,6 +737,251 @@ def check_door_pair_width(door_cfg: DoorConfig) -> list[Issue]:
     return issues
 
 
+# ─── Pull Hardware Checks (no CadQuery needed) ───────────────────────────────
+
+# Pulls that project more than this off the face can snag on clothing and
+# narrow passages. Typical catalog values run 25–45 mm; 50 mm is chosen as
+# the warning threshold to flag the long-bar industrial pulls without
+# nagging about standard hardware.
+PULL_PROJECTION_WARN_MM: float = 50.0
+
+
+def _check_pull_common(
+    face_width_mm: float,
+    face_height_mm: float,
+    pull: PullSpec,
+    pull_key: str,
+    pull_count: int,
+    where: str,
+) -> list[Issue]:
+    """Shared pull-placement checks used by drawer and door evaluators.
+
+    Parameters
+    ----------
+    face_width_mm, face_height_mm :
+        Dimensions of the face the pull mounts on (drawer face or door panel).
+    pull :
+        The resolved PullSpec (caller has already looked it up).
+    pull_key :
+        Catalog id — included in messages so users can search for it.
+    pull_count :
+        Pull count from config.  ``0`` means "defer to ``recommend_pull_count``".
+    where :
+        Short label for messages (e.g. ``"drawer_0"``, ``"door_pair"``).
+
+    Returns
+    -------
+    list[Issue]
+        Issues related to the pull itself (fit, projection, knob-on-wide,
+        pull_count-vs-knob mismatch).  An empty list means the pull looks fine.
+    """
+    issues: list[Issue] = []
+
+    effective_count = pull_count if pull_count > 0 else recommend_pull_count(
+        face_width_mm, pull
+    )
+
+    # ── Fit check ───────────────────────────────────────────────────────────
+    if not pull_fits_face(face_width_mm, pull, count=effective_count):
+        # Min face width for single-pull placement with 40 mm end margin on
+        # each side; we report this so the user can act on it.
+        min_single = pull.length_mm + 80.0
+        issues.append(Issue(
+            check="pull_fit",
+            severity=Severity.ERROR,
+            message=(
+                f"{where}: pull '{pull_key}' ({pull.length_mm:.0f} mm long) "
+                f"does not fit the {face_width_mm:.0f} mm face with "
+                f"{effective_count} placement(s). "
+                f"Need ≥ {min_single:.0f} mm for a single pull, or a shorter pull."
+            ),
+            part_a=where,
+            value=face_width_mm,
+            limit=min_single,
+        ))
+
+    # ── Projection — ergonomic warning ──────────────────────────────────────
+    if pull.projection_mm > PULL_PROJECTION_WARN_MM:
+        issues.append(Issue(
+            check="pull_projection",
+            severity=Severity.WARNING,
+            message=(
+                f"{where}: pull '{pull_key}' projects {pull.projection_mm:.0f} mm "
+                f"off the face — above the {PULL_PROJECTION_WARN_MM:.0f} mm "
+                f"ergonomic threshold. Can snag on clothing in narrow walkways."
+            ),
+            part_a=where,
+            value=pull.projection_mm,
+            limit=PULL_PROJECTION_WARN_MM,
+        ))
+
+    # ── Knob on a wide face — suggest a handle pull ─────────────────────────
+    if pull.mount_style is MountStyle.KNOB and face_width_mm > DUAL_PULL_THRESHOLD_MM:
+        issues.append(Issue(
+            check="pull_knob_on_wide_face",
+            severity=Severity.WARNING,
+            message=(
+                f"{where}: knob '{pull_key}' on a {face_width_mm:.0f} mm face — "
+                f"faces wider than {DUAL_PULL_THRESHOLD_MM:.0f} mm feel "
+                f"unbalanced opening on a single knob. Consider a handle pull."
+            ),
+            part_a=where,
+            value=face_width_mm,
+            limit=DUAL_PULL_THRESHOLD_MM,
+        ))
+
+    # ── Explicit pull_count > 1 on a knob is silently coerced to 1 by
+    #    pull_positions; warn so the user knows their setting was ignored.
+    if (
+        pull.mount_style is MountStyle.KNOB
+        and pull_count > 1
+    ):
+        issues.append(Issue(
+            check="pull_count_knob_coerced",
+            severity=Severity.WARNING,
+            message=(
+                f"{where}: pull_count={pull_count} on knob '{pull_key}' is "
+                f"coerced to 1 at placement — knobs are never split into a "
+                f"dual-knob layout. Pick a handle pull if you want two placements."
+            ),
+            part_a=where,
+            value=float(pull_count),
+            limit=1.0,
+        ))
+
+    return issues
+
+
+def check_drawer_pull(drawer_cfg: DrawerConfig) -> list[Issue]:
+    """Validate the pull (if any) on a drawer face.
+
+    Runs the fit / projection / knob-on-wide shared checks plus two
+    drawer-specific signals:
+
+    - **Unknown pull key** — ERROR; no further pull checks run.
+    - **No applied face** — WARNING; ``applied_face=False`` drawers have no
+      visible face on which to mount a pull, so the spec is effectively
+      ignored by :attr:`DrawerConfig.pull_placements`.
+    """
+    issues: list[Issue] = []
+    if drawer_cfg.pull_key is None:
+        return issues
+
+    try:
+        pull = get_pull(drawer_cfg.pull_key)
+    except KeyError:
+        issues.append(Issue(
+            check="pull_unknown",
+            severity=Severity.ERROR,
+            message=(
+                f"drawer: pull_key '{drawer_cfg.pull_key}' is not in the catalog. "
+                f"See hardware.PULLS for valid ids."
+            ),
+            part_a="drawer",
+        ))
+        return issues
+
+    if not drawer_cfg.applied_face:
+        issues.append(Issue(
+            check="pull_no_face",
+            severity=Severity.WARNING,
+            message=(
+                f"drawer: pull_key '{drawer_cfg.pull_key}' is set but "
+                f"applied_face=False — no face to mount on; the pull will "
+                f"not be placed. Either add an applied face or clear pull_key."
+            ),
+            part_a="drawer",
+        ))
+        return issues  # fit checks are meaningless without a face
+
+    issues.extend(_check_pull_common(
+        face_width_mm=drawer_cfg.face_width,
+        face_height_mm=drawer_cfg.face_height,
+        pull=pull,
+        pull_key=drawer_cfg.pull_key,
+        pull_count=drawer_cfg.pull_count,
+        where="drawer",
+    ))
+    return issues
+
+
+def check_door_pull(door_cfg: DoorConfig) -> list[Issue]:
+    """Validate the pull (if any) on a door panel.
+
+    Door pairs are checked against the *per-leaf* door_width — each leaf is
+    its own face and carries its own pull, so the fit math operates on the
+    single-leaf width rather than the opening.
+    """
+    issues: list[Issue] = []
+    if door_cfg.pull_key is None:
+        return issues
+
+    try:
+        pull = get_pull(door_cfg.pull_key)
+    except KeyError:
+        issues.append(Issue(
+            check="pull_unknown",
+            severity=Severity.ERROR,
+            message=(
+                f"door: pull_key '{door_cfg.pull_key}' is not in the catalog. "
+                f"See hardware.PULLS for valid ids."
+            ),
+            part_a="door",
+        ))
+        return issues
+
+    where = "door_pair_leaf" if door_cfg.num_doors == 2 else "door"
+    issues.extend(_check_pull_common(
+        face_width_mm=door_cfg.door_width,
+        face_height_mm=door_cfg.door_height,
+        pull=pull,
+        pull_key=door_cfg.pull_key,
+        pull_count=door_cfg.pull_count,
+        where=where,
+    ))
+    return issues
+
+
+def check_cabinet_pull_consistency(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Cabinet-level sanity check for pulls that span drawers *and* doors.
+
+    If the cabinet specifies both ``drawer_pull`` and ``door_pull``, the two
+    pulls should share a design language (``PullSpec.style``) — mixing a
+    Contemporary drawer pull with a Traditional door pull on the same carcass
+    is usually a mistake.  Identical finishes are not enforced because some
+    designers deliberately mix e.g. Flat Black pulls with Polished Brass knobs
+    for accent.
+    """
+    issues: list[Issue] = []
+    if cab_cfg.drawer_pull is None or cab_cfg.door_pull is None:
+        return issues
+    if cab_cfg.drawer_pull == cab_cfg.door_pull:
+        return issues
+
+    try:
+        dp = get_pull(cab_cfg.drawer_pull)
+        op = get_pull(cab_cfg.door_pull)
+    except KeyError:
+        # The unknown key is already flagged by per-config checks when the
+        # drawers/doors are evaluated; don't double-report here.
+        return issues
+
+    if dp.style != op.style:
+        issues.append(Issue(
+            check="pull_style_mismatch",
+            severity=Severity.WARNING,
+            message=(
+                f"Cabinet mixes pull styles: drawers use '{cab_cfg.drawer_pull}' "
+                f"({dp.style}) but doors use '{cab_cfg.door_pull}' ({op.style}). "
+                f"Confirm this is intentional."
+            ),
+            part_a="drawer_pull",
+            part_b="door_pull",
+        ))
+
+    return issues
+
+
 # ─── Geometric Checks (require CadQuery) ─────────────────────────────────────
 
 
@@ -1296,12 +1551,14 @@ def evaluate_cabinet(
     all_issues.extend(check_carcass_joinery(cab_cfg))
     all_issues.extend(check_drawer_carcass_clearances(cab_cfg))
     all_issues.extend(check_column_widths(cab_cfg))
+    all_issues.extend(check_cabinet_pull_consistency(cab_cfg))
 
     # ── Drawer hardware + joinery checks ────────────────────────────────
     if drawer_assemblies:
         for drawer_assy, drawer_cfg in drawer_assemblies:
             all_issues.extend(check_drawer_hardware_clearances(drawer_cfg))
             all_issues.extend(check_drawer_joinery(drawer_cfg))
+            all_issues.extend(check_drawer_pull(drawer_cfg))
 
     # ── Door / hinge checks ──────────────────────────────────────────────
     if door_configs:
@@ -1309,6 +1566,7 @@ def evaluate_cabinet(
             all_issues.extend(check_door_hinge_count(door_cfg))
             all_issues.extend(check_door_dimensions(door_cfg))
             all_issues.extend(check_door_pair_width(door_cfg))
+            all_issues.extend(check_door_pull(door_cfg))
 
     # ── Shelf deflection ─────────────────────────────────────────────────
     if shelf_loads_kg:

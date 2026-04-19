@@ -45,8 +45,10 @@ Salice datasheet for the specific revision you are purchasing before cutting.
 Minor changes between catalog years are possible.
 """
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
+from importlib import resources
 from typing import Optional
 
 
@@ -893,3 +895,169 @@ def get_leg(name: str) -> LegSpec:
     if name not in LEGS:
         raise KeyError(f"Unknown leg '{name}'. Available: {list(LEGS.keys())}")
     return LEGS[name]
+
+
+# ─── Pulls and Knobs ──────────────────────────────────────────────────────────
+#
+# Pulls live in an external JSON catalog (data/pulls_catalog.json) rather than
+# being hand-written as module-level constants, because there are many variants
+# (currently 45 across 5 brands) that differ only in size/finish and it's more
+# convenient to treat the catalog as data.  The JSON is loaded once at import
+# time and materialised into a dict of frozen PullSpec objects.
+#
+# Schema version 1.7.0 of the catalog requires a per-entry "mount_style" field.
+#
+# Mount styles
+# ------------
+#   surface  — standard bar pull with two through-holes into the face.  Most
+#              Top Knobs, Rockler, Hafele, and IKEA bar-style pulls fall here.
+#   edge     — edge pull gripped from above (drawer) or from behind the leading
+#              edge (door); mounts with two screws through the face the same
+#              way surface pulls do, but sits proud of the face by design.
+#   flush    — recessed pull routed into the face; no mounting screws through
+#              the face (hole_count = 0).  The cc_mm is the cutout length.
+#   knob     — single-screw fastener; one mounting hole at the knob centre.
+#              cc_mm is 0.
+#
+# Knob support is provided in the schema even though the current catalog has
+# no knob entries — add them to the JSON and they work automatically.
+
+
+class MountStyle(Enum):
+    """How a pull or knob is fastened to a drawer front or door."""
+    SURFACE = "surface"   # two through-holes in the face; bar pull style
+    EDGE    = "edge"      # sits on the top/leading edge, fastens through face
+    FLUSH   = "flush"     # routed recess, no through-holes
+    KNOB    = "knob"      # single centre hole
+
+
+@dataclass(frozen=True)
+class PullSpec:
+    """Specification for a cabinet pull or knob.
+
+    All dimensions in millimetres.
+
+    ``cc_mm`` is the centre-to-centre distance between mounting holes.  For
+    knobs it is 0 (single hole).  For flush / inset pulls it describes the
+    cutout opening length, not a hole spacing.
+
+    ``length_mm`` is the overall length of the pull body.
+
+    ``projection_mm`` is how far the pull stands proud of the face.  For flush
+    pulls this is typically ≤ 2 mm (the lip of the recessed cup).
+    """
+    id: str                       # stable catalog identifier, e.g. "topknobs-hb-128"
+    name: str                     # display name
+    brand: str
+    model_number: str
+    url: str
+    style: str                    # design style: "Transitional", "Minimalist", ...
+    material: str
+    finish: str
+    mount_style: MountStyle
+    pack_quantity: int            # units per SKU pack (IKEA sells in 2-packs)
+    cc_mm: float                  # hole spacing (0 for knobs)
+    length_mm: float              # overall pull length
+    projection_mm: float          # stand-off from face
+    tags: tuple[str, ...] = ()
+
+    @property
+    def hole_count(self) -> int:
+        """Number of mounting screws through the face."""
+        if self.mount_style is MountStyle.KNOB:
+            return 1
+        if self.mount_style is MountStyle.FLUSH:
+            return 0
+        # surface and edge pulls — both use two through-holes
+        return 2
+
+    @property
+    def hole_offsets_from_center(self) -> tuple[float, ...]:
+        """X-offsets (along the pull's long axis) of each mounting hole from
+        the pull's centre point.  Empty tuple for flush pulls."""
+        n = self.hole_count
+        if n == 0:
+            return ()
+        if n == 1:
+            return (0.0,)
+        return (-self.cc_mm / 2.0, self.cc_mm / 2.0)
+
+    @property
+    def is_knob(self) -> bool:
+        return self.mount_style is MountStyle.KNOB
+
+
+# ─── Catalog loader ──────────────────────────────────────────────────────────
+#
+# Loaded once at import time.  The catalog file ships as package data — see
+# pyproject.toml [tool.setuptools.package-data].  Use importlib.resources so
+# it resolves correctly whether the package is installed, run from a wheel,
+# or imported from a src-layout source tree.
+
+_REQUIRED_PULL_FIELDS = {
+    "id", "name", "brand", "model_number", "mount_style", "dimensions",
+}
+_REQUIRED_DIMENSION_FIELDS = {"cc_mm", "length_mm", "projection_mm"}
+
+
+def _load_pulls_from_catalog(catalog_path=None) -> dict[str, PullSpec]:
+    """Read the JSON catalog and build the PULLS registry.
+
+    ``catalog_path`` may be passed for testing; otherwise the packaged
+    ``data/pulls_catalog.json`` is used.
+    """
+    if catalog_path is None:
+        data_resource = resources.files("cadquery_furniture") / "data" / "pulls_catalog.json"
+        raw_text = data_resource.read_text(encoding="utf-8")
+    else:
+        with open(catalog_path, "r", encoding="utf-8") as fh:
+            raw_text = fh.read()
+    doc = json.loads(raw_text)
+
+    out: dict[str, PullSpec] = {}
+    for entry in doc.get("pulls", []):
+        missing = _REQUIRED_PULL_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"Pull entry missing fields {missing}: {entry.get('id', '?')}")
+        dims = entry["dimensions"]
+        miss_dims = _REQUIRED_DIMENSION_FIELDS - dims.keys()
+        if miss_dims:
+            raise ValueError(f"Pull {entry['id']} dimensions missing {miss_dims}")
+        try:
+            ms = MountStyle(entry["mount_style"])
+        except ValueError as exc:
+            raise ValueError(
+                f"Pull {entry['id']} has unknown mount_style {entry['mount_style']!r}"
+            ) from exc
+
+        pid = entry["id"]
+        if pid in out:
+            raise ValueError(f"Duplicate pull id in catalog: {pid}")
+        out[pid] = PullSpec(
+            id=pid,
+            name=entry["name"],
+            brand=entry["brand"],
+            model_number=entry["model_number"],
+            url=entry.get("url", ""),
+            style=entry.get("style", ""),
+            material=entry.get("material", ""),
+            finish=entry.get("finish", ""),
+            mount_style=ms,
+            pack_quantity=int(entry.get("pack_quantity", 1)),
+            cc_mm=float(dims.get("cc_mm", 0.0)),
+            length_mm=float(dims["length_mm"]),
+            projection_mm=float(dims["projection_mm"]),
+            tags=tuple(entry.get("tags", ())),
+        )
+    return out
+
+
+PULLS: dict[str, PullSpec] = _load_pulls_from_catalog()
+
+
+def get_pull(name: str) -> PullSpec:
+    """Look up a pull spec by id. Raises KeyError with the available keys on miss."""
+    if name not in PULLS:
+        raise KeyError(f"Unknown pull '{name}'. {len(PULLS)} available; first few: "
+                       f"{list(PULLS.keys())[:5]}")
+    return PULLS[name]

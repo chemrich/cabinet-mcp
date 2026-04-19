@@ -7,12 +7,16 @@ cutlist optimization. Supports output to:
 - CSV (for manual reference)
 - Console table
 
+Also produces hardware BOMs (pulls, hinges, slides, legs) as
+``HardwareLine`` records with pack-quantity procurement math.
+
 All dimensions in millimeters.
 """
 
 import csv
 import json
 import io
+import math
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -277,4 +281,275 @@ def print_bom(panels: list[CutlistPanel]) -> None:
         sheet_area = 2440 * 1220  # 4x8 sheet
         sheets_needed = total_area / sheet_area
         print(f"  {t:.0f}mm: {len(group)} parts, ~{total_area/1e6:.2f}m² total, ~{sheets_needed:.1f} sheets (4×8)")
+    print()
+
+
+# ─── Hardware BOM ────────────────────────────────────────────────────────────
+#
+# Hardware lines track the procurement side of the bill of materials: how many
+# *pieces* of a given SKU are needed, what the pack size is, and therefore how
+# many packs to order. They are produced alongside the panel cutlist but do
+# not flow through the sheet-goods optimizer.
+
+
+@dataclass
+class HardwareLine:
+    """A single hardware SKU with procurement math.
+
+    ``pieces_needed`` is the actual quantity required by the design.
+    ``pack_quantity`` is how many pieces ship per SKU pack (e.g. IKEA HACKÅS
+    pulls sell in 2-packs, so pack_quantity=2). The derived properties turn
+    that into the number of packs to order and the resulting leftover pieces.
+    """
+    sku: str               # stable key, e.g. "topknobs-hb-128"
+    category: str          # "pull" | "hinge" | "slide" | "leg"
+    name: str
+    brand: str
+    model_number: str
+    pieces_needed: int
+    pack_quantity: int = 1
+    notes: str = ""
+
+    @property
+    def packs_to_order(self) -> int:
+        """Smallest pack count that covers pieces_needed."""
+        if self.pieces_needed <= 0:
+            return 0
+        pq = max(1, int(self.pack_quantity))
+        return math.ceil(self.pieces_needed / pq)
+
+    @property
+    def pieces_ordered(self) -> int:
+        """Total pieces received given packs_to_order × pack_quantity."""
+        return self.packs_to_order * max(1, int(self.pack_quantity))
+
+    @property
+    def leftover(self) -> int:
+        """Pieces remaining after installation (always ≥ 0)."""
+        return self.pieces_ordered - self.pieces_needed
+
+
+# ─── Pull BOM extractors ─────────────────────────────────────────────────────
+#
+# These functions inspect a DrawerConfig / DoorConfig / CabinetConfig and
+# return ``HardwareLine`` objects describing the pulls needed.  They rely on
+# the per-config ``pull_placements`` machinery added in Phase 3, so placement
+# rules (single vs dual, applied_face=False suppression, door-pair doubling)
+# stay in one place.
+
+
+def _pull_line(sku: str, pieces: int, notes: str = "") -> Optional[HardwareLine]:
+    """Build a HardwareLine from a pull catalog key.
+
+    Returns ``None`` for zero pieces or unknown keys — unknown keys are the
+    responsibility of the evaluator, not the BOM extractor.
+    """
+    if pieces <= 0 or not sku:
+        return None
+    # Import here to avoid a hard dependency at module-import time if the
+    # catalog somehow failed to load (tests exercise that path via monkey-
+    # patching PULLS).
+    from .hardware import get_pull
+    try:
+        spec = get_pull(sku)
+    except KeyError:
+        return None
+    return HardwareLine(
+        sku=sku,
+        category="pull",
+        name=spec.name,
+        brand=spec.brand,
+        model_number=spec.model_number,
+        pieces_needed=pieces,
+        pack_quantity=spec.pack_quantity,
+        notes=notes,
+    )
+
+
+def pull_line_from_drawer(drawer_cfg) -> Optional[HardwareLine]:
+    """Return the HardwareLine for this drawer's pulls, or None.
+
+    Returns None when the drawer has no pull_key, no applied face, or the
+    key refers to a pull missing from the catalog.
+    """
+    if drawer_cfg.pull_key is None:
+        return None
+    try:
+        placements = drawer_cfg.pull_placements
+    except KeyError:
+        return None
+    n = len(placements)
+    return _pull_line(drawer_cfg.pull_key, n)
+
+
+def pull_line_from_door(door_cfg) -> Optional[HardwareLine]:
+    """Return the HardwareLine for this door config's pulls, or None.
+
+    Uses ``total_pull_count``, which already accounts for door pairs.
+    """
+    if door_cfg.pull_key is None:
+        return None
+    try:
+        _ = door_cfg.pull_placements  # force resolve so unknown keys raise
+    except KeyError:
+        return None
+    n = door_cfg.total_pull_count
+    return _pull_line(door_cfg.pull_key, n)
+
+
+def pull_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
+    """Walk a CabinetConfig's drawer_config and return a consolidated list of
+    pull ``HardwareLine`` entries.
+
+    Mirrors ``drawers_from_cabinet_config`` / ``doors_from_cabinet_config``:
+    one drawer pull per "drawer" slot, one door pull per "door" slot, two
+    door pulls per "door_pair" slot. Multi-column layouts (``cab_cfg.columns``)
+    are walked per column.
+    """
+    # Deferred imports: DrawerConfig / DoorConfig import cadquery lazily, but
+    # their parametric paths (the ones we use here) don't require it.
+    from .drawer import DrawerConfig
+    from .door import DoorConfig
+
+    lines: list[HardwareLine] = []
+
+    def _walk_stack(stack, interior_width: float, interior_depth: float) -> None:
+        for opening_h, slot_type in stack:
+            if slot_type == "drawer":
+                dcfg = DrawerConfig(
+                    opening_width=interior_width,
+                    opening_height=opening_h,
+                    opening_depth=interior_depth,
+                    slide_key=cab_cfg.drawer_slide,
+                    pull_key=cab_cfg.drawer_pull,
+                )
+                line = pull_line_from_drawer(dcfg)
+                if line is not None:
+                    lines.append(line)
+            elif slot_type in ("door", "door_pair"):
+                num_doors = 2 if slot_type == "door_pair" else 1
+                dcfg = DoorConfig(
+                    opening_width=interior_width,
+                    opening_height=opening_h,
+                    num_doors=num_doors,
+                    hinge_key=cab_cfg.door_hinge,
+                    pull_key=cab_cfg.door_pull,
+                )
+                line = pull_line_from_door(dcfg)
+                if line is not None:
+                    lines.append(line)
+            # other slot_types (shelf, open) contribute no pulls
+
+    if getattr(cab_cfg, "columns", None):
+        for col in cab_cfg.columns:
+            _walk_stack(col.drawer_config, col.width_mm, cab_cfg.interior_depth)
+    else:
+        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width, cab_cfg.interior_depth)
+
+    return consolidate_hardware_lines(lines)
+
+
+# ─── Consolidation + output ──────────────────────────────────────────────────
+
+
+def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
+    """Merge HardwareLines that share the same SKU, summing pieces_needed.
+
+    Notes are concatenated (comma-separated) for traceability. Input order
+    is preserved for the first occurrence of each SKU.
+    """
+    out: dict[str, HardwareLine] = {}
+    order: list[str] = []
+    for line in lines:
+        if line.sku in out:
+            merged = out[line.sku]
+            merged.pieces_needed += line.pieces_needed
+            if line.notes:
+                merged.notes = (
+                    f"{merged.notes}, {line.notes}" if merged.notes else line.notes
+                )
+        else:
+            out[line.sku] = HardwareLine(
+                sku=line.sku,
+                category=line.category,
+                name=line.name,
+                brand=line.brand,
+                model_number=line.model_number,
+                pieces_needed=line.pieces_needed,
+                pack_quantity=line.pack_quantity,
+                notes=line.notes,
+            )
+            order.append(line.sku)
+    return [out[sku] for sku in order]
+
+
+def to_hardware_csv(lines: list[HardwareLine]) -> str:
+    """Export a hardware BOM as CSV."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "SKU", "Category", "Name", "Brand", "Model #",
+        "Pieces Needed", "Pack Qty", "Packs to Order",
+        "Pieces Ordered", "Leftover", "Notes",
+    ])
+    for line in lines:
+        writer.writerow([
+            line.sku, line.category, line.name, line.brand, line.model_number,
+            line.pieces_needed, line.pack_quantity, line.packs_to_order,
+            line.pieces_ordered, line.leftover, line.notes,
+        ])
+    return buf.getvalue()
+
+
+def to_hardware_json(lines: list[HardwareLine]) -> str:
+    """Export a hardware BOM as JSON.
+
+    Each line includes the derived procurement fields so downstream consumers
+    (MCP clients, spreadsheets) don't have to replicate the math.
+    """
+    payload = {
+        "lines": [
+            {
+                "sku": l.sku,
+                "category": l.category,
+                "name": l.name,
+                "brand": l.brand,
+                "model_number": l.model_number,
+                "pieces_needed": l.pieces_needed,
+                "pack_quantity": l.pack_quantity,
+                "packs_to_order": l.packs_to_order,
+                "pieces_ordered": l.pieces_ordered,
+                "leftover": l.leftover,
+                "notes": l.notes,
+            }
+            for l in lines
+        ],
+        "totals": {
+            "line_count": len(lines),
+            "pieces_needed": sum(l.pieces_needed for l in lines),
+            "packs_to_order": sum(l.packs_to_order for l in lines),
+        },
+    }
+    return json.dumps(payload, indent=2)
+
+
+def print_hardware_bom(lines: list[HardwareLine]) -> None:
+    """Print a formatted hardware BOM table to console."""
+    if not lines:
+        print("(no hardware lines)")
+        return
+    print()
+    print(f"{'SKU':<28} {'Cat':<6} {'Name':<32} "
+          f"{'Need':>5} {'Pack':>5} {'Order':>6} {'Left':>5}")
+    print("-" * 92)
+    for l in lines:
+        print(
+            f"{l.sku:<28} {l.category:<6} {l.name[:32]:<32} "
+            f"{l.pieces_needed:>5} {l.pack_quantity:>5} "
+            f"{l.packs_to_order:>6} {l.leftover:>5}"
+        )
+    print()
+    tot_pieces = sum(l.pieces_needed for l in lines)
+    tot_packs  = sum(l.packs_to_order for l in lines)
+    print(f"  {len(lines)} lines, {tot_pieces} pieces, {tot_packs} packs to order")
     print()

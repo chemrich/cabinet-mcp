@@ -26,8 +26,9 @@ try:
 except ImportError:
     cq = None
 
-from .hardware import HingeSpec, OverlayType, get_hinge
+from .hardware import HingeSpec, OverlayType, get_hinge, get_pull
 from .cabinet import CabinetConfig, PartInfo
+from .pulls import PullPlacement, VerticalPolicy, pull_positions
 
 
 @dataclass
@@ -80,6 +81,18 @@ class DoorConfig:
     gap_bottom: float = 2.0
     gap_side: float = 2.0       # inset only — each side
     gap_between: float = 2.0    # pairs only
+
+    # Pull hardware (optional).  ``pull_key`` is a key into the PULLS registry
+    # (see ``hardware.PULLS`` / ``cadquery_furniture/data/pulls_catalog.json``).
+    # When ``None``, no pull is placed on the door and the BOM omits it.
+    # ``pull_count`` of 0 defers to :func:`pulls.recommend_pull_count`.
+    # Doors are usually fitted with a single pull; surface/edge pulls on doors
+    # narrower than 600 mm (the usual case for cabinet doors) get one pull, and
+    # most doors use the ``"center"`` vertical policy.  Tall dresser doors may
+    # look better with ``"upper_third"`` so the pull is within arm's reach.
+    pull_key: Optional[str] = None
+    pull_count: int = 0
+    pull_vertical: VerticalPolicy = "center"
 
     # ── Computed properties ───────────────────────────────────────────────
 
@@ -149,6 +162,33 @@ class DoorConfig:
     def total_hinge_count(self) -> int:
         """Total hinges needed across *all* doors in this DoorConfig."""
         return self.hinge_count * self.num_doors
+
+    @property
+    def pull_placements(self) -> list[PullPlacement]:
+        """Pull placements on a single door panel, in face-local coords.
+
+        Returns an empty list when ``pull_key`` is ``None``.  For ``num_doors=2``
+        the caller is responsible for duplicating (or mirroring) these
+        placements onto the second door — each door has the same placements in
+        its own face-local frame, because both doors have the same width and
+        height.
+        """
+        if self.pull_key is None:
+            return []
+        pull = get_pull(self.pull_key)
+        return pull_positions(
+            self.door_width,
+            self.door_height,
+            pull,
+            self.pull_key,
+            count=self.pull_count,
+            vertical=self.pull_vertical,
+        )
+
+    @property
+    def total_pull_count(self) -> int:
+        """Total pulls needed across *all* doors in this DoorConfig."""
+        return len(self.pull_placements) * self.num_doors
 
 
 # ─── CadQuery helpers ─────────────────────────────────────────────────────────
@@ -303,6 +343,7 @@ def doors_from_cabinet_config(
                 opening_height=opening_height,
                 num_doors=num_doors,
                 hinge_key=getattr(cab_cfg, "door_hinge", "blum_clip_top_110_full"),
+                pull_key=getattr(cab_cfg, "door_pull", None),
             )
             if num_doors == 1:
                 assy, parts = build_door(dcfg)

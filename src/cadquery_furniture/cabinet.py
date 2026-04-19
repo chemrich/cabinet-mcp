@@ -110,6 +110,14 @@ class CabinetConfig:
     # Door hardware
     door_hinge: str = "blum_clip_top_110_full"
 
+    # Pull hardware (optional defaults).  These keys propagate down to drawers
+    # and doors generated from this cabinet via ``drawers_from_cabinet_config``
+    # and ``doors_from_cabinet_config`` — i.e. every drawer in this carcass
+    # gets ``drawer_pull`` and every door gets ``door_pull`` unless the per-
+    # drawer / per-door config overrides it.  ``None`` means no pull.
+    drawer_pull: Optional[str] = None
+    door_pull: Optional[str] = None
+
     # Leg / foot hardware (used by build_multi_bay_cabinet and design_legs)
     leg_key: str = "richelieu_176138106"
     leg_count: int = 4

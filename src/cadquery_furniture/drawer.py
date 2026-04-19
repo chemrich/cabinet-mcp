@@ -19,7 +19,7 @@ try:
 except ImportError:
     cq = None
 
-from .hardware import DrawerSlideSpec, get_slide
+from .hardware import DrawerSlideSpec, get_slide, get_pull
 from .cabinet import CabinetConfig, PartInfo
 from .joinery import (
     DrawerJoineryStyle,
@@ -28,6 +28,7 @@ from .joinery import (
     apply_drawer_joinery_to_side,
     apply_drawer_joinery_to_front_back,
 )
+from .pulls import PullPlacement, VerticalPolicy, pull_positions
 
 
 # ─── Standard drawer box heights ──────────────────────────────────────────────
@@ -110,6 +111,17 @@ class DrawerConfig:
     face_overlay_bottom: float = 3.0
     face_thickness: float = 18.0  # 3/4"
 
+    # Pull hardware (optional).  ``pull_key`` is a key into the PULLS registry
+    # (see ``hardware.PULLS`` / ``cadquery_furniture/data/pulls_catalog.json``).
+    # When ``None``, no pull is placed on the drawer face and the BOM omits it.
+    # ``pull_count`` of 0 defers to :func:`pulls.recommend_pull_count` (1 for
+    # knobs/flush; 1 if face_width ≤ 600 mm, else 2 for surface/edge pulls).
+    # ``pull_vertical`` controls the height at which the pull centres sit —
+    # ``"center"`` (default), ``"upper_third"``, or ``"lower_third"``.
+    pull_key: Optional[str] = None
+    pull_count: int = 0
+    pull_vertical: VerticalPolicy = "center"
+
     @property
     def slide(self) -> DrawerSlideSpec:
         return get_slide(self.slide_key)
@@ -174,6 +186,27 @@ class DrawerConfig:
     def face_height(self) -> float:
         """Applied drawer face height."""
         return self.opening_height + self.face_overlay_top + self.face_overlay_bottom
+
+    @property
+    def pull_placements(self) -> list[PullPlacement]:
+        """Pull placements on the applied drawer face, in face-local coords.
+
+        Returns an empty list when ``pull_key`` is ``None`` or the drawer has
+        no applied face (``applied_face=False``) — there is nowhere to mount
+        a pull in either case.  Otherwise resolves the catalog entry and
+        delegates to :func:`pulls.pull_positions`.
+        """
+        if self.pull_key is None or not self.applied_face:
+            return []
+        pull = get_pull(self.pull_key)
+        return pull_positions(
+            self.face_width,
+            self.face_height,
+            pull,
+            self.pull_key,
+            count=self.pull_count,
+            vertical=self.pull_vertical,
+        )
 
 
 def _require_cq():
@@ -376,6 +409,7 @@ def drawers_from_cabinet_config(cab_cfg: CabinetConfig) -> list[tuple["cq.Assemb
                 opening_height=opening_height,
                 opening_depth=cab_cfg.interior_depth,
                 slide_key=cab_cfg.drawer_slide,
+                pull_key=cab_cfg.drawer_pull,
             )
             drawer_assy, drawer_parts = build_drawer(dcfg)
 
