@@ -63,7 +63,13 @@ from mcp.server.models import InitializationOptions
 
 from .cabinet import CabinetConfig, ColumnConfig, build_multi_bay_cabinet as _build_multi_bay_cabinet
 from .auto_fix import auto_fix_cabinet as _auto_fix, AutoFixResult, fixable_checks
-from .proportions import graduated_drawer_heights as _grad_heights, column_widths as _col_widths, RATIO_PRESETS as _RATIO_PRESETS
+from .proportions import (
+    graduated_drawer_heights as _grad_heights,
+    column_widths as _col_widths,
+    RATIO_PRESETS as _RATIO_PRESETS,
+    _PRESET_DESCRIPTIONS,
+    _mm_to_inches_str,
+)
 from .describe import describe_design as _describe_design
 from .presets import PRESETS, get_preset, list_presets as _list_presets
 from .visualize import build_and_visualize as _build_and_visualize, visualize_assembly as _visualize_assembly
@@ -937,6 +943,52 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["cabinet_width", "cabinet_depth"],
             },
         ),
+        types.Tool(
+            name="suggest_proportions",
+            description=textwrap.dedent("""\
+                Compare all four proportion presets (equal / subtle / classic / golden)
+                side-by-side for a given cabinet's interior dimensions.
+
+                For drawers: returns per-preset heights (mm + fractional inches) and a
+                viability flag — if a preset would produce a top drawer below the 75 mm
+                minimum it is marked not viable with a reason rather than raising an error.
+
+                For columns: returns per-preset column widths (mm). Column widths are
+                always viable for standard cabinet dimensions.
+
+                Omit num_drawers to skip drawer suggestions; omit num_columns to skip
+                column suggestions. At least one must be provided.
+
+                Use this before committing to a proportion preset in design_cabinet or
+                design_multi_column_cabinet.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number", "description": "Exterior width in mm."},
+                    "height": {"type": "number", "description": "Exterior height in mm."},
+                    "depth":  {"type": "number", "description": "Exterior depth in mm (accepted but not used in proportion math)."},
+                    "side_thickness":   {"type": "number", "default": 18},
+                    "bottom_thickness": {"type": "number", "default": 18},
+                    "top_thickness":    {"type": "number", "default": 18},
+                    "num_drawers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Number of drawer openings to compare across all presets.",
+                    },
+                    "num_columns": {
+                        "type": "integer",
+                        "minimum": 2,
+                        "description": "Number of columns to compare across all presets.",
+                    },
+                    "wide_index": {
+                        "type": "integer",
+                        "description": "0-based index of the accent (wide) column (used with num_columns).",
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
     ]
 
 
@@ -977,6 +1029,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_describe_design(arguments)
         elif name == "design_legs":
             return await _tool_design_legs(arguments)
+        elif name == "suggest_proportions":
+            return await _tool_suggest_proportions(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
@@ -1493,6 +1547,74 @@ async def _tool_compare_joinery(args: dict) -> list[types.TextContent]:
         "front_back_thickness_mm": t_fb,
         "styles": comparison,
     })
+
+
+# ── suggest_proportions ───────────────────────────────────────────────────────
+
+async def _tool_suggest_proportions(args: dict) -> list[types.TextContent]:
+    width    = float(args["width"])
+    height   = float(args["height"])
+    side_t   = float(args.get("side_thickness",   18))
+    bottom_t = float(args.get("bottom_thickness", 18))
+    top_t    = float(args.get("top_thickness",    18))
+    num_drawers = args.get("num_drawers")
+    num_columns = args.get("num_columns")
+    wide_index  = args.get("wide_index")
+
+    if not num_drawers and not num_columns:
+        return _err("Provide at least one of num_drawers or num_columns.")
+
+    interior_h = height - bottom_t - top_t
+    interior_w = width - 2 * side_t
+
+    result: dict[str, Any] = {
+        "interior_height_mm": interior_h,
+        "interior_width_mm":  interior_w,
+    }
+
+    if num_drawers:
+        suggestions = []
+        for preset, ratio in _RATIO_PRESETS.items():
+            try:
+                heights = _grad_heights(interior_h, int(num_drawers), preset)
+                suggestions.append({
+                    "preset":              preset,
+                    "ratio":               ratio,
+                    "character":           _PRESET_DESCRIPTIONS[preset],
+                    "viable":              True,
+                    "heights_mm":          heights,
+                    "heights_in":          [_mm_to_inches_str(h) for h in heights],
+                    "bottom_mm":           heights[0],
+                    "top_mm":              heights[-1],
+                    "bottom_to_top_ratio": round(heights[0] / heights[-1], 3),
+                })
+            except ValueError as exc:
+                suggestions.append({
+                    "preset":    preset,
+                    "ratio":     ratio,
+                    "character": _PRESET_DESCRIPTIONS[preset],
+                    "viable":    False,
+                    "reason":    str(exc),
+                })
+        result["drawer_suggestions"] = suggestions
+
+    if num_columns:
+        suggestions = []
+        for preset, ratio in _RATIO_PRESETS.items():
+            widths = _col_widths(interior_w, int(num_columns), wide_index, preset)
+            wide_w   = widths[wide_index] if wide_index is not None else None
+            narrow_w = widths[0] if wide_index != 0 else widths[1]
+            suggestions.append({
+                "preset":           preset,
+                "ratio":            ratio,
+                "character":        _PRESET_DESCRIPTIONS[preset],
+                "widths_mm":        widths,
+                "wide_column_mm":   wide_w,
+                "narrow_column_mm": narrow_w,
+            })
+        result["column_suggestions"] = suggestions
+
+    return _ok(result)
 
 
 # ── visualize_cabinet ─────────────────────────────────────────────────────────

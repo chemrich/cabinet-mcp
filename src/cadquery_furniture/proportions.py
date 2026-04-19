@@ -43,6 +43,22 @@ RATIO_PRESETS: dict[str, float] = {
     "golden":  PHI,
 }
 
+_PRESET_DESCRIPTIONS: dict[str, str] = {
+    "equal":   "Uniform — all openings identical",
+    "subtle":  "Gentle 1.2× graduation — modern, understated",
+    "classic": "Traditional 1.4× graduation — reads clearly at 3–5 drawers",
+    "golden":  "Dramatic φ (1.618×) graduation — approximates Fibonacci; best at 3–4 drawers",
+}
+
+
+def _mm_to_inches_str(mm: float) -> str:
+    """Fractional-inch string rounded to nearest ⅛″ (e.g. 79 mm → '3⅛')."""
+    total_eighths = round(mm / 25.4 * 8)
+    whole = total_eighths // 8
+    rem   = total_eighths % 8
+    frac  = {0: "", 1: "⅛", 2: "¼", 3: "⅜", 4: "½", 5: "⅝", 6: "¾", 7: "⅞"}[rem]
+    return f"{whole}{frac}" if whole else frac
+
 
 def _resolve_ratio(ratio: float | str, context: str) -> float:
     if isinstance(ratio, str):

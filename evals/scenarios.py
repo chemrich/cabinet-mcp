@@ -1882,6 +1882,77 @@ _s(Scenario(
 ))
 
 
+# ─── Proportion suggestions ───────────────────────────────────────────────────
+
+_s(Scenario(
+    name="suggest_proportions_drawers_only",
+    prompt="I'm designing a 900 mm tall sideboard with 5 drawers. Show me how all four proportion presets would distribute the drawer heights.",
+    tags=["proportions"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="suggest_proportions",
+            args={"width": 1220, "height": 900, "depth": 457, "num_drawers": 5},
+            label="5-drawer comparison, all presets",
+            assertions=[
+                Assertion("interior_height_mm",           Op.EQ,      864.0),
+                Assertion("drawer_suggestions",           Op.LEN_EQ,  4),
+                Assertion("drawer_suggestions[0].viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions[1].viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions[2].viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions[3].viable", Op.IS_FALSE),
+                Assertion("drawer_suggestions[3].preset", Op.EQ,      "golden"),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="suggest_proportions_columns_only",
+    prompt="I want 3 columns in my 1220 mm sideboard with a wider centre. Show me how the proportion presets divide the columns.",
+    tags=["proportions"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="suggest_proportions",
+            args={"width": 1220, "height": 900, "depth": 457, "num_columns": 3, "wide_index": 1},
+            label="3-column comparison, wide centre, all presets",
+            assertions=[
+                Assertion("interior_width_mm",                  Op.EQ,      1184.0),
+                Assertion("column_suggestions",                 Op.LEN_EQ,  4),
+                Assertion("column_suggestions[0].widths_mm",    Op.LEN_EQ,  3),
+                Assertion("column_suggestions[3].widths_mm",    Op.LEN_EQ,  3),
+                Assertion("column_suggestions[3].wide_column_mm",   Op.GT,  400.0),
+                Assertion("column_suggestions[3].narrow_column_mm", Op.LT,  400.0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="suggest_proportions_both",
+    prompt="Compare proportion presets for a 3-column, 4-drawer sideboard.",
+    tags=["proportions"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="suggest_proportions",
+            args={
+                "width": 1220, "height": 900, "depth": 457,
+                "num_drawers": 4, "num_columns": 3, "wide_index": 1,
+            },
+            label="both drawer and column suggestions present",
+            assertions=[
+                Assertion("drawer_suggestions",           Op.LEN_EQ, 4),
+                Assertion("column_suggestions",           Op.LEN_EQ, 4),
+                Assertion("drawer_suggestions[0].viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions[3].viable", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+
 # ─── Index helpers ────────────────────────────────────────────────────────────
 
 def scenarios_by_tag(tag: str) -> list[Scenario]:
