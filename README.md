@@ -1,4 +1,4 @@
-# cadquery-furniture
+# cabinet-mcp
 
 Design kitchen and furniture cabinets conversationally. An MCP server drives a parametric core that emits validated configurations, 3D geometry, and optimised cutlists — with real Blum/Accuride/Salice hardware, five carcass joinery methods, and a proportion system rooted in traditional cabinet-making.
 
