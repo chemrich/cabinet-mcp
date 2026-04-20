@@ -83,7 +83,7 @@ from .cutlist import (
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
-from .hardware import HINGES, SLIDES, LEGS, OverlayType, LegPattern, get_leg
+from .hardware import HINGES, SLIDES, LEGS, PULLS, OverlayType, LegPattern, get_leg, get_pull
 from .joinery import (
     CarcassJoinery,
     DrawerJoineryStyle,
@@ -165,6 +165,35 @@ def _raw_box_height(cfg: DrawerConfig) -> float:
     return cfg.opening_height - cfg.slide.min_bottom_clearance - cfg.vertical_gap
 
 
+def _pull_placements_to_dicts(placements) -> list[dict]:
+    """Convert PullPlacement objects to JSON-friendly dicts."""
+    return [
+        {
+            "pull_key":     pl.pull_key,
+            "center_xz_mm": [pl.center[0], pl.center[1]],
+            "hole_coords_xz_mm": [list(hc) for hc in pl.hole_coords],
+        }
+        for pl in placements
+    ]
+
+
+def _hardware_line_to_dict(line) -> dict:
+    """Convert a HardwareLine to a JSON-friendly dict including derived fields."""
+    return {
+        "sku":            line.sku,
+        "category":       line.category,
+        "name":           line.name,
+        "brand":          line.brand,
+        "model_number":   line.model_number,
+        "pieces_needed":  line.pieces_needed,
+        "pack_quantity":  line.pack_quantity,
+        "packs_to_order": line.packs_to_order,
+        "pieces_ordered": line.pieces_ordered,
+        "leftover":       line.leftover,
+        "notes":          line.notes,
+    }
+
+
 # ─── Server ───────────────────────────────────────────────────────────────────
 
 server = Server("cabinet-mcp")
@@ -180,7 +209,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="list_hardware",
             description=(
-                "Return the catalogue of available drawer slides, hinges, and legs. "
+                "Return the catalogue of available drawer slides, hinges, legs, and pulls. "
                 "Use this to discover valid key strings for other tools."
             ),
             inputSchema={
@@ -188,10 +217,25 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["slides", "hinges", "legs", "all"],
+                        "enum": ["slides", "hinges", "legs", "pulls", "all"],
                         "description": "Which hardware category to list.",
                         "default": "all",
-                    }
+                    },
+                    "brand": {
+                        "type": "string",
+                        "description": (
+                            "Optional case-insensitive brand filter for pulls "
+                            "(e.g. 'IKEA', 'Top Knobs'). Ignored for other categories."
+                        ),
+                    },
+                    "mount_style": {
+                        "type": "string",
+                        "enum": ["surface", "edge", "flush", "knob"],
+                        "description": (
+                            "Optional mount-style filter for pulls. "
+                            "Ignored for other categories."
+                        ),
+                    },
                 },
             },
         ),
@@ -473,6 +517,13 @@ async def list_tools() -> list[types.Tool]:
 
                 overlay_type is determined automatically from the hinge_key you choose.
                 Use list_hardware to see valid hinge keys.
+
+                Optional pull hardware: pass pull_key (from list_hardware with
+                category="pulls") to get placements, the hardware BOM line, and
+                fit checks in the response.  pull_vertical controls where the
+                pull sits on the door face ("center", "upper_third", or
+                "lower_third") — upper_third for base-cabinet doors, lower_third
+                for wall cabinets.
             """),
             inputSchema={
                 "type": "object",
@@ -496,6 +547,27 @@ async def list_tools() -> list[types.Tool]:
                     "gap_bottom": {"type": "number", "default": 2.0},
                     "gap_side":   {"type": "number", "default": 2.0},
                     "gap_between": {"type": "number", "default": 2.0},
+                    "pull_key": {
+                        "type": "string",
+                        "description": (
+                            "Pull catalog key from list_hardware (category='pulls'). "
+                            "Omit for no pull."
+                        ),
+                    },
+                    "pull_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": (
+                            "Override auto-selected pull count per door leaf. "
+                            "0 = auto (single ≤ 600 mm, dual > 600 mm)."
+                        ),
+                    },
+                    "pull_vertical": {
+                        "type": "string",
+                        "enum": ["center", "upper_third", "lower_third"],
+                        "description": "Vertical placement policy on the door face.",
+                        "default": "center",
+                    },
                 },
                 "required": ["opening_width", "opening_height"],
             },
@@ -515,6 +587,12 @@ async def list_tools() -> list[types.Tool]:
                 Set use_standard_height=false to use the full clearance-adjusted height.
                 The response always includes both standard_box_height_mm and the raw
                 computed height for reference.
+
+                Optional pull hardware: pass pull_key (from list_hardware with
+                category="pulls") to get placements, the hardware BOM line, and
+                fit checks in the response.  Omit pull_count (or set to 0) to let
+                the tool auto-select single vs dual pulls at the 600 mm face
+                threshold.
             """),
             inputSchema={
                 "type": "object",
@@ -543,6 +621,28 @@ async def list_tools() -> list[types.Tool]:
                             "(3\"–12\" in 1\" steps). Default true."
                         ),
                         "default": True,
+                    },
+                    "pull_key": {
+                        "type": "string",
+                        "description": (
+                            "Pull catalog key from list_hardware (category='pulls'). "
+                            "Omit for no pull."
+                        ),
+                    },
+                    "pull_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": (
+                            "Override auto-selected pull count. 0 = auto: single "
+                            "pull if the drawer face is ≤ 600 mm wide, otherwise "
+                            "two pulls placed at quarter-points."
+                        ),
+                    },
+                    "pull_vertical": {
+                        "type": "string",
+                        "enum": ["center", "upper_third", "lower_third"],
+                        "description": "Vertical placement policy on the drawer face.",
+                        "default": "center",
                     },
                 },
                 "required": ["opening_width", "opening_height", "opening_depth"],
@@ -944,6 +1044,111 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="design_pulls",
+            description=textwrap.dedent("""\
+                Compute pull-hardware placements, fit checks, and consolidated
+                procurement BOM for an entire cabinet in one call.
+
+                Pass the cabinet footprint (width/height/depth) plus a
+                drawer_config (or columns array, for multi-column cabinets)
+                matching the shape used by design_cabinet / design_multi_column_cabinet,
+                together with drawer_pull and/or door_pull keys from
+                list_hardware (category="pulls").
+
+                For each drawer / door / door_pair slot the tool returns:
+                  - slot index, slot type, face dimensions
+                  - list of placements (centre + hole coordinates, face-local mm)
+                  - per-slot issues (e.g. pull_fit, pull_projection)
+
+                Plus:
+                  - cabinet_issues: style-consistency check across drawer/door pulls
+                  - hardware_bom: consolidated HardwareLine per SKU, including
+                    pack-quantity math (packs_to_order / pieces_ordered / leftover)
+
+                Omit both drawer_pull and door_pull to get an empty BOM and no
+                slot placements (useful for confirming the tool accepts a layout).
+
+                ── WORKFLOW ──
+                Call this AFTER design_cabinet / design_multi_column_cabinet and
+                AFTER evaluate_cabinet returns clean; the pull-consistency warning
+                is reported here as well so the user sees it alongside the BOM.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width":  {"type": "number", "description": "Exterior width in mm."},
+                    "height": {"type": "number", "description": "Exterior height in mm."},
+                    "depth":  {"type": "number", "description": "Exterior depth in mm."},
+                    "side_thickness":   {"type": "number", "default": 18.0},
+                    "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
+                    "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_config": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "prefixItems": [
+                                {"type": "number"},
+                                {"type": "string"},
+                            ],
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "description": "Flat stack of [height_mm, slot_type] pairs bottom-to-top.",
+                        "default": [],
+                    },
+                    "columns": {
+                        "type": "array",
+                        "description": (
+                            "Multi-column layout; mirrors design_multi_column_cabinet. "
+                            "If provided, drawer_config is ignored."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "width_mm": {"type": "number"},
+                                "drawer_config": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "number"},
+                                            {"type": "string"},
+                                        ],
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                    },
+                                    "default": [],
+                                },
+                            },
+                            "required": ["width_mm"],
+                        },
+                    },
+                    "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
+                    "door_hinge":   {"type": "string", "default": "blum_clip_top_110_full"},
+                    "drawer_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key applied to every drawer slot.",
+                    },
+                    "door_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key applied to every door / door_pair slot.",
+                    },
+                    "drawer_pull_vertical": {
+                        "type": "string",
+                        "enum": ["center", "upper_third", "lower_third"],
+                        "default": "center",
+                    },
+                    "door_pull_vertical": {
+                        "type": "string",
+                        "enum": ["center", "upper_third", "lower_third"],
+                        "default": "center",
+                    },
+                },
+                "required": ["width", "height", "depth"],
+            },
+        ),
+        types.Tool(
             name="suggest_proportions",
             description=textwrap.dedent("""\
                 Compare all four proportion presets (equal / subtle / classic / golden)
@@ -1029,6 +1234,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_describe_design(arguments)
         elif name == "design_legs":
             return await _tool_design_legs(arguments)
+        elif name == "design_pulls":
+            return await _tool_design_pulls(arguments)
         elif name == "suggest_proportions":
             return await _tool_suggest_proportions(arguments)
         else:
@@ -1088,6 +1295,35 @@ async def _tool_list_hardware(args: dict) -> list[types.TextContent]:
             }
             for key, l in LEGS.items()
         }
+
+    if category in ("pulls", "all"):
+        brand_filter = (args.get("brand") or "").strip().lower()
+        mount_filter = (args.get("mount_style") or "").strip().lower()
+        pulls_out: dict[str, dict[str, Any]] = {}
+        for key, p in PULLS.items():
+            if brand_filter and brand_filter not in p.brand.lower():
+                continue
+            if mount_filter and p.mount_style.value != mount_filter:
+                continue
+            pulls_out[key] = {
+                "name":           p.name,
+                "brand":          p.brand,
+                "model_number":   p.model_number,
+                "url":            p.url,
+                "style":          p.style,
+                "material":       p.material,
+                "finish":         p.finish,
+                "mount_style":    p.mount_style.value,
+                "pack_quantity":  p.pack_quantity,
+                "cc_mm":          p.cc_mm,
+                "length_mm":      p.length_mm,
+                "projection_mm":  p.projection_mm,
+                "is_knob":        p.is_knob,
+                "tags":           list(p.tags),
+            }
+        result["pulls"] = pulls_out
+        # Provide a handy count so clients don't have to walk the dict.
+        result["pulls_count"] = len(pulls_out)
 
     return _ok(result)
 
@@ -1340,7 +1576,7 @@ async def _tool_design_door(args: dict) -> list[types.TextContent]:
     cfg = _build_door_config(args)
     hinge = cfg.hinge
 
-    return _ok({
+    result: dict[str, Any] = {
         "door_width_mm":      cfg.door_width,
         "door_height_mm":     cfg.door_height,
         "door_thickness_mm":  cfg.door_thickness,
@@ -1364,7 +1600,26 @@ async def _tool_design_door(args: dict) -> list[types.TextContent]:
             "side_mm":    cfg.gap_side,
             "between_mm": cfg.gap_between,
         },
-    })
+    }
+
+    if cfg.pull_key is not None:
+        from .cutlist import pull_line_from_door
+        from .evaluation import check_door_pull
+
+        placements = cfg.pull_placements  # per-leaf placements
+        pull_issues = check_door_pull(cfg)
+        bom_line = pull_line_from_door(cfg)
+        result["pull"] = {
+            "key":                 cfg.pull_key,
+            "placements_per_leaf": _pull_placements_to_dicts(placements),
+            "pulls_per_leaf":      len(placements),
+            "total_pulls":         cfg.total_pull_count,
+            "vertical_policy":     cfg.pull_vertical,
+            "issues":              _issues_to_dicts(pull_issues),
+            "bom":                 _hardware_line_to_dict(bom_line) if bom_line else None,
+        }
+
+    return _ok(result)
 
 
 # ── design_drawer ─────────────────────────────────────────────────────────────
@@ -1394,7 +1649,7 @@ async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
     raw_height   = _raw_box_height(cfg)
     std_height   = snap_to_standard_box_height(raw_height)
 
-    return _ok({
+    result: dict[str, Any] = {
         "box_width_mm":               cfg.box_width,
         "box_height_mm":              cfg.box_height,   # snapped when use_standard_height=True
         "box_height_raw_mm":          raw_height,       # clearance-adjusted, before snapping
@@ -1413,7 +1668,27 @@ async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
             "max_load_kg":              slide.max_load_kg,
         },
         "joinery": joinery_info,
-    })
+    }
+
+    if cfg.pull_key is not None:
+        from .cutlist import pull_line_from_drawer
+        from .evaluation import check_drawer_pull
+
+        placements = cfg.pull_placements
+        pull_issues = check_drawer_pull(cfg)
+        bom_line = pull_line_from_drawer(cfg)
+        result["pull"] = {
+            "key":               cfg.pull_key,
+            "placements":        _pull_placements_to_dicts(placements),
+            "count":             len(placements),
+            "vertical_policy":   cfg.pull_vertical,
+            "face_width_mm":     cfg.face_width,
+            "face_height_mm":    cfg.face_height,
+            "issues":            _issues_to_dicts(pull_issues),
+            "bom":               _hardware_line_to_dict(bom_line) if bom_line else None,
+        }
+
+    return _ok(result)
 
 
 # ── generate_cutlist ──────────────────────────────────────────────────────────
@@ -1919,6 +2194,140 @@ async def _tool_design_legs(args: dict) -> list[types.TextContent]:
         result["load_per_leg_kg"] = round(load_per_leg, 2)
         result["load_check"]      = load_note
 
+    return _ok(result)
+
+
+# ── design_pulls ──────────────────────────────────────────────────────────────
+
+async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
+    """Compute per-slot pull placements + cabinet-level pull issues + BOM.
+
+    Walks the cabinet's drawer_config (or columns) once, building a parametric
+    DrawerConfig / DoorConfig per slot, and reports placements + per-slot fit
+    issues. Cabinet-level style consistency is checked separately.
+    """
+    from .drawer import DrawerConfig
+    from .door import DoorConfig
+    from .cutlist import pull_lines_for_cabinet_config
+    from .evaluation import (
+        check_drawer_pull,
+        check_door_pull,
+        check_cabinet_pull_consistency,
+    )
+
+    # Tool-only knobs that don't live on CabinetConfig — strip before building.
+    drawer_pull_vertical = args.pop("drawer_pull_vertical", "center")
+    door_pull_vertical   = args.pop("door_pull_vertical",   "center")
+
+    try:
+        cab_cfg = _build_cabinet_config(args)
+    except (TypeError, ValueError, KeyError) as exc:
+        return _err(f"Could not build cabinet config: {exc}")
+
+    drawer_slots: list[dict[str, Any]] = []
+    door_slots: list[dict[str, Any]] = []
+
+    def _walk_stack(stack, interior_width: float, interior_depth: float,
+                    column_index: int | None) -> None:
+        for slot_idx, (opening_h, slot_type) in enumerate(stack):
+            base: dict[str, Any] = {
+                "slot_index":     slot_idx,
+                "opening_height_mm": opening_h,
+                "slot_type":      slot_type,
+            }
+            if column_index is not None:
+                base["column_index"] = column_index
+
+            if slot_type == "drawer":
+                if cab_cfg.drawer_pull is None:
+                    continue  # nothing to place
+                dcfg = DrawerConfig(
+                    opening_width=interior_width,
+                    opening_height=opening_h,
+                    opening_depth=interior_depth,
+                    slide_key=cab_cfg.drawer_slide,
+                    pull_key=cab_cfg.drawer_pull,
+                    pull_vertical=drawer_pull_vertical,
+                )
+                try:
+                    placements = dcfg.pull_placements
+                except KeyError:
+                    placements = []
+                issues = check_drawer_pull(dcfg)
+                drawer_slots.append({
+                    **base,
+                    "face_width_mm":   dcfg.face_width,
+                    "face_height_mm":  dcfg.face_height,
+                    "pull_key":        cab_cfg.drawer_pull,
+                    "vertical_policy": drawer_pull_vertical,
+                    "placements":      _pull_placements_to_dicts(placements),
+                    "count":           len(placements),
+                    "issues":          _issues_to_dicts(issues),
+                })
+
+            elif slot_type in ("door", "door_pair"):
+                if cab_cfg.door_pull is None:
+                    continue
+                num_doors = 2 if slot_type == "door_pair" else 1
+                dcfg = DoorConfig(
+                    opening_width=interior_width,
+                    opening_height=opening_h,
+                    num_doors=num_doors,
+                    hinge_key=cab_cfg.door_hinge,
+                    pull_key=cab_cfg.door_pull,
+                    pull_vertical=door_pull_vertical,
+                )
+                try:
+                    placements = dcfg.pull_placements
+                    total = dcfg.total_pull_count
+                except KeyError:
+                    placements = []
+                    total = 0
+                issues = check_door_pull(dcfg)
+                door_slots.append({
+                    **base,
+                    "num_doors":           num_doors,
+                    "leaf_width_mm":       dcfg.door_width,
+                    "leaf_height_mm":      dcfg.door_height,
+                    "pull_key":            cab_cfg.door_pull,
+                    "vertical_policy":     door_pull_vertical,
+                    "placements_per_leaf": _pull_placements_to_dicts(placements),
+                    "pulls_per_leaf":      len(placements),
+                    "total_pulls":         total,
+                    "issues":              _issues_to_dicts(issues),
+                })
+            # shelf / open slots contribute nothing
+
+    if getattr(cab_cfg, "columns", None):
+        for ci, col in enumerate(cab_cfg.columns):
+            _walk_stack(col.drawer_config, col.width_mm, cab_cfg.interior_depth, ci)
+    else:
+        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width,
+                    cab_cfg.interior_depth, None)
+
+    cabinet_issues = check_cabinet_pull_consistency(cab_cfg)
+    bom_lines = pull_lines_for_cabinet_config(cab_cfg)
+
+    result: dict[str, Any] = {
+        "exterior": {
+            "width_mm":  cab_cfg.width,
+            "height_mm": cab_cfg.height,
+            "depth_mm":  cab_cfg.depth,
+        },
+        "drawer_pull":          cab_cfg.drawer_pull,
+        "door_pull":            cab_cfg.door_pull,
+        "drawer_pull_vertical": drawer_pull_vertical,
+        "door_pull_vertical":   door_pull_vertical,
+        "drawer_slots":         drawer_slots,
+        "door_slots":           door_slots,
+        "cabinet_issues":       _issues_to_dicts(cabinet_issues),
+        "hardware_bom":         [_hardware_line_to_dict(l) for l in bom_lines],
+        "bom_totals": {
+            "line_count":     len(bom_lines),
+            "pieces_needed":  sum(l.pieces_needed for l in bom_lines),
+            "packs_to_order": sum(l.packs_to_order for l in bom_lines),
+        },
+    }
     return _ok(result)
 
 

@@ -56,6 +56,7 @@ from cadquery_furniture.server import (
     _tool_auto_fix_cabinet,
     _tool_describe_design,
     _tool_design_legs,
+    _tool_design_pulls,
     _tool_suggest_proportions,
 )
 
@@ -76,6 +77,7 @@ TOOL_DISPATCH = {
     "describe_design":              _tool_describe_design,
     "design_legs":                  _tool_design_legs,
     "design_multi_column_cabinet":  _tool_design_multi_column_cabinet,
+    "design_pulls":                 _tool_design_pulls,
     "suggest_proportions":          _tool_suggest_proportions,
 }
 

@@ -1,6 +1,8 @@
 # Hardware catalogue
 
-Drawer slide, door hinge, and furniture leg specifications are frozen dataclasses in `hardware.py`. Every spec knows its clearance requirements and can validate a proposed drawer or door.
+Drawer slide, door hinge, furniture leg, and pull specifications are frozen dataclasses in `hardware.py`. Every spec knows its clearance requirements and can validate a proposed drawer or door.
+
+Pulls and knobs — 45 catalog entries across Top Knobs, Rockler, Richelieu, Hafele, and IKEA — live on a dedicated page: [docs/pulls.md](pulls.md).
 
 See [ATTRIBUTIONS.md](../ATTRIBUTIONS.md) for the datasheet and distributor sources behind each entry.
 

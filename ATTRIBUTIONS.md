@@ -22,6 +22,22 @@ Hardware dimensions, placement rules, and part numbers in this project are deriv
 - **Richelieu 176138106** (100 mm brushed nickel contemporary square leg) — [thebuilderssupply.com](https://thebuilderssupply.com/richelieu-contemporary-furniture-leg-1761-176138106); [dspoutlet.com](https://dspoutlet.com/products/richelieu-3-15-16-100-mm-contemporary-furniture-leg-brushed-nickel-2-pack). Height confirmed as 3-15/16″ (100 mm), not 4″.
 - **Richelieu adjustable leg** — [woodcraft.com](https://www.woodcraft.com/products/richelieu-1-9-16-40-mm-adjustable-contemporary-furniture-leg-dark-brown); [Richelieu Hardware catalog](https://www.richelieu.com/us/en/category/furniture-equipment/furniture-legs/adjustable-furniture-legs/1003965).
 
+## Pulls and knobs
+
+Pull dimensions (center-to-center, overall length, projection), model numbers, pack quantities, finishes, and style classifications are taken from manufacturer catalog and retailer product pages. Verify current availability and pricing at the source before ordering.
+
+- **Top Knobs — Kinney bar pull series** (TK76HB/AG/BLK through TK305HB/AG/BLK) — [topknobs.com](https://www.topknobs.com/catalogsearch/result/?q=Kinney). Honey Bronze, Antique Gold, and Flat Black finishes across cc 76 / 96 / 128 / 160 / 305 mm.
+- **Rockler — Ashley Norton "Urban Designer" wood cabinet pulls** (MN-160/224/288-WNL, MN-160/224/288-OKL) — [rockler.com](https://www.rockler.com/9-3-4-ashley-norton-urban-designer-wood-cabinet-pull-walnut). Walnut and oak variants.
+- **Rockler — Unfinished White Oak Mission Pull** (42250) — [rockler.com](https://www.rockler.com/unfinished-white-oak-mission-pulls).
+- **Richelieu — Modern aluminum edge pulls and contemporary surface pulls** — [richelieu.com](https://www.richelieu.com/us/en/product/decorative-hardware/cabinet-hardware/pulls-and-knobs/pulls/modern-aluminum-edge-pull-9898/1063166). Center-to-center dimensions confirmed against Richelieu's SKU-level product pages.
+- **Häfele — Modern wood surface pull** (193.18.766) and **minimalist flush pull** (151.35.665) — [hafele.com](https://www.hafele.com). Dimensions from Häfele product catalog.
+- **IKEA — Bagganäs Handle Black, 128 mm** (803.384.11) — [ikea.com](https://www.ikea.com/us/en/p/bagganaes-handle-black-80338411/). Sold in 2-packs.
+- **IKEA — Häckås Handle Anthracite, 128 mm** (303.424.77) — [ikea.com](https://www.ikea.com/us/en/p/hackas-handle-anthracite-30342477/). Sold in 2-packs.
+- **IKEA — Borghamn Handle Black, 416 mm** (203.160.49) — [ikea.com](https://www.ikea.com/us/en/p/borghamn-handle-black-20316049/). Sold in 2-packs.
+- **IKEA — Billsbro Handle White, 120 mm** — [ikea.com](https://www.ikea.com/us/en/). Sold in 2-packs.
+
+Placement policy (600 mm dual-pull threshold, 40 mm end margin, vertical placement conventions) is derived from general cabinet-shop practice — see [Fine Homebuilding](https://www.finehomebuilding.com), [Fine Woodworking](https://www.finewoodworking.com), and [Sawmill Creek Woodworking Community](https://sawmillcreek.org) discussions on drawer-pull placement — and not from any single datasheet.
+
 ## Drawer box height standards
 
 - Industry standard box heights (½″ and 1″ increment series, 3″–12″) — [Cabinet Doors 'N' More](https://cabinetdoorsnmore.com/pages/how-to-drawer-boxes); [Eagle Woodworking](https://www.eaglewoodworking.com/dovetail-drawers/drawer-wood-types/maple-drawer-boxes).

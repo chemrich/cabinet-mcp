@@ -36,13 +36,14 @@ pip install cadquery && pip install -e .
 ## What it knows
 
 - **Hardware** — seven drawer slides, seven Blum Clip Top hinges, four furniture legs — [docs/hardware.md](docs/hardware.md)
+- **Pulls and knobs** — 45 catalog entries (Top Knobs, Rockler, Richelieu, Hafele, IKEA) with placement policy, fit checks, and pack-quantity BOM math — [docs/pulls.md](docs/pulls.md)
 - **Joinery** — four drawer corner joints and five carcass methods, all parametric — [docs/joinery.md](docs/joinery.md)
 - **Proportions** — graduated drawers and asymmetric column widths via named ratios — [docs/proportions.md](docs/proportions.md)
 - **Starting points** — fourteen pre-validated presets for kitchen, workshop, bedroom, bathroom, and living-room furniture — [docs/presets.md](docs/presets.md)
-- **Evaluation** — clearances, deflection, geometry, joinery adequacy; typed `Issue` objects with severity and measured values
-- **Cutlist** — consolidated BOM in cut-optimizer-2d JSON and CSV; grain direction tracked
+- **Evaluation** — clearances, deflection, geometry, joinery adequacy, pull fit/style; typed `Issue` objects with severity and measured values
+- **Cutlist** — consolidated BOM in cut-optimizer-2d JSON and CSV; grain direction tracked; hardware BOM with pack-quantity / leftover math
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
-- **MCP server** — fifteen tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
+- **MCP server** — seventeen tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
 - **Eval harness** — 62 scenarios / 250 assertions, runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).

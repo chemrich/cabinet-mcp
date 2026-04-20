@@ -1953,6 +1953,260 @@ _s(Scenario(
 ))
 
 
+# ─── Pulls and knobs ──────────────────────────────────────────────────────────
+
+_s(Scenario(
+    name="list_pulls_basic",
+    prompt="What pull and knob hardware do we support? Show me the catalog.",
+    tags=["pulls"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="list_hardware",
+            args={"category": "pulls"},
+            label="pulls-only listing",
+            assertions=[
+                Assertion("pulls",        Op.HAS_KEY),
+                Assertion("pulls_count",  Op.GT, 40),
+                # Known catalog entries from multiple brands.
+                Assertion("pulls.topknobs-hb-128",           Op.HAS_KEY),
+                Assertion("pulls.ikea-bagganas-black-128",   Op.HAS_KEY),
+                Assertion("pulls.rockler-42250",             Op.HAS_KEY),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="list_pulls_ikea_brand_filter",
+    prompt="Which IKEA pulls are in the catalog, and what pack size do they ship in?",
+    tags=["pulls"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="list_hardware",
+            args={"category": "pulls", "brand": "ikea"},
+            label="IKEA-only filter",
+            assertions=[
+                Assertion("pulls_count", Op.GTE, 4),
+                # IKEA cabinet hardware ships in 2-packs
+                Assertion("pulls.ikea-bagganas-black-128.pack_quantity", Op.EQ, 2),
+                Assertion("pulls.ikea-hackas-anthracite-128.pack_quantity", Op.EQ, 2),
+                Assertion("pulls.ikea-bagganas-black-128.brand", Op.EQ, "IKEA"),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="drawer_with_single_pull",
+    prompt=(
+        "I've got a 500 mm drawer opening, 180 mm tall, 500 mm deep. "
+        "Add a Top Knobs Kinney 128 mm bar pull, centred vertically."
+    ),
+    tags=["pulls", "drawer"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width":  500,
+                "opening_height": 180,
+                "opening_depth":  500,
+                "pull_key":       "topknobs-hb-128",
+                "pull_vertical":  "center",
+            },
+            label="narrow drawer, single pull",
+            assertions=[
+                Assertion("pull",                   Op.HAS_KEY),
+                Assertion("pull.key",               Op.EQ, "topknobs-hb-128"),
+                # 500 mm opening → 484 mm face → below 600 mm threshold → 1 pull.
+                Assertion("pull.count",             Op.EQ, 1),
+                Assertion("pull.placements",        Op.LEN_EQ, 1),
+                Assertion("pull.vertical_policy",   Op.EQ, "center"),
+                Assertion("pull.issues",            Op.LEN_EQ, 0),
+                Assertion("pull.bom.pieces_needed", Op.EQ, 1),
+                Assertion("pull.bom.packs_to_order", Op.EQ, 1),
+                Assertion("pull.bom.leftover",      Op.EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="wide_drawer_gets_dual_pulls",
+    prompt=(
+        "Design a 900 mm wide drawer (150 mm tall, 500 mm deep) with the same "
+        "Top Knobs Kinney 128 mm bar pull. Because the face is wider than "
+        "600 mm, we should get two pulls."
+    ),
+    tags=["pulls", "drawer"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={
+                "opening_width":  900,
+                "opening_height": 150,
+                "opening_depth":  500,
+                "pull_key":       "topknobs-hb-128",
+            },
+            label="wide drawer triggers dual-pull policy",
+            assertions=[
+                # 900 mm opening → 884 mm face, over the 600 mm threshold.
+                Assertion("pull.count",             Op.EQ, 2),
+                Assertion("pull.placements",        Op.LEN_EQ, 2),
+                Assertion("pull.bom.pieces_needed", Op.EQ, 2),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="door_pair_with_pulls",
+    prompt=(
+        "Add pulls to an 800 mm wide × 600 mm tall two-door cabinet. "
+        "Each leaf should carry its own pull."
+    ),
+    tags=["pulls", "door"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_door",
+            args={
+                "opening_width":  800,
+                "opening_height": 600,
+                "num_doors":      2,
+                "pull_key":       "topknobs-hb-128",
+            },
+            label="door pair with one pull per leaf",
+            assertions=[
+                Assertion("num_doors",              Op.EQ, 2),
+                Assertion("pull.key",               Op.EQ, "topknobs-hb-128"),
+                # Each leaf is well under 600 mm → 1 pull per leaf, 2 total.
+                Assertion("pull.pulls_per_leaf",    Op.EQ, 1),
+                Assertion("pull.total_pulls",       Op.EQ, 2),
+                Assertion("pull.bom.pieces_needed", Op.EQ, 2),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="design_pulls_kitchen_stack",
+    prompt=(
+        "I've got a 900 × 720 × 550 mm kitchen base with two drawers and a "
+        "door pair. Put Top Knobs Kinney 128 mm pulls on everything and give "
+        "me placements and a consolidated BOM."
+    ),
+    tags=["pulls"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_pulls",
+            args={
+                "width":  900, "height": 720, "depth": 550,
+                "drawer_config": [
+                    [180, "drawer"],
+                    [180, "drawer"],
+                    [360, "door_pair"],
+                ],
+                "drawer_pull": "topknobs-hb-128",
+                "door_pull":   "topknobs-hb-128",
+            },
+            label="end-to-end pulls pass on a kitchen base",
+            assertions=[
+                Assertion("drawer_slots",   Op.LEN_EQ, 2),
+                Assertion("door_slots",     Op.LEN_EQ, 1),
+                Assertion("cabinet_issues", Op.LEN_EQ, 0),
+                # 884 mm drawer face → 2 pulls each; door_pair → 2 leaves × 1.
+                # Total: 4 + 2 = 6, consolidated onto a single SKU line.
+                Assertion("bom_totals.line_count",     Op.EQ, 1),
+                Assertion("bom_totals.pieces_needed",  Op.EQ, 6),
+                Assertion("bom_totals.packs_to_order", Op.EQ, 6),
+                Assertion("hardware_bom.0.sku",        Op.EQ, "topknobs-hb-128"),
+                Assertion("hardware_bom.0.leftover",   Op.EQ, 0),
+                # Each drawer slot carries dual pulls
+                Assertion("drawer_slots.0.count",      Op.EQ, 2),
+                Assertion("drawer_slots.1.count",      Op.EQ, 2),
+                # Door pair: 1 per leaf × 2 leaves
+                Assertion("door_slots.0.pulls_per_leaf", Op.EQ, 1),
+                Assertion("door_slots.0.total_pulls",    Op.EQ, 2),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="design_pulls_style_mismatch_warning",
+    prompt=(
+        "On a 900 × 720 × 550 mm base cabinet, use Transitional Top Knobs "
+        "bar pulls on the drawers but Contemporary Ashley Norton wood pulls "
+        "on the door. Flag any style consistency problems."
+    ),
+    tags=["pulls", "evaluation"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_pulls",
+            args={
+                "width":  900, "height": 720, "depth": 550,
+                "drawer_config": [
+                    [180, "drawer"],
+                    [540, "door"],
+                ],
+                "drawer_pull": "topknobs-hb-128",   # Transitional
+                "door_pull":   "rockler-wnl-160",   # Contemporary
+            },
+            label="mixed pull styles emit consistency warning",
+            assertions=[
+                Assertion("cabinet_issues",        Op.LEN_EQ, 1),
+                Assertion("cabinet_issues.0.check", Op.EQ, "pull_style_mismatch"),
+                Assertion("cabinet_issues.0.severity", Op.EQ, "warning"),
+                # Both SKUs still flow through to the consolidated BOM
+                Assertion("bom_totals.line_count",  Op.EQ, 2),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="design_pulls_ikea_pack_quantity_math",
+    prompt=(
+        "Design a narrow 5-drawer sideboard (500 × 900 × 550 mm) fitted "
+        "with IKEA Bagganäs black pulls. IKEA pulls ship in 2-packs, so "
+        "tell me how many packs to order and whether we'll have leftovers."
+    ),
+    tags=["pulls", "cutlist"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_pulls",
+            args={
+                "width":  500, "height": 900, "depth": 550,
+                "drawer_config": [
+                    [150, "drawer"], [150, "drawer"], [150, "drawer"],
+                    [150, "drawer"], [150, "drawer"],
+                ],
+                "drawer_pull": "ikea-bagganas-black-128",
+            },
+            label="IKEA 2-pack rounding on 5-drawer sideboard",
+            assertions=[
+                # 464 mm face < 600 mm threshold → 1 pull per drawer × 5 drawers
+                Assertion("bom_totals.pieces_needed",    Op.EQ, 5),
+                Assertion("hardware_bom.0.sku",          Op.EQ, "ikea-bagganas-black-128"),
+                Assertion("hardware_bom.0.pack_quantity", Op.EQ, 2),
+                # 5 pieces / 2 per pack = 3 packs (ceiling), 6 ordered, 1 leftover
+                Assertion("hardware_bom.0.packs_to_order", Op.EQ, 3),
+                Assertion("hardware_bom.0.pieces_ordered", Op.EQ, 6),
+                Assertion("hardware_bom.0.leftover",       Op.EQ, 1),
+                Assertion("cabinet_issues",                Op.LEN_EQ, 0),
+            ],
+        ),
+    ],
+))
+
+
 # ─── Index helpers ────────────────────────────────────────────────────────────
 
 def scenarios_by_tag(tag: str) -> list[Scenario]:

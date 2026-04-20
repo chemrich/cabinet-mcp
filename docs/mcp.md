@@ -1,6 +1,6 @@
 # MCP server
 
-`server.py` exposes the full pipeline as fifteen MCP tools. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
+`server.py` exposes the full pipeline as seventeen MCP tools. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
 
 ## Tools
 
@@ -8,18 +8,20 @@
 |---|---|
 | `list_presets` | Browse the named preset catalogue; filter by category or tag |
 | `apply_preset` | Load a preset config dict; optionally override individual fields |
-| `list_hardware` | Catalogue of slides, hinges, and legs (keys, specs, clearances) |
+| `list_hardware` | Catalogue of slides, hinges, legs, and pulls (keys, specs, clearances); accepts `brand=` / `mount_style=` filters on pulls |
 | `list_joinery_options` | Drawer and carcass joinery styles; Domino tenon sizes |
 | `design_cabinet` | Parametric layout — panel sizes, opening stack, joinery; accepts `num_drawers` + `drawer_proportion` for auto-graduated heights |
 | `design_multi_column_cabinet` | Multi-column carcass; accepts `num_columns` + `column_proportion` + `wide_index` plus `num_drawers` + `drawer_proportion` for fully proportional auto-layout |
 | `evaluate_cabinet` | Full structural/fit evaluation; returns issues by severity |
 | `auto_fix_cabinet` | One-pass deterministic repair of common errors (stack height, rabbet alignment) |
 | `describe_design` | Prose summary for design review before visualization |
-| `design_door` | Door dimensions, hinge count, Z-positions for an opening |
-| `design_drawer` | Drawer box dimensions, joinery cut specs, standard-height snapping |
+| `design_door` | Door dimensions, hinge count, Z-positions; optional pull block with per-leaf placements and BOM |
+| `design_drawer` | Drawer box dimensions, joinery cut specs, standard-height snapping; optional pull block with placements and BOM |
 | `design_legs` | Leg placement coordinates, load-per-leg check, hardware BOM |
-| `generate_cutlist` | BOM as JSON (cut-optimizer-2d compatible) and CSV |
+| `design_pulls` | Whole-cabinet pull pass — per-slot placements, cabinet-level style check, consolidated hardware BOM with pack-quantity totals — [docs/pulls.md](pulls.md) |
+| `generate_cutlist` | Panel BOM as JSON (cut-optimizer-2d compatible) and CSV |
 | `compare_joinery` | Side-by-side drawer joinery cut dimensions for a stock thickness |
+| `suggest_proportions` | Compare all four proportion presets (equal / subtle / classic / golden) for a given cabinet — [docs/proportions.md](proportions.md) |
 | `visualize_cabinet` | 3D assembly → GLB + HTML viewer with x-ray (X) and open-drawer (O) toggles |
 
 ## Recommended workflow
