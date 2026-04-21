@@ -759,6 +759,109 @@ _s(Scenario(
     ],
 ))
 
+# ── 7b. Sheet optimiser scenarios (require rectpack) ─────────────────────────
+#
+# These scenarios assert on the optimization fields added in Phase 2.
+# They expect rectpack to be installed (the default with `uv run`).
+
+_s(Scenario(
+    name="cutlist_optimizer_single_sheet",
+    prompt="Generate a cutlist for a 600 mm base cabinet and tell me how many sheets of plywood I need.",
+    tags=["cutlist", "optimizer"],
+    difficulty="basic",
+    description="Standard base cabinet should fit on one 4×8 sheet.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 600, "height": 720, "depth": 550},
+            label="single-sheet cabinet",
+            assertions=[
+                Assertion("sheets_used",     Op.EQ,      1),
+                Assertion("waste_pct",       Op.GT,      0.0),
+                Assertion("waste_pct",       Op.LT,      100.0),
+                Assertion("unplaced_panels", Op.LEN_EQ,  0),
+                Assertion("optimization_note", Op.HAS_KEY, True),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="cutlist_optimizer_multi_sheet",
+    prompt=(
+        "I'm building a 900 mm wide, 2100 mm tall pantry cabinet with three fixed shelves. "
+        "Generate the cutlist and let me know how many full sheets I'll need to buy."
+    ),
+    tags=["cutlist", "optimizer"],
+    difficulty="standard",
+    description="Tall cabinet with shelves should require multiple 4×8 sheets.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={
+                "width": 900, "height": 2100, "depth": 600,
+                "drawer_config": [[200, "shelf"], [200, "shelf"], [200, "shelf"]],
+            },
+            label="multi-sheet tall cabinet",
+            assertions=[
+                Assertion("sheets_used",     Op.GTE,    2),
+                Assertion("waste_pct",       Op.GT,     0.0),
+                Assertion("waste_pct",       Op.LT,     100.0),
+                Assertion("unplaced_panels", Op.LEN_EQ, 0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="cutlist_optimizer_oversized_panel",
+    prompt=(
+        "Design a floor-to-ceiling wardrobe 900 mm wide and 2500 mm tall. "
+        "Generate the cutlist against standard 4×8 sheets and flag any panels "
+        "that are too large to fit."
+    ),
+    tags=["cutlist", "optimizer", "edge_case"],
+    difficulty="standard",
+    description=(
+        "A 2500 mm tall cabinet has side panels (2500×600 mm) that exceed the "
+        "2440 mm sheet length, so they appear in unplaced_panels."
+    ),
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 900, "height": 2500, "depth": 600},
+            label="wardrobe with oversized sides",
+            assertions=[
+                Assertion("unplaced_panels", Op.CONTAINS,  "side"),
+                Assertion("unplaced_panels", Op.LEN_GTE,   1),
+                Assertion("optimization_note", Op.HAS_KEY, True),
+                # Sheets used only covers panels that *were* placed.
+                Assertion("sheets_used",     Op.GTE,       0),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="cutlist_optimizer_custom_kerf",
+    prompt="Generate a cutlist for a 600 mm cabinet. I'm using a track saw with a 2.5 mm kerf.",
+    tags=["cutlist", "optimizer"],
+    difficulty="basic",
+    description="Custom kerf value propagates to the optimizer without errors.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 600, "height": 720, "depth": 550, "kerf": 2.5},
+            label="custom kerf cutlist",
+            assertions=[
+                Assertion("sheets_used",       Op.GTE,     1),
+                Assertion("unplaced_panels",   Op.LEN_EQ,  0),
+                Assertion("panel_count",       Op.GTE,     3),
+            ],
+        ),
+    ],
+))
+
 
 # ── 8. Full kitchen scenarios ─────────────────────────────────────────────────
 
@@ -1897,11 +2000,11 @@ _s(Scenario(
             assertions=[
                 Assertion("interior_height_mm",           Op.EQ,      864.0),
                 Assertion("drawer_suggestions",           Op.LEN_EQ,  4),
-                Assertion("drawer_suggestions[0].viable", Op.IS_TRUE),
-                Assertion("drawer_suggestions[1].viable", Op.IS_TRUE),
-                Assertion("drawer_suggestions[2].viable", Op.IS_TRUE),
-                Assertion("drawer_suggestions[3].viable", Op.IS_FALSE),
-                Assertion("drawer_suggestions[3].preset", Op.EQ,      "golden"),
+                Assertion("drawer_suggestions.0.viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions.1.viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions.2.viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions.3.viable", Op.IS_FALSE),
+                Assertion("drawer_suggestions.3.preset", Op.EQ,      "golden"),
             ],
         ),
     ],
@@ -1920,10 +2023,10 @@ _s(Scenario(
             assertions=[
                 Assertion("interior_width_mm",                  Op.EQ,      1184.0),
                 Assertion("column_suggestions",                 Op.LEN_EQ,  4),
-                Assertion("column_suggestions[0].widths_mm",    Op.LEN_EQ,  3),
-                Assertion("column_suggestions[3].widths_mm",    Op.LEN_EQ,  3),
-                Assertion("column_suggestions[3].wide_column_mm",   Op.GT,  400.0),
-                Assertion("column_suggestions[3].narrow_column_mm", Op.LT,  400.0),
+                Assertion("column_suggestions.0.widths_mm",    Op.LEN_EQ,  3),
+                Assertion("column_suggestions.3.widths_mm",    Op.LEN_EQ,  3),
+                Assertion("column_suggestions.3.wide_column_mm",   Op.GT,  400.0),
+                Assertion("column_suggestions.3.narrow_column_mm", Op.LT,  400.0),
             ],
         ),
     ],
@@ -1945,8 +2048,8 @@ _s(Scenario(
             assertions=[
                 Assertion("drawer_suggestions",           Op.LEN_EQ, 4),
                 Assertion("column_suggestions",           Op.LEN_EQ, 4),
-                Assertion("drawer_suggestions[0].viable", Op.IS_TRUE),
-                Assertion("drawer_suggestions[3].viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions.0.viable", Op.IS_TRUE),
+                Assertion("drawer_suggestions.3.viable", Op.IS_TRUE),
             ],
         ),
     ],

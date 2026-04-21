@@ -420,6 +420,67 @@ class TestGenerateCutlist:
         data = self._cutlist(sheet_length=3050, sheet_width=1525)
         assert data["panel_count"] > 0
 
+    def test_optimization_note_always_present(self):
+        data = self._cutlist()
+        assert "optimization_note" in data
+        assert isinstance(data["optimization_note"], str)
+        assert len(data["optimization_note"]) > 0
+
+    def test_kerf_parameter_accepted(self):
+        # Custom kerf should not raise and should still return a valid result.
+        data = self._cutlist(kerf=4.0)
+        assert data["panel_count"] > 0
+
+    # The following tests are conditional on rectpack being installed.
+    # They are skipped automatically when it is absent.
+
+    def test_sheets_used_present_when_rectpack(self):
+        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        if not _RECTPACK_AVAILABLE:
+            pytest.skip("rectpack not installed")
+        data = self._cutlist()
+        assert "sheets_used" in data
+        assert isinstance(data["sheets_used"], int)
+        assert data["sheets_used"] >= 1
+
+    def test_waste_pct_present_when_rectpack(self):
+        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        if not _RECTPACK_AVAILABLE:
+            pytest.skip("rectpack not installed")
+        data = self._cutlist()
+        assert "waste_pct" in data
+        assert 0.0 <= data["waste_pct"] <= 100.0
+
+    def test_unplaced_panels_present_when_rectpack(self):
+        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        if not _RECTPACK_AVAILABLE:
+            pytest.skip("rectpack not installed")
+        data = self._cutlist()
+        assert "unplaced_panels" in data
+        assert isinstance(data["unplaced_panels"], list)
+
+    def test_standard_cabinet_has_no_unplaced(self):
+        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        if not _RECTPACK_AVAILABLE:
+            pytest.skip("rectpack not installed")
+        # A 600×720×550 cabinet should fit on standard 4×8 sheets with no oversized panels.
+        data = self._cutlist()
+        assert data["unplaced_panels"] == []
+
+    def test_optimization_note_mentions_guillotine_when_rectpack(self):
+        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        if not _RECTPACK_AVAILABLE:
+            pytest.skip("rectpack not installed")
+        data = self._cutlist()
+        assert "guillotine" in data["optimization_note"].lower()
+
+    def test_optimization_note_mentions_install_when_no_rectpack(self, monkeypatch):
+        import cadquery_furniture.server as srv
+        monkeypatch.setattr(srv, "_RECTPACK_AVAILABLE", False)
+        data = self._cutlist()
+        assert "rectpack" in data["optimization_note"]
+        assert "sheets_used" not in data
+
 
 # ─── compare_joinery ──────────────────────────────────────────────────────────
 

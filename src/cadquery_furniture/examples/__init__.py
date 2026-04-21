@@ -192,7 +192,7 @@ def main():
             stock=[SHEET_4x8_3_4, SHEET_4x8_1_4],
             kerf=3.2,
         )
-        print("Cutlist JSON (for cut-optimizer-2d):")
+        print("Cutlist JSON:")
         print(json_output)
         print()
 

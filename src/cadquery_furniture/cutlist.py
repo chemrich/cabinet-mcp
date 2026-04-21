@@ -1,14 +1,21 @@
 """
-BOM extraction and cutlist optimizer interface.
+BOM extraction and cutlist optimiser.
 
 Extracts a bill of materials from cabinet assemblies and formats it for
-cutlist optimization. Supports output to:
-- JSON (for cut-optimizer-2d Rust crate or MCP server)
-- CSV (for manual reference)
+cutlist optimisation. Supports output to:
+- JSON (panel list for external tools or further processing)
+- CSV (for manual reference / spreadsheet import)
 - Console table
 
 Also produces hardware BOMs (pulls, hinges, slides, legs) as
 ``HardwareLine`` records with pack-quantity procurement math.
+
+In-process sheet optimisation is available via :func:`optimize_cutlist` when
+``rectpack`` is installed (``uv pip install -e '.[cutlist]'``).  The
+optimiser uses a **guillotine algorithm** (GuillotineBssfSas) which models
+real table-saw and track-saw cuts: every cut runs straight across the full
+remaining width or height of the sheet, so the resulting layout is always
+physically executable at the saw.
 
 All dimensions in millimeters.
 """
@@ -19,6 +26,13 @@ import io
 import math
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+try:
+    import rectpack as _rectpack
+    _RECTPACK_AVAILABLE = True
+except ImportError:
+    _rectpack = None  # type: ignore[assignment]
+    _RECTPACK_AVAILABLE = False
 
 from .cabinet import PartInfo
 
@@ -206,14 +220,14 @@ def to_json(
     stock: list[SheetStock] | None = None,
     kerf: float = 3.2,  # table saw blade kerf
 ) -> str:
-    """Export cutlist as JSON, compatible with cut-optimizer-2d input format.
+    """Export cutlist as JSON.
 
-    The output JSON structure:
-    {
-        "cut_width": kerf,
-        "panels": [...],
-        "stock": [...]
-    }
+    The output structure mirrors the cut-optimizer-2d crate's input schema
+    (panels + optional stock array with cut_width) and is suitable as a
+    record of the panel list or for import into external tools.
+
+    In-process optimisation is handled by :func:`optimize_cutlist` — this
+    function is purely a serialisation step.
     """
     output = {
         "cut_width": kerf,
@@ -282,6 +296,202 @@ def print_bom(panels: list[CutlistPanel]) -> None:
         sheets_needed = total_area / sheet_area
         print(f"  {t:.0f}mm: {len(group)} parts, ~{total_area/1e6:.2f}m² total, ~{sheets_needed:.1f} sheets (4×8)")
     print()
+
+
+# ─── Sheet-goods optimisation ────────────────────────────────────────────────
+
+
+@dataclass
+class Placement:
+    """Position of one panel piece on a specific sheet as packed by rectpack."""
+    panel_name: str
+    sheet_index: int    # 0-based sheet number
+    x: float            # mm from bottom-left corner of sheet
+    y: float
+    placed_length: float  # dimension along x-axis as placed (may differ from
+    placed_width: float   #   nominal if rotated — see ``rotated`` flag)
+    rotated: bool         # True when piece was rotated 90° from nominal orientation
+
+
+@dataclass
+class OptimizationResult:
+    """Sheet-goods bin-packing result produced by :func:`optimize_cutlist`.
+
+    Attributes
+    ----------
+    sheets_used:
+        Number of stock sheets that contain at least one placed piece.
+    waste_pct:
+        Percentage of consumed sheet area that is unused (off-cuts + gaps).
+        Computed as ``(sheet_area - panel_area) / sheet_area * 100``.
+    placements:
+        One entry per placed piece (a panel with quantity=3 produces 3 entries).
+    unplaced:
+        Panel *names* whose pieces could not be placed — either because they
+        are larger than the stock sheet, or because the packer ran out of bins.
+        Empty list means everything fits.
+    stock_sheet:
+        The :class:`SheetStock` used for this optimisation run.
+    """
+    sheets_used: int
+    waste_pct: float
+    placements: list[Placement]
+    unplaced: list[str]
+    stock_sheet: SheetStock
+
+    @property
+    def is_complete(self) -> bool:
+        """True when every requested piece was successfully placed."""
+        return len(self.unplaced) == 0
+
+
+def optimize_cutlist(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock | None = None,
+    kerf: float = 3.2,
+) -> OptimizationResult:
+    """Pack *panels* onto sheets of *stock_sheet* and return layout results.
+
+    Uses rectpack's **GuillotineBssfSas** algorithm, which models real
+    table-saw and track-saw cuts: every cut goes straight across the full
+    remaining width or height of the sheet (a "guillotine" cut), so the
+    resulting layout can always be executed at the saw without repositioning.
+
+    *Bssf* (Best Short Side Fit) places each piece where the shorter leftover
+    dimension is minimised, keeping off-cuts as usable as possible.  *Sas*
+    (Short Axis Split) splits the remaining free rectangle along its shorter
+    axis after each placement, which tends to preserve wider off-cuts for
+    subsequent pieces.
+
+    Panels are expanded from their ``quantity`` field into individual pieces
+    and sorted largest-area-first before packing, which improves bin-fill
+    efficiency.  Grain direction is always respected: rotation is disabled
+    globally because woodworking panels almost always carry a grain constraint.
+
+    Each piece has ``kerf`` mm added to both dimensions so that saw-blade
+    width is accounted for in the sheet layout.
+
+    Parameters
+    ----------
+    panels:
+        Consolidated (or raw) list of :class:`CutlistPanel` objects.  Panels
+        with ``quantity > 1`` are expanded internally.
+    stock_sheet:
+        Sheet to pack onto.  Defaults to :data:`SHEET_4x8_3_4` (2440 × 1220 mm,
+        18 mm thick).
+    kerf:
+        Saw-blade kerf in mm added to each panel's length and width.
+
+    Returns
+    -------
+    OptimizationResult
+
+    Raises
+    ------
+    ImportError
+        When rectpack is not installed.  Install with::
+
+            uv pip install -e '.[cutlist]'
+    """
+    if not _RECTPACK_AVAILABLE:
+        raise ImportError(
+            "rectpack is required for in-process sheet optimisation. "
+            "Install with: uv pip install -e '.[cutlist]'"
+        )
+
+    if stock_sheet is None:
+        stock_sheet = SHEET_4x8_3_4
+
+    # Effective sheet interior after one kerf margin on each edge.
+    sheet_l = stock_sheet.length - kerf
+    sheet_w = stock_sheet.width - kerf
+
+    # Expand each panel's quantity into individual (length, width, name, idx)
+    # tuples, then sort largest-area first for better bin-fill.
+    expanded: list[tuple[float, float, str, int]] = [
+        (panel.length, panel.width, panel.name, i)
+        for panel in panels
+        for i in range(panel.quantity)
+    ]
+    expanded.sort(key=lambda e: e[0] * e[1], reverse=True)
+
+    # Pre-flight: separate panels that are simply too large for the sheet.
+    # We only flag the panel *name* once even if multiple pieces are oversized.
+    oversized: list[str] = []
+    packable: list[tuple[float, float, str, int]] = []
+    piece_dims: dict[tuple[str, int], tuple[float, float]] = {}
+
+    for length, width, name, idx in expanded:
+        if length + kerf > sheet_l or width + kerf > sheet_w:
+            if name not in oversized:
+                oversized.append(name)
+        else:
+            packable.append((length, width, name, idx))
+            piece_dims[(name, idx)] = (length, width)
+
+    # --- Run rectpack (guillotine algorithm) ---------------------------------
+    # GuillotineBssfSas: Best Short Side Fit + Short Axis Split.
+    # Every cut is a full-width guillotine cut — matches table-saw workflow.
+    packer = _rectpack.newPacker(
+        pack_algo=_rectpack.GuillotineBssfSas,
+        rotation=False,
+    )
+
+    # Upper bound on bins: worst case every piece on its own sheet.
+    packer.add_bin(sheet_l, sheet_w, count=max(1, len(packable)))
+
+    for length, width, name, idx in packable:
+        packer.add_rect(length + kerf, width + kerf, rid=(name, idx))
+
+    packer.pack()
+
+    # --- Collect placements --------------------------------------------------
+    placements: list[Placement] = []
+    placed_rids: set[tuple[str, int]] = set()
+
+    for bin_idx, abin in enumerate(packer):
+        for rect in abin:
+            rid: tuple[str, int] = rect.rid
+            placed_rids.add(rid)
+            orig_l, orig_w = piece_dims[rid]
+            # Detect rotation: rectpack swaps width/height when rotating.
+            rotated = abs(rect.width - (orig_l + kerf)) > 0.01
+            placements.append(Placement(
+                panel_name=rid[0],
+                sheet_index=bin_idx,
+                x=round(rect.x, 1),
+                y=round(rect.y, 1),
+                placed_length=round(rect.width, 1),
+                placed_width=round(rect.height, 1),
+                rotated=rotated,
+            ))
+
+    # Any packable piece not in placed_rids was dropped by the packer (should
+    # not happen with count=len(packable) but guard anyway).
+    unplaced: list[str] = list(oversized)
+    for _, _, name, idx in packable:
+        if (name, idx) not in placed_rids and name not in unplaced:
+            unplaced.append(name)
+
+    # --- Waste calculation ---------------------------------------------------
+    sheets_used = len({p.sheet_index for p in placements})
+    if sheets_used == 0:
+        waste_pct = 0.0
+    else:
+        total_sheet_area = sheets_used * stock_sheet.length * stock_sheet.width
+        placed_area = sum(
+            (piece_dims[rid][0] + kerf) * (piece_dims[rid][1] + kerf)
+            for rid in placed_rids
+        )
+        waste_pct = max(0.0, (total_sheet_area - placed_area) / total_sheet_area * 100)
+
+    return OptimizationResult(
+        sheets_used=sheets_used,
+        waste_pct=round(waste_pct, 1),
+        placements=placements,
+        unplaced=unplaced,
+        stock_sheet=stock_sheet,
+    )
 
 
 # ─── Hardware BOM ────────────────────────────────────────────────────────────

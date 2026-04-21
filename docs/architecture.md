@@ -12,7 +12,7 @@ cabinet.py / drawer.py / door.py    ← frozen dataclasses, computed @property
 evaluation.py                        ← typed Issue objects
         │
         ▼
-cutlist.py                           ← BOM, JSON (cut-optimizer-2d), CSV
+cutlist.py                           ← BOM, guillotine optimiser, JSON, CSV
         │
         ▼
 server.py                            ← 15 MCP tools over stdio or HTTP/SSE
@@ -31,7 +31,7 @@ server.py                            ← 15 MCP tools over stdio or HTTP/SSE
 | `door.py` | Single doors and matched pairs in full/half/inset overlay; hinge cup borings via CadQuery. |
 | `proportions.py` | Geometric-progression drawer heights and asymmetric column widths via named ratios. |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; CadQuery path adds interference checks. |
-| `cutlist.py` | `consolidate_bom()`, `to_json()` (cut-optimizer-2d format), `to_csv()`; tracks grain direction. |
+| `cutlist.py` | `consolidate_bom()`, `optimize_cutlist()` (guillotine, GuillotineBssfSas), `to_json()`, `to_csv()`; tracks grain direction. |
 | `presets.py` | Pre-validated `CabinetConfig` instances; exposed as `list_presets` / `apply_preset` MCP tools. |
 | `auto_fix.py` | Single-pass deterministic repair of `cumulative_heights` and `back_panel_fit` issues. |
 | `describe.py` | Prose summary (metric + imperial) for the design-review step. |

@@ -19,7 +19,7 @@
 | `design_drawer` | Drawer box dimensions, joinery cut specs, standard-height snapping; optional pull block with placements and BOM |
 | `design_legs` | Leg placement coordinates, load-per-leg check, hardware BOM |
 | `design_pulls` | Whole-cabinet pull pass — per-slot placements, cabinet-level style check, consolidated hardware BOM with pack-quantity totals — [docs/pulls.md](pulls.md) |
-| `generate_cutlist` | Panel BOM as JSON (cut-optimizer-2d compatible) and CSV |
+| `generate_cutlist` | Panel BOM with guillotine sheet layout (sheets used, waste %), JSON export, and CSV |
 | `compare_joinery` | Side-by-side drawer joinery cut dimensions for a stock thickness |
 | `suggest_proportions` | Compare all four proportion presets (equal / subtle / classic / golden) for a given cabinet — [docs/proportions.md](proportions.md) |
 | `visualize_cabinet` | 3D assembly → GLB + HTML viewer with x-ray (X) and open-drawer (O) toggles |

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv python:*)",
+      "Bash(uv env:*)",
+      "Bash(ls .venv/lib/*/site-packages/)",
+      "Bash(cat:*)",
+      "Bash(PYTHONPATH=/Users/charlie/Documents/code/cabinet-mcp/src uv run pytest tests/ -q)",
+      "mcp__cabinet__list_presets",
+      "mcp__cabinet__design_cabinet",
+      "mcp__cabinet__evaluate_cabinet",
+      "mcp__cabinet__visualize_cabinet",
+      "mcp__cabinet__describe_design",
+      "Bash(xargs ls *)",
+      "mcp__cabinet__design_multi_column_cabinet",
+      "Bash(open *)",
+      "Bash(/Users/charlie/Documents/code/cabinet-mcp/.venv/bin/python -m evals)",
+      "WebSearch"
+    ]
+  }
+}

@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -244,16 +245,47 @@ class _MissingSentinel:
 MISSING = _MissingSentinel()
 
 
-def _resolve_path(data: Any, path: str) -> Any:
-    """Walk a dot-separated path into a nested dict/list structure.
+_BRACKET_RE = re.compile(r"^(.*?)\[(\d+)\](.*)$")
 
-    Supports integer indices for lists (e.g. ``"opening_stack.0.type"``).
-    Returns ``MISSING`` if the path doesn't exist.
+
+def _tokenise_path(path: str) -> list[str]:
+    """Split a path into navigation tokens, handling both notations.
+
+    ``"a.b.0.c"``          → ``["a", "b", "0", "c"]``
+    ``"a.b[0].c"``         → ``["a", "b", "0", "c"]``
+    ``"a[0][1].b"``        → ``["a", "0", "1", "b"]``
+
+    Both dot-integer and bracket-integer styles resolve identically so
+    scenario authors can use whichever feels natural.
+    """
+    tokens: list[str] = []
+    for segment in path.split("."):
+        # Expand any bracket subscripts within this segment.
+        remainder = segment
+        while True:
+            m = _BRACKET_RE.match(remainder)
+            if not m:
+                break
+            prefix, idx, remainder = m.group(1), m.group(2), m.group(3)
+            if prefix:
+                tokens.append(prefix)
+            tokens.append(idx)
+        if remainder:
+            tokens.append(remainder)
+    return tokens
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    """Walk a path into a nested dict/list structure.
+
+    Supports both dot-integer (``"stack.0.type"``) and bracket
+    (``"stack[0].type"``) notation for list indices — they are equivalent.
+    Returns ``MISSING`` if the path does not exist.
     """
     if not path:
         return data
     current = data
-    for key in path.split("."):
+    for key in _tokenise_path(path):
         if isinstance(current, dict):
             current = current.get(key, MISSING)
         elif isinstance(current, list):

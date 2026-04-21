@@ -6,26 +6,31 @@ requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.27.0",
     "numpy",
-    "pytest>=7.0",
-    "pytest-cov>=7.1.0",
 ]
 
 [project.optional-dependencies]
-cad = [
-    "cadquery>=2.4",
-]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov",
-]
-viewer = [
-       "jupyter-cadquery>=3.0",
-       "jupyter",
-       "vtk>=9.4",
-]
-cutlist = [
-    "rectpack",
-]
+# 3D geometry, interference checks, GLB export, and the self-contained HTML viewer
+cad = ["cadquery>=2.4"]
+# Sheet-goods nesting optimizer (wires up alongside the cut-optimizer-2d JSON output)
+cutlist = ["rectpack"]
+# Everything: cad + cutlist.  Recommended for normal use.
+full = ["cadquery-furniture[cad,cutlist]"]
+# Lite: explicit alias for a base-only install (no extras needed — documented for clarity)
+lite = []
+# Developer tools
+dev = ["pytest>=7.0", "pytest-cov"]
+
+[dependency-groups]
+# uv-native mirrors of the extras above — lets "uv run" resolve groups without --extra flags
+cad     = ["cadquery>=2.4"]
+cutlist = ["rectpack"]
+full    = [{include-group = "cad"}, {include-group = "cutlist"}]
+dev     = ["pytest>=7.0", "pytest-cov"]
+
+[tool.uv]
+# "uv run cabinet-mcp" and "uv run pytest" both work out of the box.
+# For a lightweight install without CadQuery: uv run --no-group full cabinet-mcp
+default-groups = ["full", "dev"]
 
 [project.scripts]
 cabinet-mcp = "cadquery_furniture.server:main"

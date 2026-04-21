@@ -77,8 +77,10 @@ from .cutlist import (
     CutlistPanel,
     SheetStock,
     consolidate_bom,
+    optimize_cutlist,
     to_csv,
     to_json,
+    _RECTPACK_AVAILABLE,
 )
 from .door import DoorConfig
 from .drawer import DrawerConfig
@@ -652,10 +654,22 @@ async def list_tools() -> list[types.Tool]:
             name="generate_cutlist",
             description=textwrap.dedent("""\
                 Generate a bill of materials and cutlist from a cabinet configuration.
-                Returns panels as JSON (compatible with cut-optimizer-2d) and as CSV.
+                Returns panels as JSON and CSV.
+
+                When rectpack is installed the response also includes in-process
+                sheet optimisation results using a guillotine algorithm that
+                models real table-saw cuts:
+                  - sheets_used        — number of stock sheets required
+                  - waste_pct          — % of consumed sheet area that is off-cuts
+                  - unplaced_panels    — panel names that don't fit (oversized)
+                  - optimization_note  — brief explanation / install hint
+
+                Use sheets_used and waste_pct to give the user concrete material
+                estimates. The JSON export is a record of the panel list for
+                import into external tools.
 
                 Pass the same cabinet parameters as design_cabinet.
-                Optionally specify sheet stock dimensions (default 4x8 3/4\" Baltic Birch).
+                Optionally specify sheet stock dimensions (default 4×8 3/4\" Baltic Birch).
             """),
             inputSchema={
                 "type": "object",
@@ -674,13 +688,18 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "sheet_length": {
                         "type": "number",
-                        "description": "Sheet stock length in mm (default 2440 / 4x8).",
+                        "description": "Sheet stock length in mm (default 2440 / 4×8).",
                         "default": 2440,
                     },
                     "sheet_width": {
                         "type": "number",
-                        "description": "Sheet stock width in mm (default 1220 / 4x8).",
+                        "description": "Sheet stock width in mm (default 1220 / 4×8).",
                         "default": 1220,
+                    },
+                    "kerf": {
+                        "type": "number",
+                        "description": "Saw-blade kerf in mm added to each panel for layout. Default 3.2 mm.",
+                        "default": 3.2,
                     },
                     "format": {
                         "type": "string",
@@ -1694,9 +1713,10 @@ async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
 # ── generate_cutlist ──────────────────────────────────────────────────────────
 
 async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
-    fmt = args.pop("format", "both")
+    fmt          = args.pop("format", "both")
     sheet_length = float(args.pop("sheet_length", 2440))
     sheet_width  = float(args.pop("sheet_width",  1220))
+    kerf         = float(args.pop("kerf", 3.2))
 
     cfg = _build_cabinet_config(args)
 
@@ -1782,6 +1802,22 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
 
     if fmt in ("csv", "both"):
         result["cutlist_csv"] = to_csv(panels)
+
+    # ── In-process sheet optimisation (requires rectpack) ──────────────────
+    if _RECTPACK_AVAILABLE:
+        opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf)
+        result["sheets_used"]     = opt.sheets_used
+        result["waste_pct"]       = opt.waste_pct
+        result["unplaced_panels"] = opt.unplaced
+        result["optimization_note"] = (
+            "In-process guillotine layout via rectpack (GuillotineBssfSas). "
+            "Every cut is a full-width table-saw cut — the layout is directly executable at the saw."
+        )
+    else:
+        result["optimization_note"] = (
+            "Sheet optimisation not available — install rectpack for in-process results: "
+            "uv pip install -e '.[cutlist]'"
+        )
 
     return _ok(result)
 
