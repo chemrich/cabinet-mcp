@@ -219,6 +219,18 @@ Check whether a previous server is still running:
 cat /tmp/cabinet-mcp.port    # shows the port of the last server that wrote this file
 ```
 
+### "No module named 'cadquery_furniture'" after a fresh sync
+
+If the package itself isn't importable even after `uv sync`, the venv's editable install is in a bad state (this can happen when uv or pip leaves behind stale dist-info). The reliable fix is a clean rebuild:
+
+```bash
+rm -rf .venv
+uv sync
+uv run cabinet-mcp --help
+```
+
+If the error persists after a clean venv, confirm that `src/cadquery_furniture/` exists and that `uv sync` completed without errors before trying anything else.
+
 ### CadQuery won't install
 
 CadQuery has a large native dependency tree (OCCT). If the build fails or takes too long, switch to lite mode — everything except 3D geometry works:

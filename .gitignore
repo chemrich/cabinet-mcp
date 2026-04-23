@@ -15,6 +15,10 @@ env/
 # uv
 .uv/
 
+# Local environment overrides — never commit
+.env
+.env.*
+
 # Test / coverage
 .pytest_cache/
 .coverage
