@@ -115,10 +115,17 @@ def graduated_drawer_heights(
     r = _resolve_ratio(ratio, "drawer")
 
     if num_drawers == 1 or r == 1.0:
-        h = round(total_mm / num_drawers, 1)
-        # distribute any rounding residual to index 0
-        heights = [h] * num_drawers
-        heights[0] = round(total_mm - h * (num_drawers - 1), 1)
+        # Work in integer tenths-of-mm so that the residual from floor division
+        # is always ≥ 0 and is absorbed by the bottom drawer (index 0).
+        # The previous round()-then-subtract approach could round h *up*, making
+        # heights[0] = total - h*(n-1) come out *smaller* than h — violating the
+        # invariant that the bottom drawer is never shorter than the drawers above it.
+        total_tenths = round(total_mm * 10)
+        h_tenths     = total_tenths // num_drawers          # floor → always ≤ exact value
+        extra_tenths = total_tenths - h_tenths * num_drawers  # ≥ 0 by construction
+        base = h_tenths / 10
+        heights = [base] * num_drawers
+        heights[0] = round(base + extra_tenths / 10, 1)     # bottom absorbs the remainder
         return heights
 
     # Geometric series: h0, h0/r, h0/r², …, h0/r^(n-1)   (bottom to top)

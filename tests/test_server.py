@@ -7,6 +7,19 @@ HTTP transport needed, so the suite stays fast and dependency-free.
 Port management tests use real sockets to exercise the auto-increment logic.
 """
 
+
+def test_server_importable():
+    """The server module must import cleanly.
+
+    This catches broken MCP package releases (e.g. mcp 1.27.0 shipped without
+    its own mcp.client.experimental subpackage, making *every* mcp import fail
+    at startup).  If this test fails, check `uv run cabinet-mcp --help` and
+    compare the installed mcp version against the known-bad list in
+    pyproject.toml.
+    """
+    import importlib
+    importlib.import_module("cadquery_furniture.server")
+
 import asyncio
 import json
 import socket

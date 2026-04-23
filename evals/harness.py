@@ -100,6 +100,8 @@ class ToolCallResult:
     error: str = ""
     duration_ms: float = 0.0
     assertion_results: list[AssertionResult] = field(default_factory=list)
+    saved_vars: dict[str, Any] = field(default_factory=dict)
+    # Context variables saved from this step's result (populated when save_as is set)
 
     @property
     def passed(self) -> bool:
@@ -369,15 +371,45 @@ def _run_sync(coro):
         return asyncio.run(coro)
 
 
-def run_tool_call(tc: ToolCall) -> ToolCallResult:
-    """Execute a single tool call and evaluate its assertions."""
+def run_tool_call(
+    tc: ToolCall,
+    context: dict[str, Any] | None = None,
+) -> ToolCallResult:
+    """Execute a single tool call and evaluate its assertions.
+
+    Parameters
+    ----------
+    tc : ToolCall
+        The tool call specification (tool name, args, assertions).
+    context : dict, optional
+        Shared scenario context dict.  When provided:
+        - Values named in ``tc.context_args`` are resolved from it and merged
+          into the args before the call (applying ``tc.arg_transforms`` if set).
+        - Values named in ``tc.save_as`` are extracted from the result and
+          written back into the context for downstream steps.
+    """
     handler = TOOL_DISPATCH.get(tc.tool)
     if handler is None:
         return ToolCallResult(tc, error=f"Unknown tool: {tc.tool}")
 
+    # ── Resolve context-injected args ────────────────────────────────────────
+    resolved_args = dict(tc.args)
+    if context is not None and tc.context_args:
+        for arg_name, ctx_var in tc.context_args.items():
+            if ctx_var not in context:
+                return ToolCallResult(
+                    tc,
+                    error=f"Context variable '{ctx_var}' not set by a prior step",
+                )
+            value = context[ctx_var]
+            transform = tc.arg_transforms.get(arg_name)
+            if transform is not None:
+                value = transform(value)
+            resolved_args[arg_name] = value
+
     t0 = time.perf_counter()
     try:
-        result = _run_sync(handler(dict(tc.args)))
+        result = _run_sync(handler(resolved_args))
         duration_ms = (time.perf_counter() - t0) * 1000
     except Exception as exc:
         duration_ms = (time.perf_counter() - t0) * 1000
@@ -395,6 +427,15 @@ def run_tool_call(tc: ToolCall) -> ToolCallResult:
         return ToolCallResult(tc, error=f"JSON parse error: {exc}",
                               duration_ms=duration_ms)
 
+    # ── Save context variables from this result ──────────────────────────────
+    saved: dict[str, Any] = {}
+    if context is not None and tc.save_as:
+        for var_name, path in tc.save_as.items():
+            value = _resolve_path(data, path)
+            if value is not MISSING:
+                context[var_name] = value
+                saved[var_name] = value
+
     # Evaluate assertions
     assertion_results = [evaluate_assertion(data, a) for a in tc.assertions]
 
@@ -403,13 +444,21 @@ def run_tool_call(tc: ToolCall) -> ToolCallResult:
         data=data,
         duration_ms=duration_ms,
         assertion_results=assertion_results,
+        saved_vars=saved,
     )
 
 
 def run_scenario(scenario: Scenario) -> ScenarioResult:
-    """Run all tool calls in a scenario and return results."""
+    """Run all tool calls in a scenario and return results.
+
+    A fresh ``context`` dict is created for each scenario and passed to every
+    ``run_tool_call`` invocation.  Steps that declare ``save_as`` populate it;
+    steps that declare ``context_args`` read from it.  The context is local to
+    this scenario and discarded after all steps complete.
+    """
     t0 = time.perf_counter()
-    tool_results = [run_tool_call(tc) for tc in scenario.tool_calls]
+    context: dict[str, Any] = {}
+    tool_results = [run_tool_call(tc, context) for tc in scenario.tool_calls]
     duration_ms = (time.perf_counter() - t0) * 1000
     return ScenarioResult(scenario=scenario, tool_results=tool_results,
                           duration_ms=duration_ms)

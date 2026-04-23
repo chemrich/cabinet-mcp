@@ -71,6 +71,51 @@ class Issue:
 # ─── Dimensional / Parametric Checks (no CadQuery needed) ────────────────────
 
 
+def check_drawer_stack_order(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Warn when a drawer opening is taller than the drawer directly below it.
+
+    Traditional cabinetry proportion places the tallest drawer at the bottom and
+    each successive drawer shorter as you go up.  A reversal is almost always a
+    rounding artefact or a manually entered ``drawer_config`` where heights are in
+    the wrong order.
+
+    Only compares adjacent *drawer*-type openings; door and door_pair slots are
+    ignored so that tall door compartments at the bottom or top don't trigger
+    false positives.  A 0.5 mm tolerance prevents noise from sub-mm rounding in
+    equal-proportion stacks.
+    """
+    TOLERANCE_MM = 0.5
+    issues: list[Issue] = []
+
+    # Collect just the drawer slots with their original stack position (0 = bottom).
+    drawer_slots = [
+        (i, h)
+        for i, (h, t) in enumerate(cab_cfg.drawer_config)
+        if t == "drawer"
+    ]
+
+    for idx in range(len(drawer_slots) - 1):
+        pos_lower, h_lower = drawer_slots[idx]
+        pos_upper, h_upper = drawer_slots[idx + 1]
+        if h_upper > h_lower + TOLERANCE_MM:
+            issues.append(Issue(
+                check="drawer_stack_order",
+                severity=Severity.WARNING,
+                message=(
+                    f"Drawer at stack position {pos_lower + 1} from bottom "
+                    f"({h_lower:.1f} mm) is shorter than the drawer above it at "
+                    f"position {pos_upper + 1} ({h_upper:.1f} mm). "
+                    f"Traditional graduation puts the tallest drawer at the bottom."
+                ),
+                part_a=f"opening_{pos_lower + 1}",
+                part_b=f"opening_{pos_upper + 1}",
+                value=h_upper,
+                limit=h_lower,
+            ))
+
+    return issues
+
+
 def check_cumulative_heights(cab_cfg: CabinetConfig) -> list[Issue]:
     """Verify that drawer/shelf stack doesn't exceed cabinet interior height.
 
@@ -1545,6 +1590,7 @@ def evaluate_cabinet(
     all_issues: list[Issue] = []
 
     # ── Parametric checks (always run) ───────────────────────────────────
+    all_issues.extend(check_drawer_stack_order(cab_cfg))
     all_issues.extend(check_cumulative_heights(cab_cfg))
     all_issues.extend(check_back_panel_fit(cab_cfg))
     all_issues.extend(check_dado_alignment(cab_cfg))

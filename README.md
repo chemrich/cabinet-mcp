@@ -54,7 +54,7 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Cutlist** — consolidated BOM with guillotine sheet optimisation (sheets used, waste %, physically executable layouts), JSON and CSV export; hardware BOM with pack-quantity / leftover math
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
 - **MCP server** — seventeen tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
-- **Eval harness** — 77 scenarios / 332 assertions, runs in under a second — [docs/evals.md](docs/evals.md)
+- **Eval harness** — 251 scenarios / 847 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).
 
@@ -66,6 +66,10 @@ uv run python -m evals         # full scenario suite (< 1 second)
 ```
 
 Neither requires CadQuery (CadQuery-dependent tests are skipped automatically in lite mode).
+
+## Troubleshooting
+
+If the server won't start or Claude isn't seeing the tools, see [docs/local-setup.md](docs/local-setup.md) for a full walkthrough — install verification, Claude Code and Claude Desktop config, HTTP/SSE mode, and fixes for the most common macOS problems (PATH in GUI apps, CadQuery build failures, port conflicts, reading the MCP logs).
 
 ## Attributions
 
