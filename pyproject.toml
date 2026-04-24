@@ -11,8 +11,9 @@ dependencies = [
 [project.optional-dependencies]
 # 3D geometry, interference checks, GLB export, and the self-contained HTML viewer
 cad = ["cadquery>=2.4"]
-# Sheet-goods nesting optimizer (wires up alongside the cut-optimizer-2d JSON output)
-cutlist = ["rectpack"]
+# Sheet-goods nesting optimizer (opcut primary; rectpack fallback)
+# opcut 0.1.3 is the last pure-Python release; 0.2+ are Linux-only compiled wheels.
+cutlist = ["opcut==0.1.3", "rectpack"]
 # Everything: cad + cutlist.  Recommended for normal use.
 full = ["cadquery-furniture[cad,cutlist]"]
 # Lite: explicit alias for a base-only install (no extras needed — documented for clarity)
@@ -23,7 +24,7 @@ dev = ["pytest>=7.0", "pytest-cov"]
 [dependency-groups]
 # uv-native mirrors of the extras above — lets "uv run" resolve groups without --extra flags
 cad     = ["cadquery>=2.4"]
-cutlist = ["rectpack"]
+cutlist = ["opcut==0.1.3", "rectpack"]
 full    = [{include-group = "cad"}, {include-group = "cutlist"}]
 dev     = ["pytest>=7.0", "pytest-cov"]
 
@@ -31,6 +32,16 @@ dev     = ["pytest>=7.0", "pytest-cov"]
 # "uv run cabinet-mcp" and "uv run pytest" both work out of the box.
 # For a lightweight install without CadQuery: uv run --no-group full cabinet-mcp
 default-groups = ["full", "dev"]
+# opcut 0.1.3 pins jsonschema==3.0.1, but we only use opcut.common/csp which
+# never import jsonschema. Override to keep mcp's required jsonschema 4.x.
+override-dependencies = [
+    # opcut 0.1.3 pins jsonschema==3.0.1; we only use opcut.common/csp which
+    # never import jsonschema, so keep mcp's required jsonschema 4.x.
+    "jsonschema>=4.0",
+    # opcut 0.1.3 → doit==0.31.1 → pyinotify which fails to build on macOS.
+    # We only import opcut.common/csp (not doit at all), so any doit version works.
+    "doit>=0.36",
+]
 
 [project.scripts]
 cabinet-mcp = "cadquery_furniture.server:main"

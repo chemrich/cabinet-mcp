@@ -15,14 +15,22 @@ from cadquery_furniture.cabinet import PartInfo
 
 
 class TestConsolidateBom:
-    def test_merges_identical_panels(self):
+    def test_merges_same_name_panels(self):
+        panels = [
+            CutlistPanel(name="side", length=720, width=500, thickness=18, grain_direction="length"),
+            CutlistPanel(name="side", length=720, width=500, thickness=18, grain_direction="length"),
+        ]
+        result = consolidate_bom(panels)
+        assert len(result) == 1
+        assert result[0].quantity == 2
+
+    def test_keeps_differently_named_identical_panels_separate(self):
         panels = [
             CutlistPanel(name="side_L", length=720, width=500, thickness=18, grain_direction="length"),
             CutlistPanel(name="side_R", length=720, width=500, thickness=18, grain_direction="length"),
         ]
         result = consolidate_bom(panels)
-        assert len(result) == 1
-        assert result[0].quantity == 2
+        assert len(result) == 2
 
     def test_keeps_different_panels_separate(self):
         panels = [

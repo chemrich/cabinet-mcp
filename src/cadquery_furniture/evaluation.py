@@ -1587,10 +1587,21 @@ def evaluate_cabinet(
     all_issues.extend(check_column_widths(cab_cfg))
     all_issues.extend(check_cabinet_pull_consistency(cab_cfg))
 
-    # ── Drawer hardware + joinery checks ────────────────────────────────
+    # Hardware constraints checked parametrically — no assembly required.
+    for opening_height, slot_type in cab_cfg.drawer_config:
+        if slot_type == "drawer":
+            dcfg = DrawerConfig(
+                opening_width=cab_cfg.interior_width,
+                opening_height=opening_height,
+                opening_depth=cab_cfg.interior_depth,
+                slide_key=cab_cfg.drawer_slide,
+                pull_key=cab_cfg.drawer_pull,
+            )
+            all_issues.extend(check_drawer_hardware_clearances(dcfg))
+
+    # ── Drawer hardware + joinery checks (geometry-dependent) ────────────
     if drawer_assemblies:
         for drawer_assy, drawer_cfg in drawer_assemblies:
-            all_issues.extend(check_drawer_hardware_clearances(drawer_cfg))
             all_issues.extend(check_drawer_joinery(drawer_cfg))
             all_issues.extend(check_drawer_pull(drawer_cfg))
 
