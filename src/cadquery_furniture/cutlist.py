@@ -34,6 +34,14 @@ except ImportError:
     _rectpack = None  # type: ignore[assignment]
     _RECTPACK_AVAILABLE = False
 
+try:
+    from opcut import common as _opcut_common, csp as _opcut_csp
+    _OPCUT_AVAILABLE = True
+except ImportError:
+    _opcut_common = None  # type: ignore[assignment]
+    _opcut_csp = None     # type: ignore[assignment]
+    _OPCUT_AVAILABLE = False
+
 from .cabinet import PartInfo
 
 
@@ -183,6 +191,7 @@ def consolidate_bom(panels: list[CutlistPanel]) -> list[CutlistPanel]:
 
     for panel in panels:
         key = (
+            panel.name,
             round(panel.length, 1),
             round(panel.width, 1),
             round(panel.thickness, 1),
@@ -303,7 +312,7 @@ def print_bom(panels: list[CutlistPanel]) -> None:
 
 @dataclass
 class Placement:
-    """Position of one panel piece on a specific sheet as packed by rectpack."""
+    """Position of one panel piece on a specific sheet."""
     panel_name: str
     sheet_index: int    # 0-based sheet number
     x: float            # mm from bottom-left corner of sheet
@@ -311,6 +320,7 @@ class Placement:
     placed_length: float  # dimension along x-axis as placed (may differ from
     placed_width: float   #   nominal if rotated — see ``rotated`` flag)
     rotated: bool         # True when piece was rotated 90° from nominal orientation
+    cut_sequence: int = 0  # 1-based cut order within the sheet (0 = unset)
 
 
 @dataclass
@@ -338,6 +348,7 @@ class OptimizationResult:
     placements: list[Placement]
     unplaced: list[str]
     stock_sheet: SheetStock
+    grain_mismatched: list[str] = field(default_factory=list)
 
     @property
     def is_complete(self) -> bool:
@@ -349,27 +360,9 @@ def optimize_cutlist(
     panels: list[CutlistPanel],
     stock_sheet: SheetStock | None = None,
     kerf: float = 3.2,
+    algorithm: str = "auto",
 ) -> OptimizationResult:
-    """Pack *panels* onto sheets of *stock_sheet* and return layout results.
-
-    Uses rectpack's **GuillotineBssfSas** algorithm, which models real
-    table-saw and track-saw cuts: every cut goes straight across the full
-    remaining width or height of the sheet (a "guillotine" cut), so the
-    resulting layout can always be executed at the saw without repositioning.
-
-    *Bssf* (Best Short Side Fit) places each piece where the shorter leftover
-    dimension is minimised, keeping off-cuts as usable as possible.  *Sas*
-    (Short Axis Split) splits the remaining free rectangle along its shorter
-    axis after each placement, which tends to preserve wider off-cuts for
-    subsequent pieces.
-
-    Panels are expanded from their ``quantity`` field into individual pieces
-    and sorted largest-area-first before packing, which improves bin-fill
-    efficiency.  Grain direction is always respected: rotation is disabled
-    globally because woodworking panels almost always carry a grain constraint.
-
-    Each piece has ``kerf`` mm added to both dimensions so that saw-blade
-    width is accounted for in the sheet layout.
+    """Lay out *panels* onto sheets and return placement results.
 
     Parameters
     ----------
@@ -377,46 +370,77 @@ def optimize_cutlist(
         Consolidated (or raw) list of :class:`CutlistPanel` objects.  Panels
         with ``quantity > 1`` are expanded internally.
     stock_sheet:
-        Sheet to pack onto.  Defaults to :data:`SHEET_4x8_3_4` (2440 × 1220 mm,
-        18 mm thick).
+        Sheet to lay out onto.  Defaults to :data:`SHEET_4x8_3_4`.
     kerf:
-        Saw-blade kerf in mm added to each panel's length and width.
+        Saw-blade kerf in mm.
+    algorithm:
+        Which optimizer to use.  One of:
 
-    Returns
-    -------
-    OptimizationResult
-
-    Raises
-    ------
-    ImportError
-        When rectpack is not installed.  Install with::
-
-            uv pip install -e '.[cutlist]'
+        ``"auto"`` (default)
+            Use opcut if installed, then rectpack if installed, then strip.
+        ``"opcut"``
+            opcut FORWARD_GREEDY guillotine (requires ``opcut``).
+        ``"rectpack"``
+            rectpack GuillotineBssfSas (requires ``rectpack``).
+        ``"strip"``
+            Pure-Python strip-cutting fallback (always available).
     """
-    if not _RECTPACK_AVAILABLE:
-        raise ImportError(
-            "rectpack is required for in-process sheet optimisation. "
-            "Install with: uv pip install -e '.[cutlist]'"
-        )
-
     if stock_sheet is None:
         stock_sheet = SHEET_4x8_3_4
 
-    # Effective sheet interior after one kerf margin on each edge.
+    if not panels:
+        return OptimizationResult(
+            sheets_used=0, waste_pct=0.0, placements=[],
+            unplaced=[], stock_sheet=stock_sheet, grain_mismatched=[],
+        )
+
+    if algorithm == "opcut":
+        if not _OPCUT_AVAILABLE:
+            raise ImportError("opcut is not installed. Install with: uv pip install opcut")
+        result = _optimize_with_opcut(panels, stock_sheet, kerf)
+        return result if result is not None else _optimize_strip(panels, stock_sheet, kerf)
+
+    if algorithm == "rectpack":
+        if not _RECTPACK_AVAILABLE:
+            raise ImportError(
+                "rectpack is not installed. Install with: uv pip install -e '.[cutlist]'"
+            )
+        return _optimize_with_rectpack(panels, stock_sheet, kerf)
+
+    if algorithm == "strip":
+        return _optimize_strip(panels, stock_sheet, kerf)
+
+    # "auto": opcut → rectpack → strip
+    if _OPCUT_AVAILABLE:
+        result = _optimize_with_opcut(panels, stock_sheet, kerf)
+        if result is not None:
+            return result
+    if _RECTPACK_AVAILABLE:
+        return _optimize_with_rectpack(panels, stock_sheet, kerf)
+    return _optimize_strip(panels, stock_sheet, kerf)
+
+
+def _optimize_with_rectpack(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock,
+    kerf: float,
+) -> OptimizationResult:
+    """Guillotine layout via rectpack GuillotineBssfSas.
+
+    Rotation is disabled globally because grain direction is assumed for all
+    panels. Kerf is added to each piece dimension before packing and subtracted
+    from placed dimensions in the returned Placement objects.
+    """
     sheet_l = stock_sheet.length - kerf
     sheet_w = stock_sheet.width - kerf
 
-    # Expand each panel's quantity into individual (length, width, name, idx)
-    # tuples, then sort largest-area first for better bin-fill.
     expanded: list[tuple[float, float, str, int]] = [
-        (panel.length, panel.width, panel.name, i)
-        for panel in panels
-        for i in range(panel.quantity)
+        (p.length, p.width, p.name, i)
+        for p in panels
+        for i in range(p.quantity)
     ]
     expanded.sort(key=lambda e: e[0] * e[1], reverse=True)
 
-    # Pre-flight: separate panels that are simply too large for the sheet.
-    # We only flag the panel *name* once even if multiple pieces are oversized.
     oversized: list[str] = []
     packable: list[tuple[float, float, str, int]] = []
     piece_dims: dict[tuple[str, int], tuple[float, float]] = {}
@@ -429,23 +453,15 @@ def optimize_cutlist(
             packable.append((length, width, name, idx))
             piece_dims[(name, idx)] = (length, width)
 
-    # --- Run rectpack (guillotine algorithm) ---------------------------------
-    # GuillotineBssfSas: Best Short Side Fit + Short Axis Split.
-    # Every cut is a full-width guillotine cut — matches table-saw workflow.
     packer = _rectpack.newPacker(
         pack_algo=_rectpack.GuillotineBssfSas,
         rotation=False,
     )
-
-    # Upper bound on bins: worst case every piece on its own sheet.
     packer.add_bin(sheet_l, sheet_w, count=max(1, len(packable)))
-
     for length, width, name, idx in packable:
         packer.add_rect(length + kerf, width + kerf, rid=(name, idx))
-
     packer.pack()
 
-    # --- Collect placements --------------------------------------------------
     placements: list[Placement] = []
     placed_rids: set[tuple[str, int]] = set()
 
@@ -454,36 +470,35 @@ def optimize_cutlist(
             rid: tuple[str, int] = rect.rid
             placed_rids.add(rid)
             orig_l, orig_w = piece_dims[rid]
-            # Detect rotation: rectpack swaps width/height when rotating.
             rotated = abs(rect.width - (orig_l + kerf)) > 0.01
             placements.append(Placement(
                 panel_name=rid[0],
                 sheet_index=bin_idx,
                 x=round(rect.x, 1),
                 y=round(rect.y, 1),
-                placed_length=round(rect.width, 1),
-                placed_width=round(rect.height, 1),
+                placed_length=round(rect.width - kerf, 1),
+                placed_width=round(rect.height - kerf, 1),
                 rotated=rotated,
             ))
 
-    # Any packable piece not in placed_rids was dropped by the packer (should
-    # not happen with count=len(packable) but guard anyway).
     unplaced: list[str] = list(oversized)
     for _, _, name, idx in packable:
         if (name, idx) not in placed_rids and name not in unplaced:
             unplaced.append(name)
 
-    # --- Waste calculation ---------------------------------------------------
+    # Assign per-sheet cut sequence in placement order.
+    sheet_counters: dict[int, int] = {}
+    for p in placements:
+        sheet_counters[p.sheet_index] = sheet_counters.get(p.sheet_index, 0) + 1
+        p.cut_sequence = sheet_counters[p.sheet_index]
+
     sheets_used = len({p.sheet_index for p in placements})
     if sheets_used == 0:
         waste_pct = 0.0
     else:
-        total_sheet_area = sheets_used * stock_sheet.length * stock_sheet.width
-        placed_area = sum(
-            (piece_dims[rid][0] + kerf) * (piece_dims[rid][1] + kerf)
-            for rid in placed_rids
-        )
-        waste_pct = max(0.0, (total_sheet_area - placed_area) / total_sheet_area * 100)
+        total_area = sheets_used * stock_sheet.length * stock_sheet.width
+        placed_area = sum(piece_dims[rid][0] * piece_dims[rid][1] for rid in placed_rids)
+        waste_pct = max(0.0, (total_area - placed_area) / total_area * 100)
 
     return OptimizationResult(
         sheets_used=sheets_used,
@@ -491,6 +506,234 @@ def optimize_cutlist(
         placements=placements,
         unplaced=unplaced,
         stock_sheet=stock_sheet,
+        grain_mismatched=[],
+    )
+
+
+def _optimize_with_opcut(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock,
+    kerf: float,
+) -> OptimizationResult | None:
+    """Guillotine layout via opcut FORWARD_GREEDY.
+
+    Returns None if opcut cannot place all valid items even after several
+    retries (caller falls back to strip cutting).
+
+    One kerf is subtracted from each sheet dimension so opcut models edge
+    waste correctly; inter-piece kerfs are handled by opcut's cut_width.
+    """
+    eff_l = stock_sheet.length - kerf
+    eff_w = stock_sheet.width  - kerf
+    EPS = 0.05
+
+    grain_constrained: set[str] = {
+        p.name for p in panels if p.grain_direction not in ("", None)
+    }
+
+    oversized: list[str] = []
+    valid: list[CutlistPanel] = []
+    for p in panels:
+        can_rotate = p.name not in grain_constrained
+        fits = p.length <= eff_l + EPS and p.width <= eff_w + EPS
+        fits_rot = can_rotate and p.width <= eff_l + EPS and p.length <= eff_w + EPS
+        if not fits and not fits_rot:
+            if p.name not in oversized:
+                oversized.append(p.name)
+        else:
+            valid.append(p)
+
+    if not valid:
+        return OptimizationResult(
+            sheets_used=0, waste_pct=0.0, placements=[],
+            unplaced=oversized, stock_sheet=stock_sheet, grain_mismatched=[],
+        )
+
+    items: list = []
+    id_to_name: dict[str, str] = {}
+    counter = 0
+    for p in valid:
+        for _ in range(p.quantity):
+            iid = f"{p.name}__{counter}"
+            counter += 1
+            items.append(_opcut_common.Item(
+                id=iid,
+                width=p.length,
+                height=p.width,
+                can_rotate=p.name not in grain_constrained,
+            ))
+            id_to_name[iid] = p.name
+
+    total_area = sum(p.length * p.width * p.quantity for p in valid)
+    base = max(1, math.ceil(total_area / (eff_l * eff_w)))
+
+    opcut_panels: list = []
+    result = None
+    for n in [base, base + 1, base + 2, base + 4]:
+        opcut_panels = [
+            _opcut_common.Panel(id=f"s{i}", width=eff_l, height=eff_w)
+            for i in range(n)
+        ]
+        params = _opcut_common.Params(
+            cut_width=kerf, panels=opcut_panels, items=items,
+        )
+        try:
+            result = _opcut_csp.calculate(params, _opcut_common.Method.FORWARD_GREEDY)
+            break
+        except _opcut_common.UnresolvableError:
+            continue
+
+    if result is None:
+        return None
+
+    idx_map = {f"s{i}": i for i in range(len(opcut_panels))}
+    placements: list[Placement] = []
+    grain_mismatched: list[str] = []
+
+    for used in result.used:
+        name = id_to_name[used.item.id]
+        if used.rotate:
+            placed_l, placed_w = used.item.height, used.item.width
+        else:
+            placed_l, placed_w = used.item.width, used.item.height
+        if used.rotate and name in grain_constrained and name not in grain_mismatched:
+            grain_mismatched.append(name)
+        placements.append(Placement(
+            panel_name=name,
+            sheet_index=idx_map[used.panel.id],
+            x=round(used.x, 1),
+            y=round(used.y, 1),
+            placed_length=round(placed_l, 1),
+            placed_width=round(placed_w, 1),
+            rotated=used.rotate,
+        ))
+
+    used_indices = sorted({p.sheet_index for p in placements})
+    remap = {old: new for new, old in enumerate(used_indices)}
+    for p in placements:
+        p.sheet_index = remap[p.sheet_index]
+
+    # Assign per-sheet cut sequence in the order opcut placed each piece.
+    sheet_counters: dict[int, int] = {}
+    for p in placements:
+        sheet_counters[p.sheet_index] = sheet_counters.get(p.sheet_index, 0) + 1
+        p.cut_sequence = sheet_counters[p.sheet_index]
+
+    sheets_used = len(used_indices)
+    placed_area = sum(p.placed_length * p.placed_width for p in placements)
+    total_used = sheets_used * stock_sheet.length * stock_sheet.width
+    waste_pct = max(0.0, (total_used - placed_area) / total_used * 100)
+
+    return OptimizationResult(
+        sheets_used=sheets_used,
+        waste_pct=round(waste_pct, 1),
+        placements=placements,
+        unplaced=oversized,
+        stock_sheet=stock_sheet,
+        grain_mismatched=grain_mismatched,
+    )
+
+
+def _optimize_strip(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock,
+    kerf: float,
+) -> OptimizationResult:
+    """Strip-cutting fallback layout (pure Python, no extra dependencies).
+
+    Groups panels into horizontal strips by across-grain dimension, sorted
+    widest first.  Within each strip, pieces are arranged left-to-right.
+    ``placed_length`` / ``placed_width`` are NET dimensions (no kerf added).
+    """
+    sheet_l = stock_sheet.length - kerf
+    sheet_w = stock_sheet.width  - kerf
+    EPS = 0.05
+
+    grain_constrained: set[str] = {
+        p.name for p in panels if p.grain_direction not in ("", None)
+    }
+
+    oversized: list[str] = []
+    oriented: list[tuple[float, float, str, int, bool]] = []
+
+    for p in panels:
+        for idx in range(p.quantity):
+            if p.name in grain_constrained:
+                plen, pwid, rot = p.length, p.width, False
+                if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                    if p.name not in oversized:
+                        oversized.append(p.name)
+                else:
+                    oriented.append((plen, pwid, p.name, idx, rot))
+            else:
+                if p.length >= p.width:
+                    plen, pwid, rot = p.length, p.width, False
+                else:
+                    plen, pwid, rot = p.width, p.length, True
+                if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                    plen, pwid, rot = pwid, plen, not rot
+                    if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                        if p.name not in oversized:
+                            oversized.append(p.name)
+                        continue
+                oriented.append((plen, pwid, p.name, idx, rot))
+
+    oriented.sort(key=lambda e: (-e[1], -e[0]))
+
+    placements: list[Placement] = []
+    sheet_index = 0
+    y = 0.0
+    x = 0.0
+    current_h: float | None = None
+
+    for plen, pwid, name, idx, rotated in oriented:
+        pk = plen + kerf
+        wk = pwid + kerf
+
+        if current_h is None or abs(pwid - current_h) > EPS:
+            if current_h is not None:
+                y += current_h + kerf
+            current_h = pwid
+            x = 0.0
+            if y + wk > sheet_w + EPS:
+                sheet_index += 1
+                y = 0.0
+
+        if x + pk > sheet_l + EPS:
+            y += current_h + kerf
+            x = 0.0
+            if y + wk > sheet_w + EPS:
+                sheet_index += 1
+                y = 0.0
+
+        placements.append(Placement(
+            panel_name=name,
+            sheet_index=sheet_index,
+            x=round(x, 1),
+            y=round(y, 1),
+            placed_length=round(plen, 1),
+            placed_width=round(pwid, 1),
+            rotated=rotated,
+        ))
+        x += pk
+
+    sheet_counters: dict[int, int] = {}
+    for p in placements:
+        sheet_counters[p.sheet_index] = sheet_counters.get(p.sheet_index, 0) + 1
+        p.cut_sequence = sheet_counters[p.sheet_index]
+
+    sheets_used = len({p.sheet_index for p in placements})
+    placed_area = sum(p.placed_length * p.placed_width for p in placements)
+    total_area = sheets_used * stock_sheet.length * stock_sheet.width
+    waste_pct = max(0.0, (total_area - placed_area) / total_area * 100) if sheets_used else 0.0
+
+    return OptimizationResult(
+        sheets_used=sheets_used,
+        waste_pct=round(waste_pct, 1),
+        placements=placements,
+        unplaced=oversized,
+        stock_sheet=stock_sheet,
+        grain_mismatched=[],
     )
 
 
@@ -741,6 +984,386 @@ def to_hardware_json(lines: list[HardwareLine]) -> str:
         },
     }
     return json.dumps(payload, indent=2)
+
+
+def _guillotine_cuts(
+    placements: list[Placement],
+    rect_x: float, rect_y: float, rect_w: float, rect_h: float,
+    depth: int,
+    out: list,
+    EPS: float = 2.0,
+) -> None:
+    """Recursively find guillotine cut lines within a rectangle.
+
+    Each entry appended to *out* is
+    ``(depth, pos, orient, x0, y0, x1, y1, is_breakdown, dim_a, dim_b)`` where:
+
+    - ``orient`` is ``'h'`` (horizontal) or ``'v'`` (vertical)
+    - coordinates describe the full extent of the cut within its sub-rectangle
+    - ``is_breakdown`` is True when both halves still contain multiple pieces
+    - ``dim_a`` / ``dim_b`` are the resulting sub-board sizes on each side of
+      the cut (in mm), useful for setting the fence
+    """
+    if len(placements) <= 1:
+        return
+
+    # Try horizontal cuts first (rip cuts along the sheet width).
+    for cy in sorted({p.y + p.placed_width for p in placements}):
+        if cy <= rect_y + EPS or cy >= rect_y + rect_h - EPS:
+            continue
+        above = [p for p in placements if p.y + p.placed_width <= cy + EPS]
+        below = [p for p in placements if p.y >= cy - EPS]
+        if above and below and len(above) + len(below) == len(placements):
+            is_breakdown = len(above) > 1 and len(below) > 1
+            dim_a = round(max(p.y + p.placed_width for p in above) - min(p.y for p in above))
+            dim_b = round(max(p.y + p.placed_width for p in below) - min(p.y for p in below))
+            out.append((depth, cy, 'h', rect_x, cy, rect_x + rect_w, cy, is_breakdown, dim_a, dim_b))
+            _guillotine_cuts(above, rect_x, rect_y, rect_w, cy - rect_y, depth + 1, out, EPS)
+            _guillotine_cuts(below, rect_x, cy, rect_w, rect_y + rect_h - cy, depth + 1, out, EPS)
+            return
+
+    # Try vertical cuts (crosscuts along the sheet height).
+    for cx in sorted({p.x + p.placed_length for p in placements}):
+        if cx <= rect_x + EPS or cx >= rect_x + rect_w - EPS:
+            continue
+        left  = [p for p in placements if p.x + p.placed_length <= cx + EPS]
+        right = [p for p in placements if p.x >= cx - EPS]
+        if left and right and len(left) + len(right) == len(placements):
+            is_breakdown = len(left) > 1 and len(right) > 1
+            dim_a = round(max(p.x + p.placed_length for p in left)  - min(p.x for p in left))
+            dim_b = round(max(p.x + p.placed_length for p in right) - min(p.x for p in right))
+            out.append((depth, cx, 'v', cx, rect_y, cx, rect_y + rect_h, is_breakdown, dim_a, dim_b))
+            _guillotine_cuts(left,  rect_x, rect_y, cx - rect_x,          rect_h, depth + 1, out, EPS)
+            _guillotine_cuts(right, cx,     rect_y, rect_x + rect_w - cx, rect_h, depth + 1, out, EPS)
+            return
+
+
+def generate_sheet_layout_html(
+    groups: list[tuple[str, list["CutlistPanel"], "OptimizationResult"]],
+    cabinet_name: str = "cabinet",
+    kerf: float = 3.2,
+) -> str:
+    """Generate a self-contained HTML page with per-sheet SVG cut layouts.
+
+    Parameters
+    ----------
+    groups:
+        List of ``(label, panels, opt_result)`` tuples — one per thickness
+        group.  Label is the display name shown on the tab.
+    cabinet_name:
+        Used in the page title and ``<h1>``.
+
+    Returns
+    -------
+    str
+        Complete HTML document (self-contained, no external dependencies).
+    """
+    # ── Colour palette ─────────────────────────────────────────────────────────
+    _PALETTE = [
+        "#C8DFA8", "#A8C8DF", "#DFC8A8", "#A8DFC8",
+        "#DFA8C8", "#C8A8DF", "#DFD8A8", "#A8D8DF",
+        "#DFA8A8", "#A8A8DF", "#D8DFA8", "#A8DFD8",
+        "#DFC0A8", "#B8A8DF", "#A8DFB8", "#DFA8D8",
+    ]
+
+    def _colour(name: str) -> str:
+        idx = hash(name) % len(_PALETTE)
+        return _PALETTE[idx]
+
+    def _darker(hex_col: str, factor: float = 0.65) -> str:
+        h = hex_col.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return "#{:02x}{:02x}{:02x}".format(
+            int(r * factor), int(g * factor), int(b * factor)
+        )
+
+    # ── SVG builder ────────────────────────────────────────────────────────────
+    def _sheet_svg(sheet: SheetStock, placements: list[Placement]) -> str:
+        sl, sw = sheet.length, sheet.width
+        # Display ~760 px wide; height scaled proportionally.
+        disp_w = 760
+        disp_h = sw / sl * disp_w
+
+        out: list[str] = []
+        pw_stroke = max(0.5, sl * 0.001)
+        rx_val = sl * 0.003
+
+        # Placements use top-left origin with y increasing downward, matching SVG.
+        # placed_length/placed_width are net panel dimensions (no kerf padding).
+
+        # Sheet background.
+        out.append(
+            f'<rect x="0" y="0" width="{sl:.1f}" height="{sw:.1f}" '
+            f'fill="#F5EED8" stroke="#888" stroke-width="{sl * 0.002:.1f}"/>'
+        )
+
+        # Panels.
+        for p in placements:
+            fill = _colour(p.panel_name)
+            stroke = _darker(fill)
+
+            out.append(
+                f'<rect x="{p.x:.1f}" y="{p.y:.1f}" '
+                f'width="{p.placed_length:.1f}" height="{p.placed_width:.1f}" '
+                f'fill="{fill}" stroke="{stroke}" '
+                f'stroke-width="{pw_stroke:.1f}" rx="{rx_val:.1f}"/>'
+            )
+
+            label = p.panel_name[:24] + ("…" if len(p.panel_name) > 24 else "")
+            if p.rotated:
+                label += " ↺"
+            dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f} mm"
+
+            min_dim = min(p.placed_length, p.placed_width)
+            font_mm = max(min_dim * 0.10, 12)
+            dim_font = max(min_dim * 0.07, 9)
+
+            cx = p.x + p.placed_length / 2
+            cy_label = p.y + p.placed_width / 2 - font_mm * 0.4
+            cy_dim   = cy_label + font_mm * 1.1
+
+            tall = p.placed_width > p.placed_length
+            rot_label = f' transform="rotate(-90,{cx:.1f},{cy_label:.1f})"' if tall else ''
+            rot_dim   = f' transform="rotate(-90,{cx:.1f},{cy_dim:.1f})"'   if tall else ''
+
+            out.append(
+                f'<text x="{cx:.1f}" y="{cy_label:.1f}" '
+                f'text-anchor="middle" dominant-baseline="middle" '
+                f'font-family="monospace" font-size="{font_mm:.1f}" '
+                f'fill="{stroke}" pointer-events="none"{rot_label}>'
+                f'{_esc(label)}</text>'
+            )
+            out.append(
+                f'<text x="{cx:.1f}" y="{cy_dim:.1f}" '
+                f'text-anchor="middle" dominant-baseline="middle" '
+                f'font-family="monospace" font-size="{dim_font:.1f}" '
+                f'fill="{stroke}" opacity="0.7" pointer-events="none"{rot_dim}>'
+                f'{_esc(dim_text)}</text>'
+            )
+
+
+        # Guillotine cut lines — extract tree, number breakdown cuts in BFS order.
+        raw_cuts: list = []
+        _guillotine_cuts(placements, 0, 0, sl, sw, depth=0, out=raw_cuts)
+        raw_cuts.sort(key=lambda c: (c[0], c[1]))  # BFS: shallower first
+
+        breakdown_stroke = sl * 0.005
+        atomic_stroke    = sl * 0.002
+        label_r   = sl * 0.018
+        label_font = label_r * 1.0
+        seq = 0
+
+        for entry in raw_cuts:
+            depth, pos, orient, x0, y0, x1, y1, is_breakdown, dim_a, dim_b = entry
+            dash = sl * 0.018
+            if is_breakdown:
+                seq += 1
+                colour  = "#c0392b"
+                opacity = "0.80"
+                sw_line = breakdown_stroke
+            else:
+                colour  = "#555"
+                opacity = "0.35"
+                sw_line = atomic_stroke
+
+            out.append(
+                f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" '
+                f'stroke="{colour}" stroke-width="{sw_line:.1f}" '
+                f'stroke-dasharray="{dash:.0f},{dash*0.6:.0f}" opacity="{opacity}"/>'
+            )
+
+            if is_breakdown:
+                lx = (x0 + x1) / 2 if orient == 'h' else x0
+                ly = y0             if orient == 'h' else (y0 + y1) / 2
+
+                # Numbered circle badge.
+                out.append(
+                    f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="{label_r:.1f}" '
+                    f'fill="{colour}" opacity="0.9"/>'
+                )
+                out.append(
+                    f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" '
+                    f'dominant-baseline="middle" font-family="monospace" '
+                    f'font-size="{label_font:.1f}" font-weight="bold" fill="#fff" '
+                    f'pointer-events="none">{seq}</text>'
+                )
+
+                # Dimension label — short side only, placed on that side of the cut.
+                dim_font = label_r * 0.9
+                pad = label_r * 1.6
+                if orient == 'h':
+                    if dim_a <= dim_b:
+                        tx, ty, anchor = lx + label_r * 1.4, ly - pad, "start"
+                        dim_label = f"{dim_a} mm"
+                    else:
+                        tx, ty, anchor = lx + label_r * 1.4, ly + pad, "start"
+                        dim_label = f"{dim_b} mm"
+                else:
+                    if dim_a <= dim_b:
+                        tx, ty, anchor = lx - pad, ly - label_r * 1.4, "end"
+                        dim_label = f"{dim_a} mm"
+                    else:
+                        tx, ty, anchor = lx + pad, ly - label_r * 1.4, "start"
+                        dim_label = f"{dim_b} mm"
+                rotate = f' transform="rotate(-90,{tx:.1f},{ty:.1f})"' if orient == 'v' else ''
+                out.append(
+                    f'<text x="{tx:.1f}" y="{ty:.1f}" '
+                    f'text-anchor="{anchor}" dominant-baseline="middle" '
+                    f'font-family="monospace" font-size="{dim_font:.1f}" '
+                    f'fill="{colour}" opacity="0.9" pointer-events="none"{rotate}>'
+                    f'{dim_label}</text>'
+                )
+
+        # Ruler along the bottom edge.
+        tick_font = sl * 0.018
+        tick_y_top = sw + sl * 0.005
+        tick_y_bot = tick_y_top + sl * 0.010
+        out.append(
+            f'<line x1="0" y1="{sw:.1f}" x2="{sl:.1f}" y2="{sw:.1f}" '
+            f'stroke="#888" stroke-width="{pw_stroke:.1f}"/>'
+        )
+        for mm in range(0, int(sl) + 1, 200):
+            out.append(
+                f'<line x1="{mm}" y1="{tick_y_top:.1f}" '
+                f'x2="{mm}" y2="{tick_y_bot:.1f}" '
+                f'stroke="#666" stroke-width="{pw_stroke:.1f}"/>'
+            )
+            if mm % 400 == 0:
+                out.append(
+                    f'<text x="{mm}" y="{tick_y_bot + tick_font:.1f}" '
+                    f'text-anchor="middle" font-family="monospace" '
+                    f'font-size="{tick_font:.1f}" fill="#666">{mm}</text>'
+                )
+
+        vb_h = sw + sl * 0.06
+        body = "\n".join(out)
+        return (
+            f'<svg viewBox="0 0 {sl:.1f} {vb_h:.1f}" '
+            f'width="{disp_w}" height="{disp_h:.0f}" '
+            f'xmlns="http://www.w3.org/2000/svg" '
+            f'style="border:1px solid #ccc;border-radius:4px;background:#fff;">'
+            f'{body}</svg>'
+        )
+
+    def _esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # ── Build tab HTML ─────────────────────────────────────────────────────────
+    tab_buttons: list[str] = []
+    tab_panes: list[str] = []
+
+    for tab_idx, (label, _panels, opt) in enumerate(groups):
+        active = "active" if tab_idx == 0 else ""
+        tab_buttons.append(
+            f'<button class="tab-btn {active}" '
+            f'onclick="showTab({tab_idx})" id="btn-{tab_idx}">'
+            f'{_esc(label)}</button>'
+        )
+
+        sheets_count = opt.sheets_used
+        by_sheet: dict[int, list[Placement]] = {}
+        for p in opt.placements:
+            by_sheet.setdefault(p.sheet_index, []).append(p)
+
+        sheet_svgs: list[str] = []
+        for si in sorted(by_sheet.keys()):
+            sheet_svgs.append(
+                f'<div class="sheet-card">'
+                f'<h3>Sheet {si + 1} of {sheets_count} '
+                f'<span class="dim">'
+                f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
+                f'— {opt.stock_sheet.name}</span></h3>'
+                f'{_sheet_svg(opt.stock_sheet, by_sheet[si])}'
+                f'</div>'
+            )
+
+        notes_html = ""
+        if opt.unplaced:
+            names = ", ".join(opt.unplaced[:5])
+            extra = f" + {len(opt.unplaced) - 5} more" if len(opt.unplaced) > 5 else ""
+            notes_html += f'<p class="warn">⚠ Unplaced panels: {_esc(names)}{extra}</p>'
+        if opt.grain_mismatched:
+            names = ", ".join(opt.grain_mismatched[:5])
+            notes_html += (
+                f'<p class="warn">⚠ Grain-constrained panels rotated by optimizer '
+                f'(verify orientation at saw): {_esc(names)}</p>'
+            )
+
+        tab_panes.append(
+            f'<div class="tab-pane {active}" id="pane-{tab_idx}">'
+            f'<div class="group-stats">'
+            f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} · '
+            f'{opt.waste_pct:.1f}% waste'
+            f'</div>'
+            f'{notes_html}'
+            f'<div class="sheet-grid">{"".join(sheet_svgs)}</div>'
+            f'</div>'
+        )
+
+    tabs_html = "\n".join(tab_buttons)
+    panes_html = "\n".join(tab_panes)
+
+    # ── Legend: panel name → colour ────────────────────────────────────────────
+    seen: dict[str, str] = {}
+    for _, panels, opt in groups:
+        for p in opt.placements:
+            if p.panel_name not in seen:
+                seen[p.panel_name] = _colour(p.panel_name)
+    legend_items = "".join(
+        f'<span class="legend-item">'
+        f'<span class="legend-swatch" style="background:{col};"></span>'
+        f'{_esc(name)}</span>'
+        for name, col in seen.items()
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{_esc(cabinet_name)} — Sheet Layout</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:system-ui,sans-serif;background:#f0ede8;color:#222;padding:16px}}
+h1{{font-size:1.3rem;font-weight:600;margin-bottom:12px}}
+.tabs{{display:flex;gap:6px;margin-bottom:0;flex-wrap:wrap}}
+.tab-btn{{
+  padding:7px 16px;border:1px solid #bbb;border-bottom:none;
+  background:#e0dbd4;border-radius:6px 6px 0 0;cursor:pointer;
+  font-size:.85rem;color:#444;
+}}
+.tab-btn.active{{background:#fff;border-color:#888;color:#111;font-weight:600}}
+.tab-pane{{display:none;background:#fff;border:1px solid #888;
+  border-radius:0 6px 6px 6px;padding:16px}}
+.tab-pane.active{{display:block}}
+.group-stats{{font-size:.85rem;color:#555;margin-bottom:10px}}
+.sheet-grid{{display:flex;flex-direction:column;gap:24px}}
+.sheet-card h3{{font-size:.9rem;font-weight:600;margin-bottom:6px;color:#333}}
+.dim{{font-weight:400;color:#777;font-size:.8rem}}
+.warn{{color:#b55;font-size:.85rem;margin-bottom:8px}}
+.legend{{margin-top:20px;padding-top:12px;border-top:1px solid #ddd}}
+.legend h2{{font-size:.85rem;font-weight:600;color:#555;margin-bottom:6px}}
+.legend-item{{display:inline-flex;align-items:center;gap:5px;
+  margin:3px 8px 3px 0;font-size:.78rem;color:#333}}
+.legend-swatch{{width:14px;height:14px;border-radius:2px;
+  border:1px solid rgba(0,0,0,.15);flex-shrink:0}}
+</style>
+</head>
+<body>
+<h1>{_esc(cabinet_name)} — Cut Sheet Layout</h1>
+<div class="tabs">{tabs_html}</div>
+{panes_html}
+<div class="legend">
+<h2>Panel legend</h2>
+{legend_items}
+</div>
+<script>
+function showTab(n){{
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',i===n));
+  document.querySelectorAll('.tab-pane').forEach((p,i)=>p.classList.toggle('active',i===n));
+}}
+</script>
+</body>
+</html>"""
 
 
 def print_hardware_bom(lines: list[HardwareLine]) -> None:

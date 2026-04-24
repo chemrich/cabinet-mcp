@@ -1,8 +1,4 @@
-"""Tests for the rectpack-based sheet-goods optimiser in cutlist.py.
-
-These tests require rectpack to be installed.  They are automatically skipped
-when it is absent (matching the pattern used for CadQuery-dependent tests).
-"""
+"""Tests for the strip-cutting sheet-goods optimiser in cutlist.py."""
 
 import pytest
 from cadquery_furniture.cutlist import (
@@ -14,11 +10,6 @@ from cadquery_furniture.cutlist import (
     SHEET_4x8_1_2,
     optimize_cutlist,
     _RECTPACK_AVAILABLE,
-)
-
-pytestmark = pytest.mark.skipif(
-    not _RECTPACK_AVAILABLE,
-    reason="rectpack not installed",
 )
 
 
@@ -238,10 +229,11 @@ class TestWasteCalculation:
 
 
 class TestNoRectpack:
-    """Verify the ImportError path when rectpack is absent."""
+    """Strip cutting is pure Python — rectpack is not required."""
 
-    def test_raises_import_error_when_unavailable(self, monkeypatch):
+    def test_works_without_rectpack(self, monkeypatch):
         import cadquery_furniture.cutlist as cl
         monkeypatch.setattr(cl, "_RECTPACK_AVAILABLE", False)
-        with pytest.raises(ImportError, match="rectpack"):
-            cl.optimize_cutlist([panel("p", 200, 100)])
+        # Should succeed: strip layout has no rectpack dependency.
+        result = cl.optimize_cutlist([panel("p", 200, 100)])
+        assert result.is_complete

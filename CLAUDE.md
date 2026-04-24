@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Full install — CadQuery, rectpack, and dev tools included (recommended)
+# Full install — CadQuery, opcut, rectpack, and dev tools (recommended)
 uv pip install -e ".[full,dev]"
 
 # Lite install — pure-Python only: parametric checks, cutlist BOM, MCP, evals
@@ -17,7 +17,7 @@ uv sync
 # Run the MCP server (stdio, for Claude Desktop / Gemini CLI)
 uv run cabinet-mcp
 
-# Lite mode — skips CadQuery and rectpack
+# Lite mode — skips CadQuery, opcut, and rectpack
 uv run --no-group full cabinet-mcp
 
 # Run the MCP server (HTTP/SSE, port 3749 auto-incrementing)
@@ -72,6 +72,7 @@ server.py       ← MCP server (17 tools, stdio or HTTP/SSE)
 - **Frozen dataclasses everywhere.** `CabinetConfig`, `DrawerConfig`, `DoorConfig`, hardware specs, and joinery specs are all `@dataclass(frozen=True)`. Computed properties (e.g. `interior_width`, `box_height`) are `@property`.
 - **CadQuery is optional.** The `try: import cadquery` pattern is used throughout. `evaluation.py` and `cutlist.py` have CadQuery-backed and pure-Python code paths. The pure-Python paths run in all environments and are what the tests and evals exercise.
 - **MCP tool handlers are plain async functions** (e.g. `_tool_design_cabinet`) that return `list[types.TextContent]`. The evals harness calls these directly via `TOOL_DISPATCH`, bypassing the MCP transport layer entirely.
+- **opcut item IDs must be globally unique.** opcut 0.1.3 uses item IDs as a set for placement tracking; duplicate IDs cause `Exception('result is done')` mid-solve. `_optimize_with_opcut` assigns IDs via a global counter (`name__0`, `name__1`, …) to avoid collisions when multiple `CutlistPanel` objects share the same name.
 
 ### Module responsibilities
 
@@ -83,7 +84,7 @@ server.py       ← MCP server (17 tools, stdio or HTTP/SSE)
 | `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
-| `cutlist.py` | `consolidate_bom()`, `optimize_cutlist()` (GuillotineBssfSas — every cut is a full-width table-saw cut), `to_json()`, `to_csv()`; grain direction tracked |
+| `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `to_json()`, `to_csv()` |
 | `server.py` | Seventeen MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749 |
 
 ### Eval harness
@@ -102,6 +103,7 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 ### Cutlist / BOM gaps
 - ~~**`cutlist.extract_bom_parametric`** silent empty-list bug~~ — already correct in current code; fallback path returns one placeholder panel per input part when CadQuery is unavailable.
 - ~~**`generate_cutlist` gaps**~~ — fixed: `columns` parameter added; dividers, drawer box parts (5/8" sides/front/back, 1/4" dado-captured bottoms), and applied false fronts (finished_wood) are now included. BOM grouped by material/thickness with uncut sheet counts. Files written to `~/.cabinet-mcp/cutlists/`.
+- ~~**`consolidate_bom` merges differently-named identical panels**~~ — fixed: `name` is now part of the consolidation key, so "top" and "bottom" panels with the same dimensions stay distinct.
 
 ### Visualizer bugs
 - **`visualize_cabinet` "O" shortcut** (open drawers) does not work — drawers remain closed regardless of keypress.
@@ -109,8 +111,4 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 
 ## Planned enhancements
 
-- **`generate_cutlist` `columns` support** — accept the same `columns` array as `design_multi_column_cabinet` so dividers, drawer boxes (at correct thicknesses), and false fronts are all included in one complete BOM.
-- **Material-aware BOM summary** — output a "sheet goods to order" table grouped by thickness (3/4", 1/2", 1/4") and material type (Baltic Birch, hardwood, veneered panel), with uncut sheet counts rather than individual panel dimensions.
-- **Cutlist file output** — write JSON/CSV to disk (e.g. `~/.cabinet-mcp/cutlists/`) and return the file path, consistent with how `visualize_cabinet` works.
-- **Cutlist sheet-layout viewer** — generate a self-contained HTML file showing the guillotine cut layout per sheet, so the user can see exactly how panels nest on each 4×8.
 - **Cutlist PDF export** — printable shop document with panel list, sheet layouts, and hardware BOM; useful at the bench without a screen.

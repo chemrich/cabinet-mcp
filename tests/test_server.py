@@ -480,19 +480,18 @@ class TestGenerateCutlist:
         data = self._cutlist()
         assert data["unplaced_panels"] == []
 
-    def test_optimization_note_mentions_guillotine_when_rectpack(self):
-        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
-        if not _RECTPACK_AVAILABLE:
-            pytest.skip("rectpack not installed")
+    def test_optimization_note_mentions_guillotine(self):
         data = self._cutlist()
         assert "guillotine" in data["optimization_note"].lower()
 
-    def test_optimization_note_mentions_install_when_no_rectpack(self, monkeypatch):
+    def test_optimization_note_strip_fallback_when_no_opcut(self, monkeypatch):
         import cadquery_furniture.server as srv
-        monkeypatch.setattr(srv, "_RECTPACK_AVAILABLE", False)
+        monkeypatch.setattr(srv, "_OPCUT_AVAILABLE", False)
+        import cadquery_furniture.cutlist as cl
+        monkeypatch.setattr(cl, "_OPCUT_AVAILABLE", False)
         data = self._cutlist()
-        assert "rectpack" in data["optimization_note"]
-        assert "sheets_used" not in data
+        assert "sheets_used" in data
+        assert "optimization_note" in data
 
 
 # ─── compare_joinery ──────────────────────────────────────────────────────────

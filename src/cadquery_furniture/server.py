@@ -78,9 +78,11 @@ from .cutlist import (
     CutlistPanel,
     SheetStock,
     consolidate_bom,
+    generate_sheet_layout_html,
     optimize_cutlist,
     to_csv,
     to_json,
+    _OPCUT_AVAILABLE,
     _RECTPACK_AVAILABLE,
 )
 from .door import DoorConfig
@@ -728,6 +730,16 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["json", "csv", "both"],
                         "description": "Output format.",
                         "default": "both",
+                    },
+                    "optimizer": {
+                        "type": "string",
+                        "enum": ["auto", "opcut", "rectpack", "strip"],
+                        "description": (
+                            "Sheet layout algorithm. 'auto' (default) uses opcut if installed, "
+                            "then rectpack if installed, then strip-cutting. 'rectpack' requires "
+                            "the rectpack package (uv pip install -e '.[cutlist]')."
+                        ),
+                        "default": "auto",
                     },
                 },
                 "required": ["width", "height", "depth"],
@@ -1739,6 +1751,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     sheet_length = float(args.pop("sheet_length", 2440))
     sheet_width  = float(args.pop("sheet_width",  1220))
     kerf         = float(args.pop("kerf", 3.2))
+    optimizer    = str(args.pop("optimizer", "auto"))
     name         = str(args.pop("name", "cabinet"))
     columns_raw  = args.pop("columns", None)
 
@@ -1773,7 +1786,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     raw_6mm: list[CutlistPanel] = [
         CutlistPanel(name="back", length=cfg.height, width=interior_width,
                      thickness=cfg.back_thickness, quantity=1,
-                     grain_direction="length", material="baltic_birch",
+                     grain_direction="", material="baltic_birch",
                      notes="1/4 in plywood"),
     ]
 
@@ -1815,13 +1828,13 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                 raw_box += [
                     CutlistPanel(name="drawer_box_side", length=bd, width=bh,
                                  thickness=bt, quantity=2,
-                                 grain_direction="length", material="baltic_birch"),
+                                 grain_direction="", material="baltic_birch"),
                     CutlistPanel(name="drawer_box_front", length=bw, width=bh,
                                  thickness=bt, quantity=1,
-                                 grain_direction="length", material="baltic_birch"),
+                                 grain_direction="", material="baltic_birch"),
                     CutlistPanel(name="drawer_box_back", length=bw, width=bh,
                                  thickness=bt, quantity=1,
-                                 grain_direction="length", material="baltic_birch"),
+                                 grain_direction="", material="baltic_birch"),
                 ]
                 raw_6mm.append(CutlistPanel(
                     name="drawer_box_bottom",
@@ -1829,7 +1842,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                     width=bd,
                     thickness=dcfg.bottom_thickness,
                     quantity=1,
-                    grain_direction="length",
+                    grain_direction="",
                     material="baltic_birch",
                     notes="1/4 in, dado-captured",
                 ))
@@ -1862,24 +1875,22 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
             length=sheet_length, width=sheet_width, thickness=t,
         )
 
-    def _opt_group(panels: list[CutlistPanel], thickness: float) -> dict:
+    def _opt_group(panels: list[CutlistPanel], thickness: float):
+        # Returns (summary_dict, OptimizationResult | None)
         if not panels:
-            return {}
+            return {}, None
         sheet = _make_sheet(thickness)
-        if _RECTPACK_AVAILABLE:
-            opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf)
-            return {"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
-                    "unplaced": opt.unplaced}
-        area = sum(p.length * p.width * p.quantity for p in panels)
-        return {"sheets_estimated": math.ceil(area / (sheet_length * sheet_width))}
+        opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf, algorithm=optimizer)
+        return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
+                 "unplaced": opt.unplaced}, opt)
 
     carcass_t   = cfg.side_thickness
     box_t       = DrawerConfig.__dataclass_fields__["side_thickness"].default
     bottom_t    = DrawerConfig.__dataclass_fields__["bottom_thickness"].default
 
-    opt_carcass = _opt_group(carcass_panels, carcass_t)
-    opt_box     = _opt_group(box_panels, box_t)
-    opt_6mm     = _opt_group(panels_6mm, bottom_t)
+    opt_carcass, opt_carcass_result = _opt_group(carcass_panels, carcass_t)
+    opt_box, opt_box_result         = _opt_group(box_panels, box_t)
+    opt_6mm, opt_6mm_result         = _opt_group(panels_6mm, bottom_t)
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
@@ -1917,6 +1928,30 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     csv_path.write_text(to_csv(all_panels))
     json_path.write_text(to_json(all_panels, [_make_sheet(carcass_t)]))
 
+    files: dict[str, str] = {"csv": str(csv_path), "json": str(json_path)}
+
+    layout_groups = []
+    if opt_carcass_result and carcass_panels:
+        layout_groups.append((
+            f'18mm Carcass (3/4") — {opt_carcass_result.sheets_used} sheets',
+            carcass_panels, opt_carcass_result,
+        ))
+    if opt_box_result and box_panels:
+        layout_groups.append((
+            f'15mm Drawer Boxes (5/8") — {opt_box_result.sheets_used} sheets',
+            box_panels, opt_box_result,
+        ))
+    if opt_6mm_result and panels_6mm:
+        layout_groups.append((
+            f'6mm Backs & Bottoms (1/4") — {opt_6mm_result.sheets_used} sheets',
+            panels_6mm, opt_6mm_result,
+        ))
+    if layout_groups:
+        html = generate_sheet_layout_html(layout_groups, cabinet_name=name, kerf=kerf)
+        layout_path = out_dir / f"{name}_layout.html"
+        layout_path.write_text(html)
+        files["layout"] = str(layout_path)
+
     # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
         "panel_count": len(all_panels),
@@ -1926,7 +1961,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
              "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material}
             for p in all_panels
         ],
-        "files": {"csv": str(csv_path), "json": str(json_path)},
+        "files": files,
     }
 
     if fmt in ("json", "both"):
@@ -1934,19 +1969,21 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     if fmt in ("csv", "both"):
         result["cutlist_csv"] = to_csv(all_panels)
 
-    if _RECTPACK_AVAILABLE and "sheets_used" in opt_carcass:
-        # Top-level convenience fields (carcass group as primary material)
+    if "sheets_used" in opt_carcass:
         result["sheets_used"]     = opt_carcass["sheets_used"]
         result["waste_pct"]       = opt_carcass["waste_pct"]
         result["unplaced_panels"] = opt_carcass["unplaced"]
-        result["optimization_note"] = (
-            "In-process guillotine layout via rectpack (GuillotineBssfSas). "
-            "Every cut is a full-width table-saw cut — the layout is directly executable at the saw."
-        )
+    if optimizer == "rectpack" or (optimizer == "auto" and not _OPCUT_AVAILABLE and _RECTPACK_AVAILABLE):
+        algo = "rectpack GuillotineBssfSas"
+    elif optimizer == "strip" or (optimizer == "auto" and not _OPCUT_AVAILABLE and not _RECTPACK_AVAILABLE):
+        algo = "strip-cutting (fallback)"
     else:
-        result["optimization_note"] = (
-            "Sheet optimisation not available — install rectpack: uv pip install -e '.[cutlist]'"
-        )
+        algo = "opcut FORWARD_GREEDY (guillotine)"
+    result["optimization_note"] = (
+        f"Sheet layout via {algo}. "
+        "Every cut is a straight line across the remaining panel — "
+        "the layout is directly executable at the saw."
+    )
 
     return _ok(result)
 
