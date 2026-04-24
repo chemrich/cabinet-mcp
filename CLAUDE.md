@@ -100,12 +100,8 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 - **`evaluation.py`** emits a duplicate drawer height error (same check runs in both `validate_drawer_dims` and the evaluation layer).
 
 ### Cutlist / BOM gaps
-- **`cutlist.extract_bom_parametric`** silently returns an empty list when CadQuery is absent and the parts list has more than one item (logic bug: `return extract_bom(parts)` is inside the per-part loop).
-- **`generate_cutlist` has no `columns` parameter** — multi-column cabinets produce an incomplete cutlist: column dividers and the top panel are omitted, and waste % is artificially inflated as a result.
-- **`generate_cutlist` omits all drawer box parts** — drawer box sides/front/back should be output at 12mm (1/2") Baltic Birch; drawer box bottoms at 6mm (1/4") captured in a dado groove 6mm up from the bottom edge.
-- **`generate_cutlist` omits applied false fronts** — false fronts are a separate panel from the structural box front (full-overlay, 3mm reveal top and bottom). They are typically a finished material (solid wood or veneered panel), not Baltic Birch, and should be listed as a distinct line item with their own material type.
-- **`generate_cutlist` does not write output files** — JSON/CSV are returned inline in the tool response only; no file path is produced. Unlike `visualize_cabinet`, there is nothing to open or hand off to another tool.
-- **BOM sheet goods show cut panel dimensions, not uncut sheet quantities** — the output lists individual panel L×W rather than "buy N sheets of X material", making it hard to use for material ordering.
+- ~~**`cutlist.extract_bom_parametric`** silent empty-list bug~~ — already correct in current code; fallback path returns one placeholder panel per input part when CadQuery is unavailable.
+- ~~**`generate_cutlist` gaps**~~ — fixed: `columns` parameter added; dividers, drawer box parts (5/8" sides/front/back, 1/4" dado-captured bottoms), and applied false fronts (finished_wood) are now included. BOM grouped by material/thickness with uncut sheet counts. Files written to `~/.cabinet-mcp/cutlists/`.
 
 ### Visualizer bugs
 - **`visualize_cabinet` "O" shortcut** (open drawers) does not work — drawers remain closed regardless of keypress.

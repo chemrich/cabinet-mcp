@@ -50,6 +50,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import math
 import socket
 import sys
 import textwrap
@@ -653,23 +654,23 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="generate_cutlist",
             description=textwrap.dedent("""\
-                Generate a bill of materials and cutlist from a cabinet configuration.
-                Returns panels as JSON and CSV.
+                Generate a complete bill of materials and cutlist from a cabinet
+                configuration. Supports single-column and multi-column layouts.
 
-                When rectpack is installed the response also includes in-process
-                sheet optimisation results using a guillotine algorithm that
-                models real table-saw cuts:
-                  - sheets_used        — number of stock sheets required
-                  - waste_pct          — % of consumed sheet area that is off-cuts
-                  - unplaced_panels    — panel names that don't fit (oversized)
-                  - optimization_note  — brief explanation / install hint
+                Pass the same cabinet parameters as design_cabinet, plus an
+                optional ``columns`` array (same format as design_multi_column_cabinet)
+                to include column dividers, drawer box parts, and applied false fronts.
 
-                Use sheets_used and waste_pct to give the user concrete material
-                estimates. The JSON export is a record of the panel list for
-                import into external tools.
+                Returns:
+                  - sheet_goods: uncut sheet quantities grouped by material/thickness
+                  - panels_summary: flat panel list with dimensions and quantities
+                  - cutlist_json / cutlist_csv: full BOM for external tools
+                  - files: paths to written CSV and JSON files on disk
+                  - optimization: sheets-used and waste% per thickness group (rectpack)
 
-                Pass the same cabinet parameters as design_cabinet.
-                Optionally specify sheet stock dimensions (default 4×8 3/4\" Baltic Birch).
+                Drawer box parts use 5/8\" (15 mm) sides/front/back and 1/4\" (6 mm)
+                bottoms captured in a dado. Applied false fronts are listed separately
+                as finished_wood (species to be specified by the user).
             """),
             inputSchema={
                 "type": "object",
@@ -677,6 +678,11 @@ async def list_tools() -> list[types.Tool]:
                     "width":  {"type": "number"},
                     "height": {"type": "number"},
                     "depth":  {"type": "number"},
+                    "name": {
+                        "type": "string",
+                        "description": "Base filename stem for output files. Default: 'cabinet'.",
+                        "default": "cabinet",
+                    },
                     "side_thickness":   {"type": "number", "default": 18.0},
                     "bottom_thickness": {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
@@ -685,6 +691,22 @@ async def list_tools() -> list[types.Tool]:
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 2},
                         "default": [],
+                    },
+                    "columns": {
+                        "description": "Multi-column layout from design_multi_column_cabinet. When provided, drawer_config is ignored.",
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "width_mm": {"type": "number"},
+                                "drawer_config": {
+                                    "type": "array",
+                                    "items": {"type": "array", "minItems": 2, "maxItems": 2},
+                                    "default": [],
+                                },
+                            },
+                            "required": ["width_mm"],
+                        },
                     },
                     "sheet_length": {
                         "type": "number",
@@ -1717,106 +1739,213 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     sheet_length = float(args.pop("sheet_length", 2440))
     sheet_width  = float(args.pop("sheet_width",  1220))
     kerf         = float(args.pop("kerf", 3.2))
+    name         = str(args.pop("name", "cabinet"))
+    columns_raw  = args.pop("columns", None)
 
     cfg = _build_cabinet_config(args)
 
-    # Compute panel dimensions parametrically (no CadQuery required)
     interior_width = cfg.width - 2 * cfg.side_thickness
     interior_depth = cfg.depth - cfg.back_thickness
 
-    raw_panels = [
-        CutlistPanel(
-            name="side",
-            length=cfg.height,
-            width=cfg.depth,
-            thickness=cfg.side_thickness,
-            quantity=2,
-            grain_direction="length",
-            material="baltic_birch",
-        ),
-        CutlistPanel(
-            name="bottom",
-            length=interior_width,
-            width=interior_depth,
-            thickness=cfg.bottom_thickness,
-            quantity=1,
-            grain_direction="length",
-            material="baltic_birch",
-        ),
-        CutlistPanel(
-            name="top",
-            length=interior_width,
-            width=interior_depth,
-            thickness=cfg.top_thickness,
-            quantity=1,
-            grain_direction="length",
-            material="baltic_birch",
-        ),
-        CutlistPanel(
-            name="back",
-            length=cfg.height,
-            width=interior_width,
-            thickness=cfg.back_thickness,
-            quantity=1,
-            grain_direction="length",
-            material="baltic_birch",
-        ),
+    # ── Carcass panels (side_thickness / 18 mm) ───────────────────────────
+    raw_carcass: list[CutlistPanel] = [
+        CutlistPanel(name="side", length=cfg.height, width=cfg.depth,
+                     thickness=cfg.side_thickness, quantity=2,
+                     grain_direction="length", material="baltic_birch",
+                     edge_band=["front"]),
+        CutlistPanel(name="bottom", length=interior_width, width=interior_depth,
+                     thickness=cfg.bottom_thickness, quantity=1,
+                     grain_direction="length", material="baltic_birch",
+                     edge_band=["front"]),
+        CutlistPanel(name="top", length=interior_width, width=interior_depth,
+                     thickness=cfg.top_thickness, quantity=1,
+                     grain_direction="length", material="baltic_birch",
+                     edge_band=["front"]),
     ]
-    for i, pos in enumerate(cfg.fixed_shelf_positions):
-        raw_panels.append(CutlistPanel(
-            name=f"shelf_{i + 1}",
-            length=interior_width,
-            width=interior_depth,
-            thickness=cfg.shelf_thickness,
-            quantity=1,
-            grain_direction="length",
-            material="baltic_birch",
+    for i, _ in enumerate(cfg.fixed_shelf_positions):
+        raw_carcass.append(CutlistPanel(
+            name=f"shelf_{i + 1}", length=interior_width, width=interior_depth,
+            thickness=cfg.shelf_thickness, quantity=1,
+            grain_direction="length", material="baltic_birch",
         ))
 
-    panels = consolidate_bom(raw_panels)
+    # ── Back panel (back_thickness / 6 mm) ────────────────────────────────
+    raw_6mm: list[CutlistPanel] = [
+        CutlistPanel(name="back", length=cfg.height, width=interior_width,
+                     thickness=cfg.back_thickness, quantity=1,
+                     grain_direction="length", material="baltic_birch",
+                     notes="1/4 in plywood"),
+    ]
 
-    sheet = SheetStock(
-        name=f"{int(sheet_length)}x{int(sheet_width)}",
-        length=sheet_length,
-        width=sheet_width,
-        thickness=cfg.side_thickness,
-    )
+    # ── Multi-column additions ─────────────────────────────────────────────
+    raw_box: list[CutlistPanel] = []   # 5/8 in (15 mm) drawer box parts
+    raw_false_fronts: list[CutlistPanel] = []
 
+    if columns_raw:
+        num_dividers = len(columns_raw) - 1
+        if num_dividers > 0:
+            raw_carcass.append(CutlistPanel(
+                name="column_divider",
+                length=cfg.height,
+                width=cfg.depth - cfg.back_thickness,
+                thickness=cfg.side_thickness,
+                quantity=num_dividers,
+                grain_direction="length",
+                material="baltic_birch",
+            ))
+
+        for col in columns_raw:
+            col_width = float(col["width_mm"])
+            col_drawers = col.get("drawer_config", [])
+            for row in col_drawers:
+                opening_h, slot_type = float(row[0]), str(row[1])
+                if slot_type != "drawer":
+                    continue
+                dcfg = DrawerConfig(
+                    opening_width=col_width,
+                    opening_height=opening_h,
+                    opening_depth=interior_depth,
+                )
+                bw = round(dcfg.box_width, 1)
+                bh = round(dcfg.box_height, 1)
+                bd = round(dcfg.box_depth, 1)
+                bt = dcfg.side_thickness   # 15 mm (5/8 in)
+                bottom_w = round(dcfg.bottom_panel_width, 1)
+
+                raw_box += [
+                    CutlistPanel(name="drawer_box_side", length=bd, width=bh,
+                                 thickness=bt, quantity=2,
+                                 grain_direction="length", material="baltic_birch"),
+                    CutlistPanel(name="drawer_box_front", length=bw, width=bh,
+                                 thickness=bt, quantity=1,
+                                 grain_direction="length", material="baltic_birch"),
+                    CutlistPanel(name="drawer_box_back", length=bw, width=bh,
+                                 thickness=bt, quantity=1,
+                                 grain_direction="length", material="baltic_birch"),
+                ]
+                raw_6mm.append(CutlistPanel(
+                    name="drawer_box_bottom",
+                    length=bottom_w,
+                    width=bd,
+                    thickness=dcfg.bottom_thickness,
+                    quantity=1,
+                    grain_direction="length",
+                    material="baltic_birch",
+                    notes="1/4 in, dado-captured",
+                ))
+
+                face_w = round(col_width + 2 * dcfg.face_overlay_sides, 1)
+                face_h = round(opening_h + dcfg.face_overlay_top + dcfg.face_overlay_bottom, 1)
+                raw_false_fronts.append(CutlistPanel(
+                    name="false_front",
+                    length=face_w,
+                    width=face_h,
+                    thickness=dcfg.face_thickness,
+                    quantity=1,
+                    grain_direction="length",
+                    material="finished_wood",
+                    notes="species TBD; full-overlay 3 mm reveal",
+                ))
+
+    # Consolidate each material group
+    carcass_panels  = consolidate_bom(raw_carcass)
+    panels_6mm      = consolidate_bom(raw_6mm)
+    box_panels      = consolidate_bom(raw_box)
+    false_fronts    = consolidate_bom(raw_false_fronts)
+
+    all_panels = carcass_panels + box_panels + panels_6mm + false_fronts
+
+    # ── Sheet optimisation per thickness group ─────────────────────────────
+    def _make_sheet(t: float) -> SheetStock:
+        return SheetStock(
+            name=f"{int(sheet_length)}x{int(sheet_width)} {t:.0f}mm",
+            length=sheet_length, width=sheet_width, thickness=t,
+        )
+
+    def _opt_group(panels: list[CutlistPanel], thickness: float) -> dict:
+        if not panels:
+            return {}
+        sheet = _make_sheet(thickness)
+        if _RECTPACK_AVAILABLE:
+            opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf)
+            return {"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
+                    "unplaced": opt.unplaced}
+        area = sum(p.length * p.width * p.quantity for p in panels)
+        return {"sheets_estimated": math.ceil(area / (sheet_length * sheet_width))}
+
+    carcass_t   = cfg.side_thickness
+    box_t       = DrawerConfig.__dataclass_fields__["side_thickness"].default
+    bottom_t    = DrawerConfig.__dataclass_fields__["bottom_thickness"].default
+
+    opt_carcass = _opt_group(carcass_panels, carcass_t)
+    opt_box     = _opt_group(box_panels, box_t)
+    opt_6mm     = _opt_group(panels_6mm, bottom_t)
+
+    # ── Sheet goods summary ────────────────────────────────────────────────
+    sheet_goods = []
+    if carcass_panels:
+        entry = {"material": f"Baltic Birch 3/4\" ({carcass_t:.0f} mm)",
+                 "thickness_mm": carcass_t,
+                 "panel_count": sum(p.quantity for p in carcass_panels)}
+        entry.update(opt_carcass)
+        sheet_goods.append(entry)
+    if box_panels:
+        entry = {"material": f"Baltic Birch 5/8\" ({box_t:.0f} mm)",
+                 "thickness_mm": box_t,
+                 "panel_count": sum(p.quantity for p in box_panels)}
+        entry.update(opt_box)
+        sheet_goods.append(entry)
+    if panels_6mm:
+        entry = {"material": f"Baltic Birch 1/4\" ({bottom_t:.0f} mm)",
+                 "thickness_mm": bottom_t,
+                 "panel_count": sum(p.quantity for p in panels_6mm)}
+        entry.update(opt_6mm)
+        sheet_goods.append(entry)
+    if false_fronts:
+        sheet_goods.append({
+            "material": "Finished wood — false fronts (species TBD)",
+            "thickness_mm": DrawerConfig.__dataclass_fields__["face_thickness"].default,
+            "panel_count": sum(p.quantity for p in false_fronts),
+            "note": "Order solid stock or veneered panel; not included in sheet optimisation.",
+        })
+
+    # ── File output ────────────────────────────────────────────────────────
+    out_dir = Path.home() / ".cabinet-mcp" / "cutlists"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path  = out_dir / f"{name}_cutlist.csv"
+    json_path = out_dir / f"{name}_cutlist.json"
+    csv_path.write_text(to_csv(all_panels))
+    json_path.write_text(to_json(all_panels, [_make_sheet(carcass_t)]))
+
+    # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
-        "panel_count": len(panels),
+        "panel_count": len(all_panels),
+        "sheet_goods": sheet_goods,
         "panels_summary": [
-            {
-                "name":         p.name,
-                "length_mm":    p.length,
-                "width_mm":     p.width,
-                "thickness_mm": p.thickness,
-                "qty":          p.quantity,
-                "material":     p.material,
-            }
-            for p in panels
+            {"name": p.name, "length_mm": p.length, "width_mm": p.width,
+             "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material}
+            for p in all_panels
         ],
+        "files": {"csv": str(csv_path), "json": str(json_path)},
     }
 
     if fmt in ("json", "both"):
-        result["cutlist_json"] = json.loads(to_json(panels, [sheet]))
-
+        result["cutlist_json"] = json.loads(to_json(all_panels, [_make_sheet(carcass_t)]))
     if fmt in ("csv", "both"):
-        result["cutlist_csv"] = to_csv(panels)
+        result["cutlist_csv"] = to_csv(all_panels)
 
-    # ── In-process sheet optimisation (requires rectpack) ──────────────────
-    if _RECTPACK_AVAILABLE:
-        opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf)
-        result["sheets_used"]     = opt.sheets_used
-        result["waste_pct"]       = opt.waste_pct
-        result["unplaced_panels"] = opt.unplaced
+    if _RECTPACK_AVAILABLE and "sheets_used" in opt_carcass:
+        # Top-level convenience fields (carcass group as primary material)
+        result["sheets_used"]     = opt_carcass["sheets_used"]
+        result["waste_pct"]       = opt_carcass["waste_pct"]
+        result["unplaced_panels"] = opt_carcass["unplaced"]
         result["optimization_note"] = (
             "In-process guillotine layout via rectpack (GuillotineBssfSas). "
             "Every cut is a full-width table-saw cut — the layout is directly executable at the saw."
         )
     else:
         result["optimization_note"] = (
-            "Sheet optimisation not available — install rectpack for in-process results: "
-            "uv pip install -e '.[cutlist]'"
+            "Sheet optimisation not available — install rectpack: uv pip install -e '.[cutlist]'"
         )
 
     return _ok(result)
