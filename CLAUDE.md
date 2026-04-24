@@ -94,7 +94,27 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 
 ## Known issues
 
-- **`cutlist.extract_bom_parametric`** silently returns an empty list when CadQuery is absent and the parts list has more than one item (logic bug: `return extract_bom(parts)` is inside the per-part loop).
-- **`cabinet.py` dado_x mirror logic** is inverted — dados are cut on the exterior face instead of the interior face.
+### Geometry / evaluation bugs
+- **`cabinet.py` shelf pin holes wrong workplane** — `make_side_panel` creates shelf pin holes on the "XY" workplane (cylinder axis = Z, vertical), which cuts narrow vertical columns instead of horizontal bores perpendicular to the interior face. The workplane should produce X-axis cylinders so the holes are drilled into the face. Additionally, `hole_x` incorrectly reuses `shelf_pin_row_inset` (a Y-direction value) for the X position, placing holes outside the panel thickness.
 - **Shelf pin hole x-position** is identical for both left and right panels (both branches compute `side_thickness / 2`).
 - **`evaluation.py`** emits a duplicate drawer height error (same check runs in both `validate_drawer_dims` and the evaluation layer).
+
+### Cutlist / BOM gaps
+- **`cutlist.extract_bom_parametric`** silently returns an empty list when CadQuery is absent and the parts list has more than one item (logic bug: `return extract_bom(parts)` is inside the per-part loop).
+- **`generate_cutlist` has no `columns` parameter** — multi-column cabinets produce an incomplete cutlist: column dividers and the top panel are omitted, and waste % is artificially inflated as a result.
+- **`generate_cutlist` omits all drawer box parts** — drawer box sides/front/back should be output at 12mm (1/2") Baltic Birch; drawer box bottoms at 6mm (1/4") captured in a dado groove 6mm up from the bottom edge.
+- **`generate_cutlist` omits applied false fronts** — false fronts are a separate panel from the structural box front (full-overlay, 3mm reveal top and bottom). They are typically a finished material (solid wood or veneered panel), not Baltic Birch, and should be listed as a distinct line item with their own material type.
+- **`generate_cutlist` does not write output files** — JSON/CSV are returned inline in the tool response only; no file path is produced. Unlike `visualize_cabinet`, there is nothing to open or hand off to another tool.
+- **BOM sheet goods show cut panel dimensions, not uncut sheet quantities** — the output lists individual panel L×W rather than "buy N sheets of X material", making it hard to use for material ordering.
+
+### Visualizer bugs
+- **`visualize_cabinet` "O" shortcut** (open drawers) does not work — drawers remain closed regardless of keypress.
+- **`visualize_cabinet` pulls not rendered** — drawer pulls/handles from `design_pulls` are not included in the 3D model; the viewer shows bare drawer fronts.
+
+## Planned enhancements
+
+- **`generate_cutlist` `columns` support** — accept the same `columns` array as `design_multi_column_cabinet` so dividers, drawer boxes (at correct thicknesses), and false fronts are all included in one complete BOM.
+- **Material-aware BOM summary** — output a "sheet goods to order" table grouped by thickness (3/4", 1/2", 1/4") and material type (Baltic Birch, hardwood, veneered panel), with uncut sheet counts rather than individual panel dimensions.
+- **Cutlist file output** — write JSON/CSV to disk (e.g. `~/.cabinet-mcp/cutlists/`) and return the file path, consistent with how `visualize_cabinet` works.
+- **Cutlist sheet-layout viewer** — generate a self-contained HTML file showing the guillotine cut layout per sheet, so the user can see exactly how panels nest on each 4×8.
+- **Cutlist PDF export** — printable shop document with panel list, sheet layouts, and hardware BOM; useful at the bench without a screen.

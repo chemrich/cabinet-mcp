@@ -319,14 +319,12 @@ class TestDrawerCarcassClearances:
         assert any("width" in e.message.lower() or "narrow" in e.message.lower() for e in errors)
 
     def test_short_drawer_height_error(self):
-        """Opening height below slide minimum produces an ERROR."""
+        """Opening height below slide minimum produces an ERROR via hardware clearances."""
         # Blum Tandem 550H min_drawer_height = 68 mm; box_height = opening - 3 (vertical_gap).
         # Opening of 60 mm → box_height = 57 mm < 68 mm.
-        cfg = CabinetConfig(
-            width=600, height=720, depth=550,
-            drawer_config=[(60, "drawer")],
-        )
-        issues = check_drawer_carcass_clearances(cfg)
+        # Height constraint is a hardware spec, so reported by check_drawer_hardware_clearances.
+        cfg = DrawerConfig(opening_width=564, opening_height=60, opening_depth=500)
+        issues = check_drawer_hardware_clearances(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
         assert any("height" in e.message.lower() for e in errors)
 

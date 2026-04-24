@@ -182,8 +182,7 @@ def check_drawer_hardware_clearances(
     issues = []
     slide = drawer_cfg.slide
 
-    # Use the slide's own validation — this already covers min_drawer_height,
-    # side clearance, and width limits, so we don't duplicate those checks here.
+    # Use the slide's own validation for side clearance, height, and width limits.
     hw_issues = slide.validate_drawer_dims(
         drawer_width=drawer_cfg.box_width,
         drawer_height=drawer_cfg.box_height,
@@ -1310,6 +1309,9 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
             ))
 
         # ── Height ────────────────────────────────────────────────────────
+        # Min-drawer-height is a hardware constraint reported by
+        # check_drawer_hardware_clearances; only flag the degenerate case
+        # where the opening is too small for any gap at all.
         if dcfg.box_height <= 0:
             issues.append(Issue(
                 check="drawer_carcass_clearance",
@@ -1322,20 +1324,6 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
                 part_a=label,
                 value=dcfg.box_height,
                 limit=dcfg.vertical_gap,
-            ))
-        elif dcfg.box_height < slide.min_drawer_height:
-            issues.append(Issue(
-                check="drawer_carcass_clearance",
-                severity=Severity.ERROR,
-                message=(
-                    f"{label}: box height {dcfg.box_height:.1f} mm < "
-                    f"{slide.name} minimum {slide.min_drawer_height:.1f} mm. "
-                    f"Increase opening height to at least "
-                    f"{slide.min_drawer_height + dcfg.vertical_gap:.0f} mm."
-                ),
-                part_a=label,
-                value=dcfg.box_height,
-                limit=float(slide.min_drawer_height),
             ))
 
     return issues

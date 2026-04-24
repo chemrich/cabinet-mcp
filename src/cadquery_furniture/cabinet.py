@@ -227,17 +227,18 @@ def make_side_panel(cfg: CabinetConfig, mirror: bool = False) -> "cq.Workplane":
         )
         panel = panel.cut(shelf_dado)
 
-    # Drill shelf pin holes (32mm system)
+    # Drill shelf pin holes (32mm system).
+    # Holes bore horizontally from the interior face (X direction), so the
+    # workplane must be YZ (normal = X). x_start is the global X where the
+    # bore begins; the cylinder extends shelf_pin_depth toward the exterior.
     if cfg.adj_shelf_holes:
+        x_start = (cfg.side_thickness - cfg.shelf_pin_depth) if not mirror else 0
         z = cfg.shelf_pin_start_z
         while z <= cfg.shelf_pin_end_z:
             for y_inset in [cfg.shelf_pin_row_inset, cfg.depth - cfg.back_rabbet_width - cfg.shelf_pin_row_inset]:
-                # Left panel: interior face at x=side_thickness, columns inset from there.
-                # Right panel: interior face at x=0, columns inset from there.
-                hole_x = cfg.side_thickness - cfg.shelf_pin_row_inset if not mirror else cfg.shelf_pin_row_inset
                 pin_hole = (
-                    cq.Workplane("XY")
-                    .transformed(offset=(hole_x, y_inset, z))
+                    cq.Workplane("YZ")
+                    .transformed(offset=(y_inset, z, x_start))
                     .cylinder(
                         cfg.shelf_pin_depth,
                         cfg.shelf_pin_diameter / 2,
