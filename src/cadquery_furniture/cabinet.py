@@ -494,11 +494,14 @@ def build_cabinet(
     return assy, parts
 
 
-def _make_pull_shape(pull_spec) -> "Optional[cq.Workplane]":
+def _make_pull_shape(pull_spec, vertical: bool = False) -> "Optional[cq.Workplane]":
     """Return a simple 3D body for a pull, centered at its geometric midpoint.
 
     The caller places this shape so its origin sits at:
         (face_center_x, face_front_y - projection/2, face_center_z)
+
+    ``vertical=True`` rotates the bar so its long axis runs along Z (used for
+    door pulls, which are mounted vertically).
 
     Returns None for flush/recessed pulls (nothing projects above the face).
     """
@@ -511,6 +514,8 @@ def _make_pull_shape(pull_spec) -> "Optional[cq.Workplane]":
         return cq.Workplane("XY").sphere(r)
     # SURFACE or EDGE bar pull — a rounded rectangular bar
     bar_h = min(proj * 0.7, 12.0)
+    if vertical:
+        return cq.Workplane("XY").box(bar_h, proj, pull_spec.length_mm, centered=True)
     return cq.Workplane("XY").box(pull_spec.length_mm, proj, bar_h, centered=True)
 
 
@@ -956,7 +961,7 @@ def build_multi_bay_cabinet(
             except KeyError:
                 continue
 
-            pull_body = _make_pull_shape(pull_spec)
+            pull_body = _make_pull_shape(pull_spec, vertical=True)
             if pull_body is None:
                 continue
 
@@ -990,7 +995,7 @@ def build_multi_bay_cabinet(
                             [face_x, face_x + door_w + door_gap_centre]
                         ):
                             hs = pair_hinge_sides[door_i]
-                            cx = door_pull_x_center(door_w, pull_spec, hs, cfg.door_pull_inset_mm)
+                            cx = door_pull_x_center(door_w, pull_spec, hs, cfg.door_pull_inset_mm, vertical=True)
                             try:
                                 placements = _pull_positions(
                                     door_w, face_h, pull_spec, cfg.door_pull,
@@ -1008,7 +1013,7 @@ def build_multi_bay_cabinet(
                                 )
                     else:
                         cx = door_pull_x_center(
-                            face_w, pull_spec, cfg.door_hinge_side, cfg.door_pull_inset_mm
+                            face_w, pull_spec, cfg.door_hinge_side, cfg.door_pull_inset_mm, vertical=True
                         )
                         try:
                             placements = _pull_positions(

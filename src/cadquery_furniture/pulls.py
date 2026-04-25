@@ -169,6 +169,7 @@ def door_pull_x_center(
     pull: PullSpec,
     hinge_side: HingeSide,
     inset_mm: float = 50.0,
+    vertical: bool = False,
 ) -> float:
     """Return the pull centre-x for a door face, offset from the latch edge.
 
@@ -176,12 +177,20 @@ def door_pull_x_center(
     between the near end of the pull body and the latch edge (default 50 mm /
     2″, the cabinet-shop standard).
 
+    ``vertical=True`` must match the orientation used when building the pull
+    mesh — a vertically-oriented bar has a narrow horizontal footprint
+    (bar_h ≈ min(proj × 0.7, 12 mm)) rather than the full ``length_mm``.
+
     Examples
     --------
-    hinge_side="left"  → latch on right → cx = face_width - inset - length/2
-    hinge_side="right" → latch on left  → cx = inset + length/2
+    hinge_side="left",  vertical=False → cx = face_width - inset - length/2
+    hinge_side="right", vertical=True  → cx = inset + bar_h/2
     """
-    half = pull.length_mm / 2.0
+    if vertical:
+        proj = max(pull.projection_mm, 4.0)
+        half = min(proj * 0.7, 12.0) / 2.0
+    else:
+        half = pull.length_mm / 2.0
     if hinge_side == "left":
         return face_width_mm - inset_mm - half
     return inset_mm + half

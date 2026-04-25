@@ -396,8 +396,10 @@ controls.maxPolarAngle    = Math.PI / 2 + 0.18;
 // ── Load model ────────────────────────────────────────────────────────────────
 // Drawer pair bookkeeping for the X-ray & Open toggles.
 // Names come from cabinet.py:  "bay{{i}}_drawer{{j}}" (box)  +  "bay{{i}}_face{{j}}" (front).
-const drawerFronts = [];
-const pullMeshes   = [];
+const drawerFronts  = [];
+const pullMeshes    = [];
+const doorFaces     = [];   // bay{{i}}_door{{j}} and bay{{i}}_door{{j}}_{{k}}
+const doorPullMeshes = [];  // bay{{i}}_doorpull{{j}}_...
 const drawerPairs  = new Map();       // key "i_j" → {{ box, face, pullVec }}
 
 function _pairFor(key) {{
@@ -456,6 +458,18 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
         if (!pair.pulls) pair.pulls = [];
         pair.pulls.push(obj);
         pullMeshes.push(obj);  // also track for x-ray toggle
+        break;
+      }}
+
+      // Door faces (bay_i_door_j or bay_i_door_j_k — single door or pair leaf)
+      if (/^bay\\d+_door\\d+(_\\d+)?$/.test(nm)) {{
+        doorFaces.push(obj);
+        break;
+      }}
+
+      // Door pull hardware (bay_i_doorpull_j_...)
+      if (/^bay\\d+_doorpull\\d+/.test(nm)) {{
+        doorPullMeshes.push(obj);
         break;
       }}
     }}
@@ -522,7 +536,7 @@ function _makeXrayMaterial(src) {{
 
 function toggleXray() {{
   xrayOn = !xrayOn;
-  for (const mesh of [...drawerFronts, ...pullMeshes]) {{
+  for (const mesh of [...drawerFronts, ...pullMeshes, ...doorFaces, ...doorPullMeshes]) {{
     if (!xrayCache.has(mesh)) {{
       const orig = mesh.material;
       const xray = Array.isArray(orig) ? orig.map(_makeXrayMaterial) : _makeXrayMaterial(orig);
