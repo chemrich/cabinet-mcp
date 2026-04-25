@@ -1090,17 +1090,169 @@ def leg_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
     )]
 
 
+def joinery_lines_for_cabinet_config(
+    cab_cfg, columns_raw: list | None = None
+) -> list[HardwareLine]:
+    """Return HardwareLines for carcass joinery consumables.
+
+    Counts every panel-to-panel edge joint in the carcass and looks up the
+    fastener count using the corresponding joinery spec's ``count_for_span``.
+    Returns an empty list for ``dado_rabbet`` (the dado/rabbet itself holds
+    the panel — no additional fasteners are needed).
+
+    Joints counted:
+      - Top panel to each side (×2)
+      - Bottom panel to each side (×2)
+      - Each column divider top edge to top panel (×N dividers)
+      - Each column divider bottom edge to bottom panel (×N dividers)
+      - Each fixed shelf to its two bearing surfaces (×2 per shelf)
+
+    The "span" for each joint is the panel depth (``interior_depth``), since
+    fasteners run along the depth direction of the joint edge.
+    """
+    from .cabinet import CarcassJoinery
+    from .joinery import (
+        DominoSpec, DominoSize, get_domino_size,
+        PocketScrewSpec, pocket_screw_length,
+        BiscuitSpec,
+        DownelSpec,
+    )
+
+    joinery = getattr(cab_cfg, "carcass_joinery", CarcassJoinery.DADO_RABBET)
+    if joinery == CarcassJoinery.DADO_RABBET:
+        return []
+
+    interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
+    side_t = getattr(cab_cfg, "side_thickness", 18.0)
+
+    # Count joints: top+bottom = 4, each divider adds 2, each shelf adds 2
+    n_dividers = max(0, len(columns_raw) - 1) if columns_raw else 0
+    global_shelves = len(getattr(cab_cfg, "fixed_shelf_positions", []))
+    col_shelves = 0
+    if columns_raw:
+        for col in columns_raw:
+            col_shelves += len(col.get("fixed_shelf_positions", []))
+    n_joints = 4 + 2 * n_dividers + 2 * global_shelves + 2 * col_shelves
+
+    if joinery == CarcassJoinery.FLOATING_TENON:
+        spec = DominoSpec(size_key="8x40", max_spacing=150.0)
+        per_joint = spec.count_for_span(interior_depth)
+        total = n_joints * per_joint
+        # Domino 8×40 mm — Festool 494869, sold in 50-piece bags
+        return consolidate_hardware_lines([HardwareLine(
+            sku="festool-494869",
+            category="joinery",
+            name="Festool Domino 8×40 mm",
+            brand="Festool",
+            model_number="494869",
+            pieces_needed=total,
+            pack_quantity=50,
+            notes=f"{per_joint} per joint × {n_joints} joints",
+        )])
+
+    if joinery == CarcassJoinery.POCKET_SCREW:
+        _SCREW_FRACTIONS = {19: '3/4"', 25: '1"', 32: '1-1/4"', 38: '1-1/2"', 51: '2"', 64: '2-1/2"'}
+        spec = PocketScrewSpec()
+        per_joint = spec.count_for_span(interior_depth)
+        total = n_joints * per_joint
+        screw_len_mm = int(pocket_screw_length(side_t))
+        screw_len_str = _SCREW_FRACTIONS.get(screw_len_mm, f"{screw_len_mm}mm")
+        return consolidate_hardware_lines([HardwareLine(
+            sku=f"kreg-sml-c{screw_len_mm}-100",
+            category="joinery",
+            name=f"Pocket Screw {screw_len_str} coarse thread",
+            brand="Kreg",
+            model_number=f"SML-C{int(screw_len_mm)}-100",
+            pieces_needed=total,
+            pack_quantity=100,
+            notes=f"{per_joint} per joint × {n_joints} joints",
+        )])
+
+    if joinery == CarcassJoinery.BISCUIT:
+        spec = BiscuitSpec(size="#10", max_spacing=100.0)
+        per_joint = spec.count_for_span(interior_depth)
+        total = n_joints * per_joint
+        return consolidate_hardware_lines([HardwareLine(
+            sku="biscuit-10-100pk",
+            category="joinery",
+            name="Biscuit #10",
+            brand="",
+            model_number="",
+            pieces_needed=total,
+            pack_quantity=100,
+            notes=f"{per_joint} per joint × {n_joints} joints",
+        )])
+
+    if joinery == CarcassJoinery.DOWEL:
+        spec = DownelSpec(diameter=8.0, max_spacing=96.0)
+        per_joint = spec.count_for_span(interior_depth)
+        total = n_joints * per_joint
+        return consolidate_hardware_lines([HardwareLine(
+            sku="dowel-8x40-50pk",
+            category="joinery",
+            name="Hardwood Dowel 8×40 mm",
+            brand="",
+            model_number="",
+            pieces_needed=total,
+            pack_quantity=50,
+            notes=f"{per_joint} per joint × {n_joints} joints",
+        )])
+
+    return []
+
+
+def drawer_front_screw_lines_for_cabinet_config(
+    cab_cfg, columns_raw: list | None = None
+) -> list[HardwareLine]:
+    """Return HardwareLines for screws that attach false fronts to drawer boxes.
+
+    Standard practice: 2 × #8 × 1-1/4" (32 mm) pan-head screws per false
+    front, driven from inside the drawer box face into the false front.
+    Screws are sold in boxes of 100.
+    """
+    n_drawers = 0
+
+    def _count_drawers(stack) -> int:
+        return sum(1 for _, t in stack if t == "drawer")
+
+    if columns_raw:
+        for col in columns_raw:
+            n_drawers += _count_drawers(col.get("drawer_config", []))
+    elif getattr(cab_cfg, "columns", None):
+        for col in cab_cfg.columns:
+            n_drawers += _count_drawers(col.drawer_config)
+    else:
+        n_drawers = _count_drawers(getattr(cab_cfg, "drawer_config", []))
+
+    if n_drawers == 0:
+        return []
+
+    total = n_drawers * 2  # 2 screws per false front
+    return [HardwareLine(
+        sku="screw-8x32-panhead-100pk",
+        category="fastener",
+        name='#8 × 1-1/4" Pan Head Screw (false front)',
+        brand="",
+        model_number="",
+        pieces_needed=total,
+        pack_quantity=100,
+        notes=f"2 per drawer false front × {n_drawers} drawers",
+    )]
+
+
 def hardware_bom_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
     """Return a consolidated hardware BOM for the full cabinet.
 
-    Aggregates pulls, slides, hinges, and legs into a single sorted list.
-    Categories are ordered: pull → slide → hinge → leg.
+    Aggregates pulls, slides, hinges, legs, joinery, and fasteners.
+    Categories are ordered: pull → slide → hinge → leg → joinery → fastener.
     """
     lines: list[HardwareLine] = []
     lines.extend(pull_lines_for_cabinet_config(cab_cfg, columns_raw))
     lines.extend(slide_lines_for_cabinet_config(cab_cfg, columns_raw))
     lines.extend(hinge_lines_for_cabinet_config(cab_cfg, columns_raw))
     lines.extend(leg_lines_for_cabinet_config(cab_cfg))
+    lines.extend(joinery_lines_for_cabinet_config(cab_cfg, columns_raw))
+    lines.extend(drawer_front_screw_lines_for_cabinet_config(cab_cfg, columns_raw))
     return consolidate_hardware_lines(lines)
 
 
