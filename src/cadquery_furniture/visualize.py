@@ -397,6 +397,7 @@ controls.maxPolarAngle    = Math.PI / 2 + 0.18;
 // Drawer pair bookkeeping for the X-ray & Open toggles.
 // Names come from cabinet.py:  "bay{{i}}_drawer{{j}}" (box)  +  "bay{{i}}_face{{j}}" (front).
 const drawerFronts = [];
+const pullMeshes   = [];
 const drawerPairs  = new Map();       // key "i_j" → {{ box, face, pullVec }}
 
 function _pairFor(key) {{
@@ -420,8 +421,13 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     }});
 
     // Bucket drawer meshes by (bay, slot) for the X-ray + Open toggles.
-    // Node names may appear on the mesh itself or on its parent Group.
-    const searchNames = [obj.name, obj.parent ? obj.parent.name : ''];
+    // CadQuery wraps each shape in a Group + _part mesh, so the named node
+    // may be the mesh itself (si=0), its parent (si=1), or its grandparent
+    // (si=2 — drawer box parts are 2 levels deep: bay0_drawer0/side_L/side_L_part).
+    const p1 = obj.parent;
+    const p2 = p1 ? p1.parent : null;
+    const searchNames = [obj.name, p1 ? p1.name : '', p2 ? p2.name : ''];
+    const searchNodes = [obj, p1, p2];
     for (let si = 0; si < searchNames.length; si++) {{
       const nm = searchNames[si];
       if (!nm) continue;
@@ -432,14 +438,12 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
         const key = dm[1] + '_' + dm[3];
         const pair = _pairFor(key);
         if (dm[2] === 'face') {{
-          pair.face = obj;
-          drawerFronts.push(obj);
+          pair.face = searchNodes[si];  // group whose name matched — moves whole face
+          drawerFronts.push(obj);       // mesh ref kept for x-ray material swap
         }} else {{
-          // Drawer boxes are Assembly Groups (not Mesh nodes), so they are
-          // matched via obj.parent.name (si === 1).  Store the parent Group
-          // so that position.add() moves all child meshes together.
-          const node = si === 1 ? obj.parent : obj;
-          if (!pair.box) pair.box = node;
+          // Store the group whose name matched so position.add() moves all
+          // child meshes together.
+          if (!pair.box) pair.box = searchNodes[si];
         }}
         break;
       }}
@@ -451,6 +455,7 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
         const pair = _pairFor(key);
         if (!pair.pulls) pair.pulls = [];
         pair.pulls.push(obj);
+        pullMeshes.push(obj);  // also track for x-ray toggle
         break;
       }}
     }}
@@ -517,15 +522,15 @@ function _makeXrayMaterial(src) {{
 
 function toggleXray() {{
   xrayOn = !xrayOn;
-  for (const front of drawerFronts) {{
-    if (!xrayCache.has(front)) {{
-      const orig = front.material;
+  for (const mesh of [...drawerFronts, ...pullMeshes]) {{
+    if (!xrayCache.has(mesh)) {{
+      const orig = mesh.material;
       const xray = Array.isArray(orig) ? orig.map(_makeXrayMaterial) : _makeXrayMaterial(orig);
-      xrayCache.set(front, {{ orig, xray }});
+      xrayCache.set(mesh, {{ orig, xray }});
     }}
-    const c = xrayCache.get(front);
-    front.material    = xrayOn ? c.xray : c.orig;
-    front.castShadow  = !xrayOn;   // translucent fronts shouldn't cast hard shadows
+    const c = xrayCache.get(mesh);
+    mesh.material   = xrayOn ? c.xray : c.orig;
+    mesh.castShadow = !xrayOn;
   }}
 }}
 

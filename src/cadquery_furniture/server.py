@@ -854,6 +854,10 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Mesh tessellation tolerance in mm. Lower = finer mesh, bigger file. Default: 0.1",
                         "default": 0.1,
                     },
+                    "drawer_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key from list_hardware (category='pulls'). Omit for no pull hardware in render.",
+                    },
                 },
                 "required": ["width", "height", "depth"],
             },
@@ -2131,6 +2135,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 back_thickness=cfg.back_thickness,
                 shelf_thickness=cfg.shelf_thickness,
                 drawer_slide=cfg.drawer_slide,
+                drawer_pull=cfg.drawer_pull,
                 drawer_config=tuple(
                     (float(h), str(t))
                     for h, t in col.get("drawer_config", [])

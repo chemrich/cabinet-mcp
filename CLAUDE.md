@@ -106,8 +106,12 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 - ~~**`consolidate_bom` merges differently-named identical panels**~~ — fixed: `name` is now part of the consolidation key, so "top" and "bottom" panels with the same dimensions stay distinct.
 
 ### Visualizer bugs
-- ~~**`visualize_cabinet` "O" shortcut** (open drawers) does not work~~ — fixed: `pullVec` was computed in world space (via `Box3.setFromObject`) but applied to local-space `position.add()`; root node has −90° X rotation so world Z ≠ local Y. Fix: hardcode pull direction as local −Y and read depth from world Z extent.
-- ~~**`visualize_cabinet` pulls not rendered**~~ — fixed: `build_multi_bay_cabinet` now adds a `bay{i}_pull{j}_{k}` mesh for each pull placement; the visualizer tracks these nodes and animates them alongside the face and box when "O" is pressed.
+- ~~**`visualize_cabinet` pulls not rendered**~~ — fixed: `build_multi_bay_cabinet` now adds a `bay{i}_pull{j}_{k}` mesh for each pull placement; `visualize_cabinet` now forwards `drawer_pull` into per-column bay configs for multi-column layouts; the viewer tracks `bay{i}_pull{j}_{k}` nodes and animates them alongside the face when "O" is pressed.
+- **`visualize_cabinet` "O" shortcut** (open drawers) does not work — investigation notes:
+  - The viewer uses `<script type="module">` + importmap; must be served over HTTP (not `file://`) for Chrome — use `python3 -m http.server 8765` in `~/.cabinet-mcp/visualizations/`.
+  - Root cause of O not working: `pair.box` is never populated for any of the 12 drawer pairs. The JS traversal looks up to grandparent (`p2 = obj.parent.parent`) for the `bay{i}_drawer{j}` group name, but Three.js r165 GLTFLoader appears to insert additional wrapper nodes, placing the named group deeper than 2 levels from the leaf mesh. Confirmed via console: `pair.face` is set on all pairs (face meshes are only 1 level deep) but `pair.box` is always null.
+  - Next step: add temporary ancestry logging (`while (cur) { anc.push(cur.name); cur = cur.parent; }`) to a fresh render and read the actual depth, then extend the JS search loop to match that depth. Also investigate whether `gltf.scene` itself adds a wrapper level not present in the GLTF JSON node list.
+- ~~**Pulls don't hide in X-ray mode**~~ — fixed: added `pullMeshes` array; pull mesh objects are pushed there during traversal alongside `pair.pulls`; `toggleXray` now iterates `[...drawerFronts, ...pullMeshes]`.
 
 ## Planned enhancements
 

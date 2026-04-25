@@ -516,7 +516,7 @@ def build_multi_bay_cabinet(
     foot_diameter: Optional[float] = None,
     face_thickness: float = 18.0,
     outer_overlay: float = 18.0,
-    inner_overlay: float = 17.0,
+    inner_overlay: float = 8.0,
     face_gap: float = 4.0,
     face_bottom_overhang: float = 0.0,
     face_top_overhang: float = 0.0,

@@ -1331,7 +1331,7 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
 
 def check_face_clearances(
     bay_configs: "list[CabinetConfig]",
-    inner_overlay: float = 17.0,
+    inner_overlay: float = 8.0,
     outer_overlay: float = 18.0,
     divider_thickness: float = 18.0,
     face_gap: float = 4.0,
