@@ -304,9 +304,9 @@ class TestDrawerConfigJoineryProperty:
         defaults.update(kwargs)
         return DrawerConfig(**defaults)
 
-    def test_butt_default(self):
+    def test_half_lap_default(self):
         cfg = DrawerConfig(opening_width=564, opening_height=200, opening_depth=500)
-        assert cfg.joinery_style == DrawerJoineryStyle.BUTT
+        assert cfg.joinery_style == DrawerJoineryStyle.HALF_LAP
 
     def test_qqq_spec_returned(self):
         cfg = self._cfg(DrawerJoineryStyle.QQQ, side_thickness=12.7)
@@ -329,7 +329,7 @@ class TestDrawerConfigJoineryProperty:
 class TestCabinetConfigJoineryFields:
     def test_default_carcass_joinery(self):
         cfg = CabinetConfig()
-        assert cfg.carcass_joinery == CarcassJoinery.DADO_RABBET
+        assert cfg.carcass_joinery == CarcassJoinery.FLOATING_TENON
 
     def test_set_floating_tenon(self):
         cfg = CabinetConfig(carcass_joinery=CarcassJoinery.FLOATING_TENON)
@@ -427,8 +427,7 @@ class TestCheckPocketScrewLayout:
 
 class TestCheckCarcassJoinery:
     def test_dado_rabbet_no_extra_issues(self):
-        cfg = CabinetConfig()
-        assert cfg.carcass_joinery == CarcassJoinery.DADO_RABBET
+        cfg = CabinetConfig(carcass_joinery=CarcassJoinery.DADO_RABBET)
         issues = check_carcass_joinery(cfg)
         assert issues == []
 

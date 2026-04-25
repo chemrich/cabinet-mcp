@@ -97,7 +97,7 @@ class DrawerConfig:
     slide_key: str = "blum_tandem_550h"
 
     # Corner joinery style
-    joinery_style: DrawerJoineryStyle = DrawerJoineryStyle.BUTT
+    joinery_style: DrawerJoineryStyle = DrawerJoineryStyle.HALF_LAP
 
     # Height snapping: when True, box_height snaps down to the nearest standard
     # size (see STANDARD_BOX_HEIGHTS) so orders can be batched by common heights.

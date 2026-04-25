@@ -170,9 +170,9 @@ class TestDesignCabinet:
         assert data["interior"]["width_mm"] < 600
         assert data["interior"]["depth_mm"] < 550
 
-    def test_default_joinery_dado_rabbet(self):
+    def test_default_joinery_floating_tenon(self):
         data = self._base()
-        assert data["joinery"] == "dado_rabbet"
+        assert data["joinery"] == "floating_tenon"
 
     def test_floating_tenon_joinery(self):
         data = self._base(carcass_joinery="floating_tenon")

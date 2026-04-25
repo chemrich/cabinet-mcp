@@ -322,7 +322,7 @@ async def list_tools() -> list[types.Tool]:
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
-                        "default": "dado_rabbet",
+                        "default": "floating_tenon",
                     },
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "door_hinge": {
@@ -447,7 +447,7 @@ async def list_tools() -> list[types.Tool]:
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
-                        "default": "dado_rabbet",
+                        "default": "floating_tenon",
                     },
                     "drawer_slide": {
                         "type": "string",
@@ -543,7 +543,7 @@ async def list_tools() -> list[types.Tool]:
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
-                        "default": "dado_rabbet",
+                        "default": "floating_tenon",
                     },
                     "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
                     "door_configs": {
@@ -655,7 +655,7 @@ async def list_tools() -> list[types.Tool]:
                     "joinery_style": {
                         "type": "string",
                         "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
-                        "default": "butt",
+                        "default": "half_lap",
                     },
                     "side_thickness":       {"type": "number", "default": 15.0},
                     "front_back_thickness": {"type": "number", "default": 15.0},
@@ -1034,7 +1034,7 @@ async def list_tools() -> list[types.Tool]:
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
-                        "default": "dado_rabbet",
+                        "default": "floating_tenon",
                     },
                     "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
@@ -1080,7 +1080,7 @@ async def list_tools() -> list[types.Tool]:
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
-                        "default": "dado_rabbet",
+                        "default": "floating_tenon",
                     },
                     "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},

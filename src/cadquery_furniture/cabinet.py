@@ -128,7 +128,7 @@ class CabinetConfig:
     leg_inset: float = 30.0  # foot centre inset from cabinet edge (mm)
 
     # Carcass joinery method
-    carcass_joinery: CarcassJoinery = CarcassJoinery.DADO_RABBET
+    carcass_joinery: CarcassJoinery = CarcassJoinery.FLOATING_TENON
 
     # Per-method joinery specs (used when the matching joinery method is selected)
     domino_spec: DominoSpec = field(default_factory=lambda: DEFAULT_DOMINO)

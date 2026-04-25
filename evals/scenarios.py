@@ -132,7 +132,7 @@ _s(Scenario(
                 Assertion("exterior.depth_mm",  Op.EQ, 550),
                 Assertion("interior.width_mm",  Op.EQ, 564),   # 600 - 2*18
                 Assertion("interior.depth_mm",  Op.LT, 550),
-                Assertion("joinery",            Op.EQ, "dado_rabbet"),
+                Assertion("joinery",            Op.EQ, "floating_tenon"),
                 Assertion("panels.side_panel.qty", Op.EQ, 2),
                 Assertion("panels.bottom_panel", Op.HAS_KEY, True),
                 Assertion("panels.back_panel",   Op.HAS_KEY, True),
