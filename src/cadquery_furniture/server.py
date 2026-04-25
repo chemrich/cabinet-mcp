@@ -1843,6 +1843,17 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
 
         for col in columns_raw:
             col_width = float(col["width_mm"])
+            for i, _ in enumerate(col.get("fixed_shelf_positions", [])):
+                raw_carcass.append(CutlistPanel(
+                    name=f"shelf_{i + 1}",
+                    length=col_width,
+                    width=interior_depth,
+                    thickness=cfg.shelf_thickness,
+                    quantity=1,
+                    grain_direction="length",
+                    material="baltic_birch",
+                    edge_band=["front"],
+                ))
             col_drawers = col.get("drawer_config", [])
             for row in col_drawers:
                 opening_h, slot_type = float(row[0]), str(row[1])
@@ -2171,6 +2182,9 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 door_pull=cfg.door_pull,
                 door_hinge_side=cfg.door_hinge_side,
                 door_pull_inset_mm=cfg.door_pull_inset_mm,
+                fixed_shelf_positions=[
+                    float(z) for z in col.get("fixed_shelf_positions", [])
+                ],
                 drawer_config=tuple(
                     (float(h), str(t))
                     for h, t in _sort_drawer_config(col.get("drawer_config", []))
