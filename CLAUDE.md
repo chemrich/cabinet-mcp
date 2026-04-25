@@ -80,7 +80,7 @@ server.py       ← MCP server (17 tools, stdio or HTTP/SSE)
 |---|---|
 | `hardware.py` | Frozen specs for Blum/Accuride/Salice drawer slides and Blum Clip Top hinges; `HingeSpec.hinges_for_height()` and `hinge_positions()` implement manufacturer placement rules |
 | `joinery.py` | `DrawerJoinerySpec.from_stock()` computes all cut dimensions; `DominoSpec`, `PocketScrewSpec`, `BiscuitSpec`, `DowelSpec` each provide `count_for_span()` and `positions_for_span()` |
-| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples; `carcass_joinery` field selects method |
+| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
 | `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
@@ -112,6 +112,19 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
   - Root cause of O not working: `pair.box` is never populated for any of the 12 drawer pairs. The JS traversal looks up to grandparent (`p2 = obj.parent.parent`) for the `bay{i}_drawer{j}` group name, but Three.js r165 GLTFLoader appears to insert additional wrapper nodes, placing the named group deeper than 2 levels from the leaf mesh. Confirmed via console: `pair.face` is set on all pairs (face meshes are only 1 level deep) but `pair.box` is always null.
   - Next step: add temporary ancestry logging (`while (cur) { anc.push(cur.name); cur = cur.parent; }`) to a fresh render and read the actual depth, then extend the JS search loop to match that depth. Also investigate whether `gltf.scene` itself adds a wrapper level not present in the GLTF JSON node list.
 - ~~**Pulls don't hide in X-ray mode**~~ — fixed: added `pullMeshes` array; pull mesh objects are pushed there during traversal alongside `pair.pulls`; `toggleXray` now iterates `[...drawerFronts, ...pullMeshes]`.
+
+## Vertical overlay styles
+
+`build_multi_bay_cabinet` supports two named parameters for controlling how the
+top and bottom of the carcass relate to the drawer faces:
+
+| Parameter | Effect |
+|---|---|
+| `face_bottom_overhang` | How far the lowest drawer face drops below the top surface of the bottom panel. Default 0 (face starts at top of bottom panel). Set to `bottom_thickness` for flush-to-carcass-exterior. |
+| `face_top_overhang` | How far the highest drawer face rises above the underside of the top panel. Default 0. Set to `top_thickness` for flush-to-carcass-exterior. |
+| `furniture_top` | Shorthand for "furniture top, flush bottom": automatically sets `face_bottom_overhang = bottom_thickness` so the lowest face drops to the carcass underside, and adds a `top_front_cap` strip that extends the top panel forward to the face plane. |
+
+The `visualize_cabinet` MCP tool exposes `furniture_top` as a boolean parameter.
 
 ## Planned enhancements
 

@@ -858,6 +858,15 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Pull catalog key from list_hardware (category='pulls'). Omit for no pull hardware in render.",
                     },
+                    "furniture_top": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, renders a 'furniture top' style: a front cap strip "
+                            "extends the top panel flush to the drawer-face plane, and the "
+                            "bottom of the lowest drawer face drops to the carcass underside."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["width", "height", "depth"],
             },
@@ -2110,12 +2119,13 @@ async def _tool_suggest_proportions(args: dict) -> list[types.TextContent]:
 # ── visualize_cabinet ─────────────────────────────────────────────────────────
 
 async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
-    name         = str(args.pop("name", "cabinet"))
-    output_dir   = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
-    open_browser = bool(args.pop("open_browser", True))
-    tolerance    = float(args.pop("tolerance", 0.1))
-    num_bays     = int(args.pop("num_bays", 1))
-    columns_raw  = args.pop("columns", None)
+    name          = str(args.pop("name", "cabinet"))
+    output_dir    = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
+    open_browser  = bool(args.pop("open_browser", True))
+    tolerance     = float(args.pop("tolerance", 0.1))
+    num_bays      = int(args.pop("num_bays", 1))
+    columns_raw   = args.pop("columns", None)
+    furniture_top = bool(args.pop("furniture_top", False))
 
     cfg = _build_cabinet_config(args)
 
@@ -2150,7 +2160,11 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         bay_configs = [cfg] * num_bays
         info = {"width": cfg.width * num_bays, "height": cfg.height, "depth": cfg.depth}
 
-    assy, parts = _build_multi_bay_cabinet(bay_configs, feet_at_dividers=(columns_raw is None))
+    assy, parts = _build_multi_bay_cabinet(
+        bay_configs,
+        feet_at_dividers=(columns_raw is None),
+        furniture_top=furniture_top,
+    )
     result = _visualize_assembly(
         assy,
         parts,

@@ -524,6 +524,7 @@ def build_multi_bay_cabinet(
     include_faces: bool = True,
     include_feet: bool = True,
     feet_at_dividers: bool = True,
+    furniture_top: bool = False,
 ) -> tuple["cq.Assembly", list["PartInfo"]]:
     """Build a multi-bay cabinet assembly with bays positioned side-by-side.
 
@@ -561,6 +562,13 @@ def build_multi_bay_cabinet(
         include_drawers:      Build and add drawer box assemblies.
         include_faces:        Build and add drawer face panels.
         include_feet:         Build and add adjustable-foot cylinders.
+        furniture_top:        When True, adds a "furniture top" style: a front cap
+                              strip extends the top panel forward to the drawer-face
+                              plane, and the bottom of the lowest drawer face drops
+                              to the underside of the carcass bottom panel
+                              (face_bottom_overhang is automatically set to
+                              bottom_thickness; an explicit face_bottom_overhang
+                              argument is ignored when furniture_top=True).
 
     Returns:
         (cq.Assembly, list[PartInfo]) — the full assembly and its parts list.
@@ -585,6 +593,12 @@ def build_multi_bay_cabinet(
         x_offsets.append(x)
         x += cfg.width - (cfg.side_thickness if i < n_bays - 1 else 0)
     total_width = x
+
+    # ── furniture_top override ─────────────────────────────────────────────────
+    # "Furniture top, flush bottom": the top panel cap extends forward to the face
+    # plane; the lowest drawer face drops to the carcass underside.
+    if furniture_top:
+        face_bottom_overhang = bay_configs[0].bottom_thickness
 
     # Colours — alternate slightly between bays for clarity
     carcass_colours = [
@@ -662,6 +676,27 @@ def build_multi_bay_cabinet(
         grain_direction="width",
         notes="1/4 inch plywood — single panel spanning all bays",
     ))
+
+    # ── Furniture top cap ──────────────────────────────────────────────────────
+    # A thin horizontal strip that extends the top panel forward to the drawer
+    # face plane, creating a flush furniture-style top edge.
+    if furniture_top:
+        top_cap = (
+            cq.Workplane("XY")
+            .box(total_width, face_thickness, cfg0.top_thickness, centered=False)
+        )
+        cap_z = cfg0.height - cfg0.top_thickness
+        assy.add(top_cap, name="top_front_cap",
+                 loc=cq.Location((0.0, -face_thickness, cap_z)),
+                 color=cq.Color(0.55, 0.38, 0.22, 1.0))
+        all_parts.append(PartInfo(
+            name="top_front_cap",
+            shape=top_cap,
+            material_thickness=cfg0.top_thickness,
+            grain_direction="width",
+            edge_band=["front", "left", "right"],
+            notes="furniture top front cap — spans full cabinet width",
+        ))
 
     # ── Drawer boxes ───────────────────────────────────────────────────────────
     if include_drawers:
