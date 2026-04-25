@@ -132,9 +132,9 @@ class TestCheckDrawerPull:
         loaded = _load_pulls_from_catalog(fp)
         PULLS["test-knob"] = loaded["test-knob"]
         try:
-            # Face width: opening 700 + 2·10 = 720 mm — above the 600 threshold.
+            # Face width: opening 750 + 2·10 = 770 mm — above the 762 mm threshold.
             d = DrawerConfig(
-                opening_width=700, opening_height=150, opening_depth=500,
+                opening_width=750, opening_height=150, opening_depth=500,
                 pull_key="test-knob",
             )
             issues = check_drawer_pull(d)

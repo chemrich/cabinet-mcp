@@ -19,10 +19,10 @@ transforming face-local coords into cabinet-global coords.
 
 Dual-pull threshold
 -------------------
-``DUAL_PULL_THRESHOLD_MM`` (600 mm) is the face-width cutoff at which the
+``DUAL_PULL_THRESHOLD_MM`` (762 mm / 30″) is the face-width cutoff at which the
 default placement switches from one centred pull to two pulls spaced at the
 ⅓ and ⅔ points of the face.  This follows the conventional cabinet-shop rule
-of thumb: drawers wider than ~24″ feel unbalanced opening on a single pull.
+of thumb: drawers wider than 30″ feel unbalanced opening on a single pull.
 Callers can override by passing an explicit ``count`` to
 :func:`pull_positions`.
 
@@ -57,7 +57,7 @@ from .hardware import MountStyle, PullSpec, PULLS
 
 # ── Policy constants ─────────────────────────────────────────────────────────
 
-DUAL_PULL_THRESHOLD_MM: float = 600.0
+DUAL_PULL_THRESHOLD_MM: float = 762.0
 """Face-width cutoff. Faces wider than this default to two pulls at ⅓/⅔."""
 
 END_MARGIN_MM: float = 40.0

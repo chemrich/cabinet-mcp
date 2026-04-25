@@ -115,7 +115,7 @@ class DrawerConfig:
     # (see ``hardware.PULLS`` / ``cadquery_furniture/data/pulls_catalog.json``).
     # When ``None``, no pull is placed on the drawer face and the BOM omits it.
     # ``pull_count`` of 0 defers to :func:`pulls.recommend_pull_count` (1 for
-    # knobs/flush; 1 if face_width ≤ 600 mm, else 2 for surface/edge pulls).
+    # knobs/flush; 1 if face_width ≤ 762 mm (30″), else 2 for surface/edge pulls).
     # ``pull_vertical`` controls the height at which the pull centres sit —
     # ``"center"`` (default), ``"upper_third"``, or ``"lower_third"``.
     pull_key: Optional[str] = None
