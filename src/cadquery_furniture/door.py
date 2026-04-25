@@ -28,7 +28,7 @@ except ImportError:
 
 from .hardware import HingeSpec, OverlayType, get_hinge, get_pull
 from .cabinet import CabinetConfig, PartInfo
-from .pulls import PullPlacement, VerticalPolicy, pull_positions
+from .pulls import PullPlacement, VerticalPolicy, HingeSide, pull_positions, door_pull_x_center
 
 
 @dataclass
@@ -93,6 +93,8 @@ class DoorConfig:
     pull_key: Optional[str] = None
     pull_count: int = 0
     pull_vertical: VerticalPolicy = "center"
+    hinge_side: HingeSide = "left"
+    pull_inset_mm: float = 50.0  # gap from latch edge to near end of pull body
 
     # ── Computed properties ───────────────────────────────────────────────
 
@@ -176,13 +178,14 @@ class DoorConfig:
         if self.pull_key is None:
             return []
         pull = get_pull(self.pull_key)
+        cx = door_pull_x_center(self.door_width, pull, self.hinge_side, self.pull_inset_mm)
         return pull_positions(
             self.door_width,
             self.door_height,
             pull,
             self.pull_key,
-            count=self.pull_count,
             vertical=self.pull_vertical,
+            x_override_mm=cx,
         )
 
     @property

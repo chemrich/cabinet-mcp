@@ -67,6 +67,9 @@ END_MARGIN_MM: float = 40.0
 VerticalPolicy = Literal["center", "upper_third", "lower_third"]
 """Vertical placement options exposed to callers."""
 
+HingeSide = Literal["left", "right"]
+"""Which side of a door the hinge is mounted on.  The pull goes on the opposite (latch) side."""
+
 
 # ── Return types ─────────────────────────────────────────────────────────────
 
@@ -161,6 +164,29 @@ def _vertical_z(face_height_mm: float, policy: VerticalPolicy) -> float:
     )
 
 
+def door_pull_x_center(
+    face_width_mm: float,
+    pull: PullSpec,
+    hinge_side: HingeSide,
+    inset_mm: float = 50.0,
+) -> float:
+    """Return the pull centre-x for a door face, offset from the latch edge.
+
+    The latch edge is the side opposite the hinge.  ``inset_mm`` is the gap
+    between the near end of the pull body and the latch edge (default 50 mm /
+    2″, the cabinet-shop standard).
+
+    Examples
+    --------
+    hinge_side="left"  → latch on right → cx = face_width - inset - length/2
+    hinge_side="right" → latch on left  → cx = inset + length/2
+    """
+    half = pull.length_mm / 2.0
+    if hinge_side == "left":
+        return face_width_mm - inset_mm - half
+    return inset_mm + half
+
+
 def _horizontal_centers(face_width_mm: float, count: int) -> list[float]:
     """Return x-coordinates of pull centres for the given count.
 
@@ -185,6 +211,7 @@ def pull_positions(
     pull_key: str,
     count: int = 0,
     vertical: VerticalPolicy = "center",
+    x_override_mm: float | None = None,
 ) -> list[PullPlacement]:
     """Return pull placements on a drawer face or door.
 
@@ -199,10 +226,16 @@ def pull_positions(
     count :
         Number of pulls.  ``0`` (the default) defers to
         :func:`recommend_pull_count`.  Knobs ignore ``count`` above 1
-        (we never split a knob into a dual layout).
+        (we never split a knob into a dual layout).  Ignored when
+        ``x_override_mm`` is supplied.
     vertical :
         Vertical placement — ``"center"`` (default), ``"upper_third"``, or
         ``"lower_third"``.  See the module docstring.
+    x_override_mm :
+        When provided, bypasses ``_horizontal_centers`` and places exactly
+        one pull with its centre at this x-coordinate.  Use
+        :func:`door_pull_x_center` to compute the correct value for
+        latch-side door placement.
 
     Returns
     -------
@@ -216,16 +249,18 @@ def pull_positions(
             f"{face_width_mm}×{face_height_mm} mm"
         )
 
-    if count <= 0:
-        count = recommend_pull_count(face_width_mm, pull)
-
-    # Knobs never split — coerce to 1 and let the caller choose a longer pull
-    # if they need more gripping area.
-    if pull.mount_style is MountStyle.KNOB and count > 1:
-        count = 1
-
     z = _vertical_z(face_height_mm, vertical)
-    centres_x = _horizontal_centers(face_width_mm, count)
+
+    if x_override_mm is not None:
+        centres_x = [x_override_mm]
+    else:
+        if count <= 0:
+            count = recommend_pull_count(face_width_mm, pull)
+        # Knobs never split — coerce to 1 and let the caller choose a longer pull
+        # if they need more gripping area.
+        if pull.mount_style is MountStyle.KNOB and count > 1:
+            count = 1
+        centres_x = _horizontal_centers(face_width_mm, count)
 
     placements: list[PullPlacement] = []
     for cx in centres_x:

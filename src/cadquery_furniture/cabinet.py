@@ -24,6 +24,7 @@ except ImportError:
     cq = None  # allow import for type checking / planning without cadquery installed
 
 from .hardware import DrawerSlideSpec, get_slide, LegSpec, get_leg, get_pull, MountStyle
+from .pulls import HingeSide, door_pull_x_center
 from .joinery import (
     CarcassJoinery,
     DominoSpec,
@@ -118,6 +119,8 @@ class CabinetConfig:
     # drawer / per-door config overrides it.  ``None`` means no pull.
     drawer_pull: Optional[str] = None
     door_pull: Optional[str] = None
+    door_hinge_side: HingeSide = "left"    # hinge side for single doors
+    door_pull_inset_mm: float = 50.0       # gap from latch edge to pull body near-end
 
     # Leg / foot hardware (used by build_multi_bay_cabinet and design_legs)
     leg_key: str = "richelieu_176138106"
@@ -979,33 +982,47 @@ def build_multi_bay_cabinet(
                     face_h     = face_z_top - face_z_bot
 
                     if slot_type == "door_pair":
+                        # Pair: left leaf hinges left (outer), right leaf hinges right (outer).
+                        # Pulls go on the latch (inner) edges regardless of cfg.door_hinge_side.
                         door_w = (face_w - door_gap_centre) / 2
+                        pair_hinge_sides: list[HingeSide] = ["left", "right"]
                         for door_i, door_x in enumerate(
                             [face_x, face_x + door_w + door_gap_centre]
                         ):
+                            hs = pair_hinge_sides[door_i]
+                            cx = door_pull_x_center(door_w, pull_spec, hs, cfg.door_pull_inset_mm)
                             try:
-                                placements = _pull_positions(door_w, face_h, pull_spec, cfg.door_pull)
+                                placements = _pull_positions(
+                                    door_w, face_h, pull_spec, cfg.door_pull,
+                                    x_override_mm=cx,
+                                )
                             except ValueError:
                                 continue
                             for p_idx, placement in enumerate(placements):
-                                cx, cz = placement.center
+                                _cx, cz = placement.center
                                 assy.add(
                                     pull_body,
                                     name=f"bay{bay_idx}_doorpull{slot_idx}_{door_i}_{p_idx}",
-                                    loc=cq.Location((door_x + cx, pull_py, face_z_bot + cz)),
+                                    loc=cq.Location((door_x + _cx, pull_py, face_z_bot + cz)),
                                     color=pull_colour,
                                 )
                     else:
+                        cx = door_pull_x_center(
+                            face_w, pull_spec, cfg.door_hinge_side, cfg.door_pull_inset_mm
+                        )
                         try:
-                            placements = _pull_positions(face_w, face_h, pull_spec, cfg.door_pull)
+                            placements = _pull_positions(
+                                face_w, face_h, pull_spec, cfg.door_pull,
+                                x_override_mm=cx,
+                            )
                         except ValueError:
                             continue
                         for p_idx, placement in enumerate(placements):
-                            cx, cz = placement.center
+                            _cx, cz = placement.center
                             assy.add(
                                 pull_body,
                                 name=f"bay{bay_idx}_doorpull{slot_idx}_{p_idx}",
-                                loc=cq.Location((face_x + cx, pull_py, face_z_bot + cz)),
+                                loc=cq.Location((face_x + _cx, pull_py, face_z_bot + cz)),
                                 color=pull_colour,
                             )
                 z_acc += opening_h

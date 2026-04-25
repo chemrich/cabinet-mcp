@@ -2169,6 +2169,8 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 drawer_slide=cfg.drawer_slide,
                 drawer_pull=cfg.drawer_pull,
                 door_pull=cfg.door_pull,
+                door_hinge_side=cfg.door_hinge_side,
+                door_pull_inset_mm=cfg.door_pull_inset_mm,
                 drawer_config=tuple(
                     (float(h), str(t))
                     for h, t in _sort_drawer_config(col.get("drawer_config", []))
