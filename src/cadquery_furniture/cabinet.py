@@ -45,8 +45,9 @@ class ColumnConfig:
     vertical dividers — e.g. a left column of three drawers next to a right
     column with a single door.
 
-    ``width_mm`` is the **interior** width of the column (not including the
-    divider panel thickness).  The sum of all column widths must equal the
+    ``width_mm`` is the **interior** width of the column opening (not
+    including adjacent divider panel thickness).  The sum of all column
+    widths plus ``(n_columns − 1) × side_thickness`` must equal the
     cabinet's ``interior_width``; the evaluator enforces this.
 
     ``drawer_config`` follows the same format as ``CabinetConfig.drawer_config``:
@@ -599,6 +600,7 @@ def build_multi_bay_cabinet(
     # plane; the lowest drawer face drops to the carcass underside.
     if furniture_top:
         face_bottom_overhang = bay_configs[0].bottom_thickness
+        face_top_overhang    = -face_gap        # same reveal as between adjacent faces
 
     # Colours — alternate slightly between bays for clarity
     carcass_colours = [
@@ -688,7 +690,7 @@ def build_multi_bay_cabinet(
         cap_z = cfg0.height - cfg0.top_thickness
         assy.add(top_cap, name="top_front_cap",
                  loc=cq.Location((0.0, -face_thickness, cap_z)),
-                 color=cq.Color(0.55, 0.38, 0.22, 1.0))
+                 color=carcass_colours[0])
         all_parts.append(PartInfo(
             name="top_front_cap",
             shape=top_cap,

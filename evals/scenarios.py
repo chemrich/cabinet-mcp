@@ -914,7 +914,7 @@ _s(Scenario(
             assertions=[
                 Assertion("opening_stack", Op.LEN_EQ, 3),
                 Assertion("opening_stack.0.type", Op.EQ, "drawer"),
-                Assertion("opening_stack.0.height_mm", Op.EQ, 150),
+                Assertion("opening_stack.0.height_mm", Op.EQ, 350),
                 Assertion("joinery", Op.EQ, "floating_tenon"),
             ],
         ),
@@ -1912,8 +1912,8 @@ _s(Scenario(
     difficulty="standard",
     description=(
         "interior_width = 900 - 2×18 = 864 mm. "
-        "Left column 432 mm (3 drawers × 228 mm). Right column 432 mm (1 door × 684 mm). "
-        "Column widths sum = 864 mm = interior_width."
+        "Left column 423 mm (3 drawers × 228 mm). Right column 423 mm (1 door × 684 mm). "
+        "Column widths sum = 846 mm = interior_width − 1 divider × 18 mm."
     ),
     tool_calls=[
         ToolCall(
@@ -1921,15 +1921,15 @@ _s(Scenario(
             args={
                 "width": 900, "height": 720, "depth": 550,
                 "columns": [
-                    {"width_mm": 432, "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
-                    {"width_mm": 432, "drawer_config": [[684, "door"]]},
+                    {"width_mm": 423, "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
+                    {"width_mm": 423, "drawer_config": [[684, "door"]]},
                 ],
             },
             label="2-column drawers+door",
             assertions=[
                 Assertion("column_count",          Op.EQ,     2),
                 Assertion("columns_fill_interior", Op.IS_TRUE),
-                Assertion("column_widths_sum_mm",  Op.APPROX, 864.0),
+                Assertion("column_widths_sum_mm",  Op.APPROX, 846.0),
                 Assertion("interior_width_mm",     Op.APPROX, 864.0),
                 Assertion("columns",               Op.LEN_EQ, 2),
             ],
@@ -1988,7 +1988,8 @@ _s(Scenario(
     difficulty="advanced",
     description=(
         "interior_width = 1200 - 36 = 1164 mm. "
-        "Three equal columns = 388 mm each. Each column: 4 drawers × 216 mm = 864 mm interior."
+        "Three equal columns = 376 mm each (1164 − 2×18 dividers = 1128 ÷ 3). "
+        "Each column: 4 drawers × 216 mm = 864 mm interior."
     ),
     tool_calls=[
         ToolCall(
@@ -1996,9 +1997,9 @@ _s(Scenario(
             args={
                 "width": 1200, "height": 900, "depth": 500,
                 "columns": [
-                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
-                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
-                    {"width_mm": 388, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                    {"width_mm": 376, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                    {"width_mm": 376, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
+                    {"width_mm": 376, "drawer_config": [[216, "drawer"], [216, "drawer"], [216, "drawer"], [216, "drawer"]]},
                 ],
             },
             label="3-column dresser",
@@ -2886,7 +2887,7 @@ _s(Scenario(
     difficulty="advanced",
     description=(
         "interior_h = 814 mm, interior_w = 1464 mm.  "
-        "Three 488 mm columns: door_pair | 4 drawers | door_pair."
+        "Three 476 mm columns (1464 − 2×18 dividers = 1428 ÷ 3): door_pair | 4 drawers | door_pair."
     ),
     tool_calls=[
         ToolCall(
@@ -2894,15 +2895,15 @@ _s(Scenario(
             args={
                 "width": 1500, "height": 850, "depth": 450,
                 "columns": [
-                    {"width_mm": 488, "drawer_config": [[814, "door_pair"]]},
+                    {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                     {
-                        "width_mm": 488,
+                        "width_mm": 476,
                         "drawer_config": [
                             [200, "drawer"], [200, "drawer"],
                             [200, "drawer"], [214, "drawer"],
                         ],
                     },
-                    {"width_mm": 488, "drawer_config": [[814, "door_pair"]]},
+                    {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                 ],
             },
             label="1500 mm sideboard — door | drawers | door",
@@ -2917,15 +2918,15 @@ _s(Scenario(
             args={
                 "width": 1500, "height": 850, "depth": 450,
                 "columns": [
-                    {"width_mm": 488, "drawer_config": [[814, "door_pair"]]},
+                    {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                     {
-                        "width_mm": 488,
+                        "width_mm": 476,
                         "drawer_config": [
                             [200, "drawer"], [200, "drawer"],
                             [200, "drawer"], [214, "drawer"],
                         ],
                     },
-                    {"width_mm": 488, "drawer_config": [[814, "door_pair"]]},
+                    {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                 ],
             },
             label="evaluate sideboard",
@@ -2948,7 +2949,7 @@ _s(Scenario(
     difficulty="advanced",
     description=(
         "interior_h = 414 mm, interior_w = 1764 mm.  "
-        "Three 588 mm columns: door_pair | 2 × 207 mm drawers | door_pair."
+        "Three 576 mm columns (1764 − 2×18 dividers = 1728 ÷ 3): door_pair | 2 × 207 mm drawers | door_pair."
     ),
     tool_calls=[
         ToolCall(
@@ -2956,12 +2957,12 @@ _s(Scenario(
             args={
                 "width": 1800, "height": 450, "depth": 400,
                 "columns": [
-                    {"width_mm": 588, "drawer_config": [[414, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                     {
-                        "width_mm": 588,
+                        "width_mm": 576,
                         "drawer_config": [[207, "drawer"], [207, "drawer"]],
                     },
-                    {"width_mm": 588, "drawer_config": [[414, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                 ],
             },
             label="1800 mm media console — door | 2 drawers | door",
@@ -2977,12 +2978,12 @@ _s(Scenario(
             args={
                 "width": 1800, "height": 450, "depth": 400,
                 "columns": [
-                    {"width_mm": 588, "drawer_config": [[414, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                     {
-                        "width_mm": 588,
+                        "width_mm": 576,
                         "drawer_config": [[207, "drawer"], [207, "drawer"]],
                     },
-                    {"width_mm": 588, "drawer_config": [[414, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                 ],
             },
             label="evaluate media console",
@@ -3005,7 +3006,7 @@ _s(Scenario(
     difficulty="advanced",
     description=(
         "interior_h = 864 mm, interior_w = 1764 mm.  "
-        "Three 588 mm columns: door_pair | 4 × 216 mm drawers | door_pair."
+        "Three 576 mm columns (1764 − 2×18 dividers = 1728 ÷ 3): door_pair | 4 × 216 mm drawers | door_pair."
     ),
     tool_calls=[
         ToolCall(
@@ -3013,15 +3014,15 @@ _s(Scenario(
             args={
                 "width": 1800, "height": 900, "depth": 500,
                 "columns": [
-                    {"width_mm": 588, "drawer_config": [[864, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                     {
-                        "width_mm": 588,
+                        "width_mm": 576,
                         "drawer_config": [
                             [216, "drawer"], [216, "drawer"],
                             [216, "drawer"], [216, "drawer"],
                         ],
                     },
-                    {"width_mm": 588, "drawer_config": [[864, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                 ],
             },
             label="1800 mm buffet — door_pair | 4 drawers | door_pair",
@@ -3036,15 +3037,15 @@ _s(Scenario(
             args={
                 "width": 1800, "height": 900, "depth": 500,
                 "columns": [
-                    {"width_mm": 588, "drawer_config": [[864, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                     {
-                        "width_mm": 588,
+                        "width_mm": 576,
                         "drawer_config": [
                             [216, "drawer"], [216, "drawer"],
                             [216, "drawer"], [216, "drawer"],
                         ],
                     },
-                    {"width_mm": 588, "drawer_config": [[864, "door_pair"]]},
+                    {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                 ],
             },
             label="evaluate buffet",

@@ -1517,13 +1517,19 @@ def check_column_widths(cab_cfg: CabinetConfig) -> list[Issue]:
 
     Checks:
     - Each column width is positive.
-    - The sum of all column widths equals ``interior_width`` (±0.5 mm tolerance).
+    - The sum of all column widths plus (n−1) dividers equals ``interior_width``
+      (±0.5 mm tolerance).  Each internal divider reuses a side panel
+      (``side_thickness``), so the expected identity is:
+      ``sum(col_widths) + (n_cols − 1) * side_thickness == interior_width``.
     """
     if not cab_cfg.columns:
         return []
 
     issues: list[Issue] = []
     interior_w = cab_cfg.interior_width
+    n_dividers = len(cab_cfg.columns) - 1
+    divider_space = n_dividers * cab_cfg.side_thickness
+    expected_sum = interior_w - divider_space
     col_sum = sum(c.width_mm for c in cab_cfg.columns)
 
     for i, col in enumerate(cab_cfg.columns):
@@ -1537,17 +1543,19 @@ def check_column_widths(cab_cfg: CabinetConfig) -> list[Issue]:
                 limit=0.0,
             ))
 
-    if abs(col_sum - interior_w) > 0.5:
+    if abs(col_sum - expected_sum) > 0.5:
         issues.append(Issue(
             severity=Severity.ERROR,
             check="column_widths_sum",
             message=(
-                f"Column widths sum to {col_sum:.1f} mm but cabinet interior_width is "
-                f"{interior_w:.1f} mm (difference: {col_sum - interior_w:+.1f} mm)."
+                f"Column widths sum to {col_sum:.1f} mm but expected "
+                f"{expected_sum:.1f} mm (interior_width {interior_w:.1f} mm − "
+                f"{n_dividers} divider(s) × {cab_cfg.side_thickness:.0f} mm; "
+                f"difference: {col_sum - expected_sum:+.1f} mm)."
             ),
             part_a="columns",
             value=col_sum,
-            limit=interior_w,
+            limit=expected_sum,
         ))
 
     return issues

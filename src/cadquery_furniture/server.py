@@ -127,6 +127,13 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
     ]
 
 
+def _sort_drawer_config(dc: list) -> list:
+    """Sort a drawer_config stack largest-first (bottom) when all slot types match."""
+    if dc and len({str(row[1]) for row in dc}) == 1:
+        return sorted(dc, key=lambda x: x[0], reverse=True)
+    return dc
+
+
 def _build_cabinet_config(args: dict) -> CabinetConfig:
     """
     Build a CabinetConfig from a flat dict of keyword arguments.
@@ -1442,6 +1449,7 @@ async def _tool_list_joinery(args: dict) -> list[types.TextContent]:
 async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
     num_drawers       = args.pop("num_drawers", None)
     drawer_proportion = args.pop("drawer_proportion", None)
+    args.pop("furniture_top", None)
     proportions_used: dict = {}
 
     if num_drawers and not args.get("drawer_config"):
@@ -1453,6 +1461,9 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         heights = _grad_heights(interior_h, int(num_drawers), preset)
         args["drawer_config"] = [[h, "drawer"] for h in heights]
         proportions_used["drawer_proportion"] = preset
+
+    if args.get("drawer_config"):
+        args["drawer_config"] = _sort_drawer_config(args["drawer_config"])
 
     cfg = _build_cabinet_config(args)
 
@@ -1529,6 +1540,7 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
     column_proportion = args.pop("column_proportion",  None)
     num_drawers       = args.pop("num_drawers",        None)
     drawer_proportion = args.pop("drawer_proportion",  None)
+    args.pop("furniture_top", None)
     proportions_used: dict = {}
 
     # ── Resolve column widths ──────────────────────────────────────────────────
@@ -1536,9 +1548,11 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
         if not num_columns:
             return _err("Provide either 'columns' or 'num_columns'.")
         side_t     = float(args.get("side_thickness", 18))
+        n_cols     = int(num_columns)
         interior_w = float(args["width"]) - 2 * side_t
+        available_w = interior_w - (n_cols - 1) * side_t  # subtract internal divider space
         col_preset = column_proportion or ("golden" if wide_index is not None else "equal")
-        widths = _col_widths(interior_w, int(num_columns), wide_index, col_preset)
+        widths = _col_widths(available_w, n_cols, wide_index, col_preset)
         proportions_used["column_proportion"] = col_preset
         if wide_index is not None:
             proportions_used["wide_index"] = wide_index
@@ -1557,6 +1571,10 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
         for col in args["columns"]:
             if not col.get("drawer_config"):
                 col["drawer_config"] = [[h, "drawer"] for h in heights]
+
+    for col in args.get("columns", []):
+        if col.get("drawer_config"):
+            col["drawer_config"] = _sort_drawer_config(col["drawer_config"])
 
     cfg = _build_cabinet_config(args)
 
@@ -1599,7 +1617,7 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
         "column_count":          len(cfg.columns),
         "column_widths_sum_mm":  col_sum,
         "interior_width_mm":     interior_width,
-        "columns_fill_interior": abs(col_sum - interior_width) < 0.5,
+        "columns_fill_interior": abs(col_sum - (interior_width - n_dividers * cfg.side_thickness)) < 0.5,
         "columns":               col_details,
         "adj_shelf_holes":       cfg.adj_shelf_holes,
         "door_hinge":            cfg.door_hinge,
@@ -1613,6 +1631,7 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
 
 async def _tool_evaluate_cabinet(args: dict) -> list[types.TextContent]:
     door_config_dicts = args.pop("door_configs", []) or []
+    args.pop("furniture_top", None)
     cfg = _build_cabinet_config(args)
 
     door_configs = [_build_door_config(d) for d in door_config_dicts]
@@ -1768,6 +1787,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     optimizer    = str(args.pop("optimizer", "auto"))
     name         = str(args.pop("name", "cabinet"))
     columns_raw  = args.pop("columns", None)
+    args.pop("furniture_top", None)
 
     cfg = _build_cabinet_config(args)
 
@@ -2099,8 +2119,10 @@ async def _tool_suggest_proportions(args: dict) -> list[types.TextContent]:
 
     if num_columns:
         suggestions = []
+        n_cols_suggest = int(num_columns)
+        available_w_suggest = interior_w - (n_cols_suggest - 1) * side_t
         for preset, ratio in _RATIO_PRESETS.items():
-            widths = _col_widths(interior_w, int(num_columns), wide_index, preset)
+            widths = _col_widths(available_w_suggest, n_cols_suggest, wide_index, preset)
             wide_w   = widths[wide_index] if wide_index is not None else None
             narrow_w = widths[0] if wide_index != 0 else widths[1]
             suggestions.append({
@@ -2148,7 +2170,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 drawer_pull=cfg.drawer_pull,
                 drawer_config=tuple(
                     (float(h), str(t))
-                    for h, t in col.get("drawer_config", [])
+                    for h, t in _sort_drawer_config(col.get("drawer_config", []))
                 ),
             )
             for col in columns_raw
