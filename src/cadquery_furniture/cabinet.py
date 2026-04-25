@@ -806,8 +806,11 @@ def build_multi_bay_cabinet(
     # ── Door panels ────────────────────────────────────────────────────────────
     # Render a flat face panel for every "door" or "door_pair" slot.
     # "door_pair" splits into two panels with a 3 mm centre gap.
+    # Uses the same z_face_start / z_face_end anchors as drawer faces so that
+    # in mixed columns all face edges align at the top and bottom.
     if include_faces:
         door_gap_centre = 3.0
+        n_slots_total = len(bay_configs[0].drawer_config) if bay_configs else 0
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
             if not cfg.drawer_config:
                 continue
@@ -819,9 +822,19 @@ def build_multi_bay_cabinet(
             face_w   = left_ov + cfg.interior_width + right_ov
             face_x   = 0.0 if is_leftmost else bx + cfg.side_thickness - inner_overlay
 
+            z_face_start = cfg.bottom_thickness - face_bottom_overhang
+            z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
+            n_slots      = len(cfg.drawer_config)
+
             z_acc = cfg.bottom_thickness
             for slot_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
                 if slot_type in ("door", "door_pair"):
+                    is_first = slot_idx == 0
+                    is_last  = slot_idx == n_slots - 1
+                    face_z_bot = z_face_start if is_first else z_acc + face_gap / 2
+                    face_z_top = z_face_end   if is_last  else z_acc + opening_h - face_gap / 2
+                    face_h = face_z_top - face_z_bot
+
                     if slot_type == "door_pair":
                         door_w = (face_w - door_gap_centre) / 2
                         for i, dx in enumerate(
@@ -829,12 +842,12 @@ def build_multi_bay_cabinet(
                         ):
                             ds = (
                                 cq.Workplane("XY")
-                                .box(door_w, face_thickness, opening_h, centered=False)
+                                .box(door_w, face_thickness, face_h, centered=False)
                             )
                             assy.add(
                                 ds,
                                 name=f"bay{bay_idx}_door{slot_idx}_{i}",
-                                loc=cq.Location((dx, -face_thickness, z_acc)),
+                                loc=cq.Location((dx, -face_thickness, face_z_bot)),
                                 color=face_colour,
                             )
                             all_parts.append(PartInfo(
@@ -847,12 +860,12 @@ def build_multi_bay_cabinet(
                     else:
                         ds = (
                             cq.Workplane("XY")
-                            .box(face_w, face_thickness, opening_h, centered=False)
+                            .box(face_w, face_thickness, face_h, centered=False)
                         )
                         assy.add(
                             ds,
                             name=f"bay{bay_idx}_door{slot_idx}",
-                            loc=cq.Location((face_x, -face_thickness, z_acc)),
+                            loc=cq.Location((face_x, -face_thickness, face_z_bot)),
                             color=face_colour,
                         )
                         all_parts.append(PartInfo(
