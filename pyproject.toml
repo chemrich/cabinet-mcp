@@ -11,9 +11,9 @@ dependencies = [
 [project.optional-dependencies]
 # 3D geometry, interference checks, GLB export, and the self-contained HTML viewer
 cad = ["cadquery>=2.4"]
-# Sheet-goods nesting optimizer (opcut primary; rectpack fallback)
+# Sheet-goods nesting optimizer (opcut primary; rectpack fallback) + PDF export
 # opcut 0.1.3 is the last pure-Python release; 0.2+ are Linux-only compiled wheels.
-cutlist = ["opcut==0.1.3", "rectpack"]
+cutlist = ["opcut==0.1.3", "rectpack", "reportlab"]
 # Everything: cad + cutlist.  Recommended for normal use.
 full = ["cadquery-furniture[cad,cutlist]"]
 # Lite: explicit alias for a base-only install (no extras needed — documented for clarity)
@@ -24,7 +24,7 @@ dev = ["pytest>=7.0", "pytest-cov"]
 [dependency-groups]
 # uv-native mirrors of the extras above — lets "uv run" resolve groups without --extra flags
 cad     = ["cadquery>=2.4"]
-cutlist = ["opcut==0.1.3", "rectpack"]
+cutlist = ["opcut==0.1.3", "rectpack", "reportlab"]
 full    = [{include-group = "cad"}, {include-group = "cutlist"}]
 dev     = ["pytest>=7.0", "pytest-cov"]
 

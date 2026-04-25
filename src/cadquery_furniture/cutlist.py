@@ -42,7 +42,48 @@ except ImportError:
     _opcut_csp = None     # type: ignore[assignment]
     _OPCUT_AVAILABLE = False
 
+try:
+    from reportlab.lib.pagesizes import A4, landscape as _rl_landscape
+    from reportlab.lib.units import mm as _rl_mm
+    from reportlab.lib.colors import HexColor as _HexColor
+    from reportlab.platypus import (
+        SimpleDocTemplate as _SimpleDocTemplate,
+        Table as _Table,
+        TableStyle as _TableStyle,
+        Paragraph as _Paragraph,
+        Spacer as _Spacer,
+        PageBreak as _PageBreak,
+        KeepTogether as _KeepTogether,
+    )
+    from reportlab.platypus.flowables import Flowable as _Flowable
+    from reportlab.lib.styles import getSampleStyleSheet as _getSampleStyleSheet, ParagraphStyle as _ParagraphStyle
+    _REPORTLAB_AVAILABLE = True
+except ImportError:
+    _REPORTLAB_AVAILABLE = False
+
 from .cabinet import PartInfo
+
+
+# ── Shared colour helpers (used by both HTML and PDF renderers) ───────────────
+
+_PALETTE = [
+    "#C8DFA8", "#A8C8DF", "#DFC8A8", "#A8DFC8",
+    "#DFA8C8", "#C8A8DF", "#DFD8A8", "#A8D8DF",
+    "#DFA8A8", "#A8A8DF", "#D8DFA8", "#A8DFD8",
+    "#DFC0A8", "#B8A8DF", "#A8DFB8", "#DFA8D8",
+]
+
+
+def _panel_colour(name: str) -> str:
+    """Return a fill colour hex string for a panel name."""
+    return _PALETTE[hash(name) % len(_PALETTE)]
+
+
+def _panel_colour_dark(hex_col: str, factor: float = 0.65) -> str:
+    """Darken a hex colour for panel stroke / text."""
+    h = hex_col.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return "#{:02x}{:02x}{:02x}".format(int(r * factor), int(g * factor), int(b * factor))
 
 
 @dataclass
@@ -1058,25 +1099,6 @@ def generate_sheet_layout_html(
     str
         Complete HTML document (self-contained, no external dependencies).
     """
-    # ── Colour palette ─────────────────────────────────────────────────────────
-    _PALETTE = [
-        "#C8DFA8", "#A8C8DF", "#DFC8A8", "#A8DFC8",
-        "#DFA8C8", "#C8A8DF", "#DFD8A8", "#A8D8DF",
-        "#DFA8A8", "#A8A8DF", "#D8DFA8", "#A8DFD8",
-        "#DFC0A8", "#B8A8DF", "#A8DFB8", "#DFA8D8",
-    ]
-
-    def _colour(name: str) -> str:
-        idx = hash(name) % len(_PALETTE)
-        return _PALETTE[idx]
-
-    def _darker(hex_col: str, factor: float = 0.65) -> str:
-        h = hex_col.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return "#{:02x}{:02x}{:02x}".format(
-            int(r * factor), int(g * factor), int(b * factor)
-        )
-
     # ── SVG builder ────────────────────────────────────────────────────────────
     def _sheet_svg(sheet: SheetStock, placements: list[Placement]) -> str:
         sl, sw = sheet.length, sheet.width
@@ -1099,8 +1121,8 @@ def generate_sheet_layout_html(
 
         # Panels.
         for p in placements:
-            fill = _colour(p.panel_name)
-            stroke = _darker(fill)
+            fill = _panel_colour(p.panel_name)
+            stroke = _panel_colour_dark(fill)
 
             out.append(
                 f'<rect x="{p.x:.1f}" y="{p.y:.1f}" '
@@ -1308,7 +1330,7 @@ def generate_sheet_layout_html(
     for _, panels, opt in groups:
         for p in opt.placements:
             if p.panel_name not in seen:
-                seen[p.panel_name] = _colour(p.panel_name)
+                seen[p.panel_name] = _panel_colour(p.panel_name)
     legend_items = "".join(
         f'<span class="legend-item">'
         f'<span class="legend-swatch" style="background:{col};"></span>'
@@ -1364,6 +1386,351 @@ function showTab(n){{
 </script>
 </body>
 </html>"""
+
+
+def generate_sheet_layout_pdf(
+    groups: list[tuple[str, list["CutlistPanel"], "OptimizationResult"]],
+    cabinet_name: str = "Cabinet",
+    kerf: float = 3.2,
+) -> bytes:
+    """Generate a PDF cutlist document with sheet layouts and parts list.
+
+    Parameters
+    ----------
+    groups:
+        List of ``(label, panels, opt_result)`` tuples — one per thickness
+        group.  Same format as :func:`generate_sheet_layout_html`.
+    cabinet_name:
+        Used in the document title.
+    kerf:
+        Saw kerf in mm (shown in the header).
+
+    Returns
+    -------
+    bytes
+        Raw PDF bytes ready to write to a file.
+
+    Raises
+    ------
+    ImportError
+        If ``reportlab`` is not installed.
+    """
+    if not _REPORTLAB_AVAILABLE:
+        raise ImportError(
+            "reportlab is required for PDF export. "
+            "Install with: uv pip install reportlab"
+        )
+
+    from datetime import date as _date
+
+    PAGE = _rl_landscape(A4)
+    MARGIN = 15 * _rl_mm
+    CW = PAGE[0] - 2 * MARGIN   # usable content width
+
+    styles = _getSampleStyleSheet()
+
+    title_sty = _ParagraphStyle("ct", parent=styles["Title"],
+                                fontSize=18, leading=22, spaceAfter=3 * _rl_mm)
+    h1_sty    = _ParagraphStyle("ch1", parent=styles["Heading1"],
+                                fontSize=12, leading=15, spaceBefore=4 * _rl_mm, spaceAfter=2 * _rl_mm)
+    h2_sty    = _ParagraphStyle("ch2", parent=styles["Heading2"],
+                                fontSize=9, leading=12, spaceBefore=2 * _rl_mm, spaceAfter=1.5 * _rl_mm)
+    norm_sty  = _ParagraphStyle("cn", parent=styles["Normal"],
+                                fontSize=8.5, leading=11)
+    small_sty = _ParagraphStyle("cs", parent=styles["Normal"],
+                                fontSize=7.5, leading=10)
+
+    def _tbl_style(small: bool = False, align_right_from: int = 1) -> _TableStyle:
+        fs = 7.5 if small else 9
+        return _TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, 0),  _HexColor("#2c3e50")),
+            ("TEXTCOLOR",     (0, 0), (-1, 0),  _HexColor("#ffffff")),
+            ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
+            ("FONTSIZE",      (0, 0), (-1, -1), fs),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_HexColor("#f5f5f5"), _HexColor("#ffffff")]),
+            ("GRID",          (0, 0), (-1, -1), 0.5, _HexColor("#cccccc")),
+            ("ALIGN",         (0, 0), (0,  -1), "LEFT"),
+            ("ALIGN",         (align_right_from, 0), (-1, -1), "CENTER"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+        ])
+
+    buf = io.BytesIO()
+    doc = _SimpleDocTemplate(
+        buf,
+        pagesize=PAGE,
+        leftMargin=MARGIN, rightMargin=MARGIN,
+        topMargin=MARGIN, bottomMargin=MARGIN,
+        title=f"Cutlist — {cabinet_name}",
+    )
+
+    story = []
+
+    # ── Page 1: summary ───────────────────────────────────────────────────────
+    story.append(_Paragraph(f"Cutlist — {cabinet_name}", title_sty))
+    story.append(_Paragraph(
+        f"Generated {_date.today().isoformat()} · Kerf: {kerf} mm", norm_sty
+    ))
+    story.append(_Spacer(1, 5 * _rl_mm))
+
+    # Sheet goods table
+    story.append(_Paragraph("Sheet Goods Required", h1_sty))
+    sg_data = [["Material", "Thickness", "Sheets", "Waste", "Unplaced"]]
+    for label, _pnls, result in groups:
+        mat = result.stock_sheet.material.replace("_", " ").title()
+        sg_data.append([
+            f"{label}  ({mat})",
+            f"{result.stock_sheet.thickness:.0f} mm",
+            str(result.sheets_used),
+            f"{result.waste_pct:.1f}%",
+            str(len(result.unplaced)) if result.unplaced else "—",
+        ])
+    sg_col_w = [CW * x for x in (0.42, 0.16, 0.14, 0.14, 0.14)]
+    sg_tbl = _Table(sg_data, colWidths=sg_col_w)
+    sg_tbl.setStyle(_tbl_style())
+    story.append(sg_tbl)
+    story.append(_Spacer(1, 5 * _rl_mm))
+
+    # Cut parts table
+    story.append(_Paragraph("Cut Parts List", h1_sty))
+    all_panels: list[CutlistPanel] = []
+    for _, pnls, _ in groups:
+        all_panels.extend(pnls)
+    all_panels.sort(key=lambda p: (p.thickness, p.material, p.name))
+
+    parts_data = [["Part Name", "L (mm)", "W (mm)", "T (mm)", "Qty", "Material", "Edge Band", "Notes"]]
+    for p in all_panels:
+        parts_data.append([
+            p.name,
+            f"{p.length:.0f}",
+            f"{p.width:.0f}",
+            f"{p.thickness:.0f}",
+            str(p.quantity),
+            p.material.replace("_", " ").title(),
+            ", ".join(p.edge_band) if p.edge_band else "—",
+            p.notes or "—",
+        ])
+    parts_col_w = [CW * x for x in (0.22, 0.08, 0.08, 0.07, 0.05, 0.16, 0.12, 0.22)]
+    parts_tbl = _Table(parts_data, colWidths=parts_col_w, repeatRows=1)
+    parts_tbl.setStyle(_tbl_style(small=True))
+    story.append(parts_tbl)
+
+    # ── Sheet layout pages ────────────────────────────────────────────────────
+    HEADER_RESERVE = 28 * _rl_mm    # space for title + subtitle above drawing
+    CUT_TABLE_RESERVE = 50 * _rl_mm # space below drawing for cut-sequence table (~8 rows)
+    DRAW_H = PAGE[1] - 2 * MARGIN - HEADER_RESERVE - CUT_TABLE_RESERVE
+
+    for group_label, _pnls, result in groups:
+        by_sheet: dict[int, list[Placement]] = {}
+        for pl in result.placements:
+            by_sheet.setdefault(pl.sheet_index, []).append(pl)
+
+        for sheet_idx in sorted(by_sheet):
+            story.append(_PageBreak())
+            pls = by_sheet[sheet_idx]
+
+            story.append(_Paragraph(
+                f"{group_label} — Sheet {sheet_idx + 1} of {result.sheets_used}", h1_sty
+            ))
+            warn = ""
+            if result.grain_mismatched:
+                warn = f" · ⚠ {len(result.grain_mismatched)} grain mismatch(es)"
+            story.append(_Paragraph(
+                f"{result.stock_sheet.length:.0f} × {result.stock_sheet.width:.0f} mm "
+                f"· Waste: {result.waste_pct:.1f}%{warn}",
+                norm_sty,
+            ))
+            story.append(_Spacer(1, 2 * _rl_mm))
+
+            story.append(_SheetDrawingFlowable(pls, result.stock_sheet, kerf, CW, DRAW_H))
+
+            # Cut-sequence table
+            raw_cuts: list = []
+            _guillotine_cuts(pls, 0, 0, result.stock_sheet.length, result.stock_sheet.width,
+                             depth=0, out=raw_cuts)
+            raw_cuts.sort(key=lambda e: e[0])
+            seq = 0
+            cut_data = [["#", "Type", "Set fence to (shorter piece)"]]
+            for entry in raw_cuts:
+                if entry[7]:   # is_breakdown
+                    seq += 1
+                    orient = entry[2]
+                    dim_a, dim_b = entry[8], entry[9]
+                    cut_data.append([
+                        str(seq),
+                        "Rip" if orient == "h" else "Cross-cut",
+                        f"{min(dim_a, dim_b):.0f} mm",
+                    ])
+            if len(cut_data) > 1:
+                cut_col_w = [CW * x for x in (0.06, 0.20, 0.74)]
+                cut_tbl = _Table(cut_data, colWidths=cut_col_w)
+                cut_tbl.setStyle(_tbl_style(small=True))
+                story.append(_KeepTogether([
+                    _Spacer(1, 3 * _rl_mm),
+                    _Paragraph("Cut Sequence", h2_sty),
+                    cut_tbl,
+                ]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+class _SheetDrawingFlowable(_Flowable):
+    """Platypus Flowable that renders a single sheet layout using the canvas."""
+
+    def __init__(
+        self,
+        placements: list["Placement"],
+        stock: "SheetStock",
+        kerf: float,
+        avail_w: float,
+        avail_h: float,
+    ) -> None:
+        super().__init__()
+        self._pl = placements
+        self._stock = stock
+        self._kerf = kerf
+        self.width = avail_w
+        self.height = avail_h
+
+    def draw(self) -> None:
+        canvas = self.canv
+        sl, sw = self._stock.length, self._stock.width
+
+        scale = min(self.width / sl, self.height / sw)
+        drawn_w = sl * scale
+        drawn_h = sw * scale
+        x_off = (self.width - drawn_w) / 2
+        y_off = (self.height - drawn_h) / 2
+
+        def sx(x_mm: float) -> float:
+            return x_off + x_mm * scale
+
+        def sy(y_mm: float, h_mm: float = 0.0) -> float:
+            # SVG y-down → RL y-up
+            return y_off + (sw - y_mm - h_mm) * scale
+
+        # Sheet background
+        canvas.setFillColor(_HexColor("#F5EED8"))
+        canvas.setStrokeColor(_HexColor("#888888"))
+        canvas.setLineWidth(0.5)
+        canvas.rect(sx(0), sy(0, sw), drawn_w, drawn_h, fill=1, stroke=1)
+
+        # Panels
+        for p in self._pl:
+            fc = _panel_colour(p.panel_name)
+            sc = _panel_colour_dark(fc)
+            canvas.setFillColor(_HexColor(fc))
+            canvas.setStrokeColor(_HexColor(sc))
+            canvas.setLineWidth(0.4)
+
+            px_pt = sx(p.x)
+            py_pt = sy(p.y, p.placed_width)
+            pw_pt = p.placed_length * scale
+            ph_pt = p.placed_width * scale
+            corner_pt = max(1.0, min(pw_pt, ph_pt) * 0.03)
+            canvas.roundRect(px_pt, py_pt, pw_pt, ph_pt, corner_pt, fill=1, stroke=1)
+
+            label = p.panel_name[:20] + ("…" if len(p.panel_name) > 20 else "")
+            if p.rotated:
+                label += " ↺"
+            dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f}mm"
+
+            min_dim_pt = min(pw_pt, ph_pt)
+            font_pt = max(5.0, min(min_dim_pt * 0.12, 9.0))
+            dim_pt  = max(4.0, min(min_dim_pt * 0.09, 7.0))
+
+            cx_pt = px_pt + pw_pt / 2
+            cy_pt = py_pt + ph_pt / 2
+            tall  = p.placed_width > p.placed_length
+
+            canvas.saveState()
+            canvas.translate(cx_pt, cy_pt)
+            if tall:
+                canvas.rotate(90)
+            canvas.setFillColor(_HexColor(sc))
+            canvas.setFont("Helvetica", font_pt)
+            canvas.drawCentredString(0, font_pt * 0.25, label)
+            canvas.setFont("Helvetica", dim_pt)
+            canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
+            canvas.restoreState()
+
+        # Guillotine cut lines
+        raw_cuts: list = []
+        _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0, out=raw_cuts)
+        raw_cuts.sort(key=lambda e: e[0])
+
+        label_r_pt = max(4.0, sl * 0.016 * scale)
+        seq = 0
+
+        for entry in raw_cuts:
+            depth, pos, orient, x0, y0, x1, y1, is_breakdown, dim_a, dim_b = entry
+
+            if is_breakdown:
+                seq += 1
+                lc = _HexColor("#c0392b")
+                lw = max(0.6, sl * 0.004 * scale)
+                dash = max(3.0, sl * 0.015 * scale)
+            else:
+                lc = _HexColor("#aaaaaa")
+                lw = 0.3
+                dash = max(2.0, sl * 0.010 * scale)
+
+            canvas.setStrokeColor(lc)
+            canvas.setLineWidth(lw)
+            canvas.setDash(dash, dash * 0.6)
+            canvas.line(sx(x0), sy(y0), sx(x1), sy(y1))
+            canvas.setDash()
+
+            if is_breakdown:
+                if orient == "h":
+                    bx = (sx(x0) + sx(x1)) / 2
+                    by = sy(y0)
+                else:
+                    bx = sx(x0)
+                    by = (sy(y0) + sy(y1)) / 2
+
+                canvas.setFillColor(lc)
+                canvas.circle(bx, by, label_r_pt, fill=1, stroke=0)
+                canvas.setFillColor(_HexColor("#ffffff"))
+                canvas.setFont("Helvetica-Bold", max(4.0, label_r_pt * 1.1))
+                canvas.drawCentredString(bx, by - label_r_pt * 0.38, str(seq))
+
+                # Dimension label on the shorter side of the cut
+                short_dim = min(dim_a, dim_b)
+                dim_label = f"{short_dim:.0f}mm"
+                dim_font_pt = max(4.0, label_r_pt * 0.85)
+                pad_pt = label_r_pt * 1.8
+
+                canvas.setFillColor(lc)
+                canvas.setFont("Helvetica", dim_font_pt)
+                if orient == "h":
+                    tx = bx + label_r_pt * 1.5
+                    ty = by + (pad_pt if dim_a > dim_b else -pad_pt)
+                    canvas.drawString(tx, ty, dim_label)
+                else:
+                    tx = bx
+                    ty = by + pad_pt
+                    canvas.saveState()
+                    canvas.translate(tx, ty)
+                    canvas.rotate(90)
+                    canvas.drawCentredString(0, 0, dim_label)
+                    canvas.restoreState()
+
+        # Bottom ruler
+        canvas.setStrokeColor(_HexColor("#888888"))
+        canvas.setLineWidth(0.4)
+        ruler_y = sy(0, sw) - 1.0
+        tick_font = max(4.0, min(sl * 0.014 * scale, 6.0))
+        for tick_mm in range(0, int(sl) + 1, 200):
+            tx = sx(tick_mm)
+            canvas.line(tx, ruler_y, tx, ruler_y - 3.0)
+            if tick_mm % 400 == 0:
+                canvas.setFillColor(_HexColor("#666666"))
+                canvas.setFont("Helvetica", tick_font)
+                canvas.drawCentredString(tx, ruler_y - 3.0 - tick_font, str(tick_mm))
 
 
 def print_hardware_bom(lines: list[HardwareLine]) -> None:

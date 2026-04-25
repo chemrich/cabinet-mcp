@@ -79,6 +79,7 @@ from .cutlist import (
     SheetStock,
     consolidate_bom,
     generate_sheet_layout_html,
+    generate_sheet_layout_pdf,
     optimize_cutlist,
     to_csv,
     to_json,
@@ -1951,6 +1952,14 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         layout_path = out_dir / f"{name}_layout.html"
         layout_path.write_text(html)
         files["layout"] = str(layout_path)
+
+        try:
+            pdf_bytes = generate_sheet_layout_pdf(layout_groups, cabinet_name=name, kerf=kerf)
+            pdf_path = out_dir / f"{name}_layout.pdf"
+            pdf_path.write_bytes(pdf_bytes)
+            files["pdf"] = str(pdf_path)
+        except ImportError:
+            pass  # reportlab not installed
 
     # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
