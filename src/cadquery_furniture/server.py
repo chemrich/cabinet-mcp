@@ -80,6 +80,8 @@ from .cutlist import (
     consolidate_bom,
     generate_sheet_layout_html,
     generate_sheet_layout_pdf,
+    hardware_bom_for_cabinet_config,
+    to_hardware_json,
     optimize_cutlist,
     to_csv,
     to_json,
@@ -1975,6 +1977,13 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
 
     files: dict[str, str] = {"csv": str(csv_path), "json": str(json_path)}
 
+    # ── Hardware BOM ───────────────────────────────────────────────────────
+    hw_lines = hardware_bom_for_cabinet_config(cfg, columns_raw)
+    if hw_lines:
+        hw_json_path = out_dir / f"{name}_hardware_bom.json"
+        hw_json_path.write_text(to_hardware_json(hw_lines))
+        files["hardware_bom_json"] = str(hw_json_path)
+
     layout_groups = []
     if opt_carcass_result and carcass_panels:
         layout_groups.append((
@@ -1992,13 +2001,19 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
             panels_6mm, opt_6mm_result,
         ))
     if layout_groups:
-        html = generate_sheet_layout_html(layout_groups, cabinet_name=name, kerf=kerf)
+        html = generate_sheet_layout_html(
+            layout_groups, cabinet_name=name, kerf=kerf,
+            hardware_lines=hw_lines or None,
+        )
         layout_path = out_dir / f"{name}_layout.html"
         layout_path.write_text(html)
         files["layout"] = str(layout_path)
 
         try:
-            pdf_bytes = generate_sheet_layout_pdf(layout_groups, cabinet_name=name, kerf=kerf)
+            pdf_bytes = generate_sheet_layout_pdf(
+                layout_groups, cabinet_name=name, kerf=kerf,
+                hardware_lines=hw_lines or None,
+            )
             pdf_path = out_dir / f"{name}_layout.pdf"
             pdf_path.write_bytes(pdf_bytes)
             files["pdf"] = str(pdf_path)
@@ -2013,6 +2028,20 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
             {"name": p.name, "length_mm": p.length, "width_mm": p.width,
              "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material}
             for p in all_panels
+        ],
+        "hardware_bom": [
+            {
+                "category": h.category,
+                "name": h.name,
+                "brand": h.brand,
+                "model_number": h.model_number,
+                "pieces_needed": h.pieces_needed,
+                "pack_quantity": h.pack_quantity,
+                "packs_to_order": h.packs_to_order,
+                "leftover": h.leftover,
+                "notes": h.notes,
+            }
+            for h in hw_lines
         ],
         "files": files,
     }

@@ -89,8 +89,12 @@ class TestDoorConfigPullFields:
         d = DoorConfig(opening_width=400, opening_height=720, pull_key="topknobs-hb-96")
         placements = d.pull_placements
         assert len(placements) == 1
-        # Door width centre, door height centre
-        assert placements[0].center[0] == pytest.approx(d.door_width / 2)
+        # Pull is on the latch side (default hinge_side="left" → latch on right)
+        # cx = door_width - pull_inset_mm - pull_length/2
+        from cadquery_furniture.hardware import PULLS
+        pull = PULLS["topknobs-hb-96"]
+        expected_cx = d.door_width - d.pull_inset_mm - pull.length_mm / 2
+        assert placements[0].center[0] == pytest.approx(expected_cx)
         assert placements[0].center[1] == pytest.approx(d.door_height / 2)
         assert d.total_pull_count == 1
 

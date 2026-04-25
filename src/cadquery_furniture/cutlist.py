@@ -891,7 +891,9 @@ def pull_line_from_door(door_cfg) -> Optional[HardwareLine]:
     return _pull_line(door_cfg.pull_key, n)
 
 
-def pull_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
+def pull_lines_for_cabinet_config(
+    cab_cfg, columns_raw: list | None = None
+) -> list[HardwareLine]:
     """Walk a CabinetConfig's drawer_config and return a consolidated list of
     pull ``HardwareLine`` entries.
 
@@ -899,15 +901,18 @@ def pull_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
     one drawer pull per "drawer" slot, one door pull per "door" slot, two
     door pulls per "door_pair" slot. Multi-column layouts (``cab_cfg.columns``)
     are walked per column.
+
+    ``columns_raw`` (list of dicts with ``width_mm`` / ``drawer_config`` keys)
+    takes priority over ``cab_cfg.columns`` when supplied — used by the MCP
+    cutlist tool which pops ``columns`` from args before building the config.
     """
-    # Deferred imports: DrawerConfig / DoorConfig import cadquery lazily, but
-    # their parametric paths (the ones we use here) don't require it.
     from .drawer import DrawerConfig
     from .door import DoorConfig
 
     lines: list[HardwareLine] = []
+    interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
 
-    def _walk_stack(stack, interior_width: float, interior_depth: float) -> None:
+    def _walk_stack(stack, interior_width: float) -> None:
         for opening_h, slot_type in stack:
             if slot_type == "drawer":
                 dcfg = DrawerConfig(
@@ -932,18 +937,171 @@ def pull_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
                 line = pull_line_from_door(dcfg)
                 if line is not None:
                     lines.append(line)
-            # other slot_types (shelf, open) contribute no pulls
 
-    if getattr(cab_cfg, "columns", None):
+    if columns_raw:
+        for col in columns_raw:
+            col_w = float(col["width_mm"])
+            _walk_stack(col.get("drawer_config", []), col_w)
+    elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            _walk_stack(col.drawer_config, col.width_mm, cab_cfg.interior_depth)
+            _walk_stack(col.drawer_config, col.width_mm)
     else:
-        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width, cab_cfg.interior_depth)
+        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width)
 
     return consolidate_hardware_lines(lines)
 
 
 # ─── Consolidation + output ──────────────────────────────────────────────────
+
+
+def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
+    """Return HardwareLines for drawer slides required by the cabinet.
+
+    Each drawer needs one slide pair (left + right = 2 pieces).  Slides are
+    sold individually so pack_quantity=1.  The SKU is keyed by slide key +
+    length so different-length slides on the same model stay separate.
+    """
+    from .hardware import get_slide
+    from .drawer import DrawerConfig
+
+    try:
+        slide_spec = get_slide(cab_cfg.drawer_slide)
+    except KeyError:
+        return []
+
+    interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
+
+    def _slides_from_stack(stack, interior_width: float) -> list[HardwareLine]:
+        lines: list[HardwareLine] = []
+        for opening_h, slot_type in stack:
+            if slot_type != "drawer":
+                continue
+            dcfg = DrawerConfig(
+                opening_width=interior_width,
+                opening_height=opening_h,
+                opening_depth=interior_depth,
+                slide_key=cab_cfg.drawer_slide,
+            )
+            length = slide_spec.slide_length_for_depth(dcfg.opening_depth)
+            pn = slide_spec.part_numbers.get(length, "")
+            sku = f"{cab_cfg.drawer_slide}-{length}mm"
+            lines.append(HardwareLine(
+                sku=sku,
+                category="slide",
+                name=slide_spec.name,
+                brand=slide_spec.manufacturer,
+                model_number=pn or cab_cfg.drawer_slide,
+                pieces_needed=2,  # one pair per drawer
+                pack_quantity=1,
+                notes=f"{length} mm",
+            ))
+        return lines
+
+    raw: list[HardwareLine] = []
+    if columns_raw:
+        for col in columns_raw:
+            col_w = float(col["width_mm"])
+            raw.extend(_slides_from_stack(col.get("drawer_config", []), col_w))
+    elif getattr(cab_cfg, "columns", None):
+        for col in cab_cfg.columns:
+            raw.extend(_slides_from_stack(col.drawer_config, col.width_mm))
+    else:
+        raw.extend(_slides_from_stack(cab_cfg.drawer_config, cab_cfg.interior_width))
+
+    return consolidate_hardware_lines(raw)
+
+
+def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
+    """Return HardwareLines for door hinges required by the cabinet.
+
+    Uses ``HingeSpec.hinges_for_height()`` to count hinges per door.
+    Hinges are sold individually (pack_quantity=1).
+    """
+    from .hardware import get_hinge
+    from .door import DoorConfig
+
+    try:
+        hinge_spec = get_hinge(cab_cfg.door_hinge)
+    except KeyError:
+        return []
+
+    sku = hinge_spec.part_number or cab_cfg.door_hinge
+
+    def _hinges_from_stack(stack, interior_width: float) -> int:
+        total = 0
+        for opening_h, slot_type in stack:
+            if slot_type not in ("door", "door_pair"):
+                continue
+            num_doors = 2 if slot_type == "door_pair" else 1
+            dcfg = DoorConfig(
+                opening_width=interior_width,
+                opening_height=opening_h,
+                num_doors=num_doors,
+                hinge_key=cab_cfg.door_hinge,
+            )
+            total += dcfg.total_hinge_count
+        return total
+
+    pieces = 0
+    if columns_raw:
+        for col in columns_raw:
+            pieces += _hinges_from_stack(col.get("drawer_config", []), float(col["width_mm"]))
+    elif getattr(cab_cfg, "columns", None):
+        for col in cab_cfg.columns:
+            pieces += _hinges_from_stack(col.drawer_config, col.width_mm)
+    else:
+        pieces += _hinges_from_stack(cab_cfg.drawer_config, cab_cfg.interior_width)
+
+    if pieces <= 0:
+        return []
+    return [HardwareLine(
+        sku=sku,
+        category="hinge",
+        name=hinge_spec.name,
+        brand=hinge_spec.manufacturer,
+        model_number=sku,
+        pieces_needed=pieces,
+        pack_quantity=1,
+    )]
+
+
+def leg_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
+    """Return a HardwareLine for the cabinet's legs/feet, or an empty list."""
+    from .hardware import get_leg
+
+    try:
+        leg_spec = get_leg(cab_cfg.leg_key)
+    except KeyError:
+        return []
+
+    pieces = getattr(cab_cfg, "leg_count", 4)
+    if pieces <= 0:
+        return []
+    sku = leg_spec.part_number or cab_cfg.leg_key
+    return [HardwareLine(
+        sku=sku,
+        category="leg",
+        name=leg_spec.name,
+        brand=leg_spec.manufacturer,
+        model_number=sku,
+        pieces_needed=pieces,
+        pack_quantity=1,
+        notes=f"{leg_spec.height_mm:.0f} mm",
+    )]
+
+
+def hardware_bom_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
+    """Return a consolidated hardware BOM for the full cabinet.
+
+    Aggregates pulls, slides, hinges, and legs into a single sorted list.
+    Categories are ordered: pull → slide → hinge → leg.
+    """
+    lines: list[HardwareLine] = []
+    lines.extend(pull_lines_for_cabinet_config(cab_cfg, columns_raw))
+    lines.extend(slide_lines_for_cabinet_config(cab_cfg, columns_raw))
+    lines.extend(hinge_lines_for_cabinet_config(cab_cfg, columns_raw))
+    lines.extend(leg_lines_for_cabinet_config(cab_cfg))
+    return consolidate_hardware_lines(lines)
 
 
 def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
@@ -1083,6 +1241,7 @@ def generate_sheet_layout_html(
     groups: list[tuple[str, list["CutlistPanel"], "OptimizationResult"]],
     cabinet_name: str = "cabinet",
     kerf: float = 3.2,
+    hardware_lines: "list[HardwareLine] | None" = None,
 ) -> str:
     """Generate a self-contained HTML page with per-sheet SVG cut layouts.
 
@@ -1322,6 +1481,43 @@ def generate_sheet_layout_html(
             f'</div>'
         )
 
+    # ── Hardware BOM tab (optional) ────────────────────────────────────────────
+    if hardware_lines:
+        bom_idx = len(tab_buttons)
+        tab_buttons.append(
+            f'<button class="tab-btn" onclick="showTab({bom_idx})" id="btn-{bom_idx}">'
+            f'Hardware BOM</button>'
+        )
+        cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
+        sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
+        rows = "".join(
+            f'<tr>'
+            f'<td>{_esc(h.category.title())}</td>'
+            f'<td>{_esc(h.name)}</td>'
+            f'<td>{_esc(h.brand)}</td>'
+            f'<td>{_esc(h.model_number)}</td>'
+            f'<td style="text-align:center">{h.pieces_needed}</td>'
+            f'<td style="text-align:center">{h.pack_quantity}</td>'
+            f'<td style="text-align:center;font-weight:600">{h.packs_to_order}</td>'
+            f'<td style="text-align:center">{h.leftover if h.leftover else "—"}</td>'
+            f'<td>{_esc(h.notes)}</td>'
+            f'</tr>'
+            for h in sorted_hw
+        )
+        bom_table = (
+            f'<table class="bom-tbl">'
+            f'<thead><tr>'
+            f'<th>Category</th><th>Name</th><th>Brand</th><th>Model #</th>'
+            f'<th>Needed</th><th>Pack&nbsp;Qty</th><th>Packs&nbsp;to&nbsp;Order</th>'
+            f'<th>Leftover</th><th>Notes</th>'
+            f'</tr></thead>'
+            f'<tbody>{rows}</tbody>'
+            f'</table>'
+        )
+        tab_panes.append(
+            f'<div class="tab-pane" id="pane-{bom_idx}">{bom_table}</div>'
+        )
+
     tabs_html = "\n".join(tab_buttons)
     panes_html = "\n".join(tab_panes)
 
@@ -1368,6 +1564,11 @@ h1{{font-size:1.3rem;font-weight:600;margin-bottom:12px}}
   margin:3px 8px 3px 0;font-size:.78rem;color:#333}}
 .legend-swatch{{width:14px;height:14px;border-radius:2px;
   border:1px solid rgba(0,0,0,.15);flex-shrink:0}}
+.bom-tbl{{width:100%;border-collapse:collapse;font-size:.82rem}}
+.bom-tbl th{{background:#2c3e50;color:#fff;padding:6px 8px;text-align:left;font-weight:600}}
+.bom-tbl td{{padding:5px 8px;border-bottom:1px solid #e0e0e0}}
+.bom-tbl tr:nth-child(even) td{{background:#f7f7f7}}
+.bom-tbl tr:hover td{{background:#eef4fb}}
 </style>
 </head>
 <body>
@@ -1392,6 +1593,7 @@ def generate_sheet_layout_pdf(
     groups: list[tuple[str, list["CutlistPanel"], "OptimizationResult"]],
     cabinet_name: str = "Cabinet",
     kerf: float = 3.2,
+    hardware_lines: "list[HardwareLine] | None" = None,
 ) -> bytes:
     """Generate a PDF cutlist document with sheet layouts and parts list.
 
@@ -1572,6 +1774,37 @@ def generate_sheet_layout_pdf(
                     _Paragraph("Cut Sequence", h2_sty),
                     cut_tbl,
                 ]))
+
+    # ── Hardware BOM page (optional) ──────────────────────────────────────────
+    if hardware_lines:
+        story.append(_PageBreak())
+        story.append(_Paragraph("Hardware BOM", h1_sty))
+        story.append(_Paragraph(
+            "Quantities include procurement math based on pack size.", norm_sty
+        ))
+        story.append(_Spacer(1, 3 * _rl_mm))
+
+        cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
+        sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
+
+        hw_data = [["Category", "Name", "Brand", "Model #",
+                    "Needed", "Pack Qty", "Packs to Order", "Leftover", "Notes"]]
+        for h in sorted_hw:
+            hw_data.append([
+                h.category.title(),
+                h.name,
+                h.brand,
+                h.model_number,
+                str(h.pieces_needed),
+                str(h.pack_quantity),
+                str(h.packs_to_order),
+                str(h.leftover) if h.leftover else "—",
+                h.notes or "—",
+            ])
+        hw_col_w = [CW * x for x in (0.09, 0.22, 0.12, 0.13, 0.07, 0.08, 0.12, 0.08, 0.09)]
+        hw_tbl = _Table(hw_data, colWidths=hw_col_w, repeatRows=1)
+        hw_tbl.setStyle(_tbl_style(small=True))
+        story.append(hw_tbl)
 
     doc.build(story)
     return buf.getvalue()
