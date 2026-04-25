@@ -1061,3 +1061,37 @@ def get_pull(name: str) -> PullSpec:
         raise KeyError(f"Unknown pull '{name}'. {len(PULLS)} available; first few: "
                        f"{list(PULLS.keys())[:5]}")
     return PULLS[name]
+
+
+# ── Pull presets ──────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class PullPreset:
+    """A named bundle of pull settings for a complete cabinet."""
+    key: str
+    style_name: str
+    description: str
+    drawer_pull: str
+    door_pull: str
+    door_pull_inset_mm: float = 50.0
+
+
+def _load_pull_presets() -> dict[str, "PullPreset"]:
+    data_resource = resources.files("cadquery_furniture") / "data" / "pull_presets.json"
+    raw: dict = json.loads(data_resource.read_text(encoding="utf-8"))
+    return {key: PullPreset(key=key, **vals) for key, vals in raw.items()}
+
+
+PULL_PRESETS: dict[str, PullPreset] = _load_pull_presets()
+
+
+def get_pull_preset(key: str) -> PullPreset:
+    """Return a PullPreset by key. Raises KeyError with available options on miss."""
+    try:
+        return PULL_PRESETS[key]
+    except KeyError:
+        available = ", ".join(sorted(PULL_PRESETS))
+        raise KeyError(
+            f"Pull preset {key!r} not found. Available: {available}"
+        ) from None

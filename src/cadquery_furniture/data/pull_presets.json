@@ -1,0 +1,37 @@
+{
+  "transitional_classic": {
+    "style_name": "Transitional Classic",
+    "description": "Warm honey-bronze bar pull — works with shaker, transitional, and traditional doors",
+    "drawer_pull": "topknobs-hb-96",
+    "door_pull": "topknobs-hb-96",
+    "door_pull_inset_mm": 50.0
+  },
+  "contemporary_slab": {
+    "style_name": "Contemporary Slab",
+    "description": "Brushed satin-nickel bar pull — clean horizontal line for flat-front and slab doors",
+    "drawer_pull": "topknobs-bsn-96",
+    "door_pull": "topknobs-bsn-96",
+    "door_pull_inset_mm": 50.0
+  },
+  "minimalist_edge": {
+    "style_name": "Minimalist Edge",
+    "description": "Slim matte-black bar — nearly flush, pairs with handleless or high-gloss cabinets",
+    "drawer_pull": "richelieu-900-96",
+    "door_pull": "richelieu-900-96",
+    "door_pull_inset_mm": 50.0
+  },
+  "industrial_black": {
+    "style_name": "Industrial Black",
+    "description": "Flat-black bar pull — bold hardware for open-shelf and loft-style pieces",
+    "drawer_pull": "topknobs-blk-96",
+    "door_pull": "topknobs-blk-96",
+    "door_pull_inset_mm": 50.0
+  },
+  "mission_craftsman": {
+    "style_name": "Mission / Craftsman",
+    "description": "Unfinished solid-wood cup pull — period-correct for Mission, Arts & Crafts, and farmhouse",
+    "drawer_pull": "rockler-42250",
+    "door_pull": "rockler-42250",
+    "door_pull_inset_mm": 50.0
+  }
+}

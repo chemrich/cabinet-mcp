@@ -142,6 +142,14 @@ def _build_cabinet_config(args: dict) -> CabinetConfig:
     Handles nested list fields (drawer_config, fixed_shelf_positions, columns).
     Enums are accepted as strings.
     """
+    preset_key = args.pop("pull_preset", None)
+    if preset_key:
+        from .hardware import get_pull_preset
+        preset = get_pull_preset(preset_key)
+        args.setdefault("drawer_pull", preset.drawer_pull)
+        args.setdefault("door_pull", preset.door_pull)
+        args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
+
     kwargs: dict[str, Any] = {}
     for key, value in args.items():
         if key == "carcass_joinery" and isinstance(value, str):
@@ -339,6 +347,18 @@ async def list_tools() -> list[types.Tool]:
                             "Default: classic."
                         ),
                     },
+                    "drawer_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key from list_hardware (category='pulls').",
+                    },
+                    "door_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key applied to every door / door_pair slot.",
+                    },
+                    "pull_preset": {
+                        "type": "string",
+                        "description": "Named pull preset key (see list_pull_presets). Populates drawer_pull, door_pull, and orientation. Explicit drawer_pull/door_pull fields override the preset.",
+                    },
                 },
                 "required": ["width", "height", "depth"],
             },
@@ -471,6 +491,18 @@ async def list_tools() -> list[types.Tool]:
                             "Height-graduation preset for auto-computed drawer heights. "
                             "Default: classic."
                         ),
+                    },
+                    "drawer_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key from list_hardware (category='pulls').",
+                    },
+                    "door_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key applied to every door / door_pair slot.",
+                    },
+                    "pull_preset": {
+                        "type": "string",
+                        "description": "Named pull preset key (see list_pull_presets). Populates drawer_pull, door_pull, and orientation. Explicit drawer_pull/door_pull fields override the preset.",
                     },
                 },
                 "required": ["width", "height", "depth"],
@@ -867,6 +899,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Pull catalog key from list_hardware (category='pulls'). Omit for no pull hardware in render.",
                     },
+                    "pull_preset": {
+                        "type": "string",
+                        "description": "Named pull preset key (see list_pull_presets). Populates drawer_pull, door_pull, and orientation. Explicit drawer_pull/door_pull fields override the preset.",
+                    },
                     "furniture_top": {
                         "type": "boolean",
                         "description": (
@@ -1220,6 +1256,10 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["center", "upper_third", "lower_third"],
                         "default": "center",
                     },
+                    "pull_preset": {
+                        "type": "string",
+                        "description": "Named pull preset key (see list_pull_presets). Populates drawer_pull, door_pull, and orientation. Explicit drawer_pull/door_pull fields override the preset.",
+                    },
                 },
                 "required": ["width", "height", "depth"],
             },
@@ -1270,6 +1310,19 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["width", "height", "depth"],
             },
         ),
+        types.Tool(
+            name="list_pull_presets",
+            description=textwrap.dedent("""\
+                List available pull presets. Each preset bundles a drawer pull,
+                door pull, and orientation/inset settings under a single key.
+
+                Pass the preset key to design_cabinet, design_multi_column_cabinet,
+                or visualize_cabinet as ``pull_preset`` to apply all settings at once.
+                Individual ``drawer_pull`` / ``door_pull`` fields still override the
+                preset when supplied alongside it.
+            """),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
     ]
 
 
@@ -1314,10 +1367,31 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_design_pulls(arguments)
         elif name == "suggest_proportions":
             return await _tool_suggest_proportions(arguments)
+        elif name == "list_pull_presets":
+            return await _tool_list_pull_presets(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
         return _err(f"{type(exc).__name__}: {exc}")
+
+
+# ── list_pull_presets ─────────────────────────────────────────────────────────
+
+
+async def _tool_list_pull_presets(args: dict) -> list[types.TextContent]:
+    from .hardware import PULL_PRESETS
+    presets = [
+        {
+            "key": p.key,
+            "style_name": p.style_name,
+            "description": p.description,
+            "drawer_pull": p.drawer_pull,
+            "door_pull": p.door_pull,
+            "door_pull_inset_mm": p.door_pull_inset_mm,
+        }
+        for p in PULL_PRESETS.values()
+    ]
+    return _ok({"presets": presets, "count": len(presets)})
 
 
 # ── list_hardware ─────────────────────────────────────────────────────────────
@@ -1527,6 +1601,8 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         "opening_stack": opening_stack,
         "adj_shelf_holes": cfg.adj_shelf_holes,
         "door_hinge": cfg.door_hinge,
+        "drawer_pull": cfg.drawer_pull,
+        "door_pull": cfg.door_pull,
     }
     if proportions_used:
         result["proportions_used"] = proportions_used

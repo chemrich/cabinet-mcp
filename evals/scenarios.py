@@ -7364,6 +7364,43 @@ _s(Scenario(
     ],
 ))
 
+_s(Scenario(
+    name="list_pull_presets",
+    prompt="List all available pull presets.",
+    tags=["hardware", "pulls"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="list_pull_presets",
+            args={},
+            assertions=[
+                Assertion("count", Op.GTE, 5),
+                Assertion("presets", Op.LEN_GTE, 5),
+            ],
+        ),
+    ],
+))
+
+_s(Scenario(
+    name="preset_shorthand_expands",
+    prompt="Design a 24\" single-drawer cabinet using the transitional_classic pull preset.",
+    tags=["hardware", "pulls"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="design_cabinet",
+            args={
+                "width": 610, "height": 762, "depth": 457,
+                "drawer_config": [[200, "drawer"]],
+                "pull_preset": "transitional_classic",
+            },
+            assertions=[
+                Assertion("drawer_pull", Op.EQ, "topknobs-hb-96"),
+            ],
+        ),
+    ],
+))
+
 
 # ─── Index helpers ────────────────────────────────────────────────────────────
 
