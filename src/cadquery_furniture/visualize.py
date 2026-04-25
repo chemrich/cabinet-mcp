@@ -425,21 +425,34 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     for (let si = 0; si < searchNames.length; si++) {{
       const nm = searchNames[si];
       if (!nm) continue;
-      const m = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)/);
-      if (!m) continue;
-      const key = m[1] + '_' + m[3];
-      const pair = _pairFor(key);
-      if (m[2] === 'face') {{
-        pair.face = obj;
-        drawerFronts.push(obj);
-      }} else {{
-        // Drawer boxes are Assembly Groups (not Mesh nodes), so they are
-        // matched via obj.parent.name (si === 1).  Store the parent Group
-        // so that position.add() moves all child meshes together.
-        const node = si === 1 ? obj.parent : obj;
-        if (!pair.box) pair.box = node;
+
+      // Drawer face (bay_i_face_j) or box (bay_i_drawer_j)
+      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)/);
+      if (dm) {{
+        const key = dm[1] + '_' + dm[3];
+        const pair = _pairFor(key);
+        if (dm[2] === 'face') {{
+          pair.face = obj;
+          drawerFronts.push(obj);
+        }} else {{
+          // Drawer boxes are Assembly Groups (not Mesh nodes), so they are
+          // matched via obj.parent.name (si === 1).  Store the parent Group
+          // so that position.add() moves all child meshes together.
+          const node = si === 1 ? obj.parent : obj;
+          if (!pair.box) pair.box = node;
+        }}
+        break;
       }}
-      break;
+
+      // Pull hardware (bay_i_pull_j_k) — keyed the same as the drawer face
+      const pm = nm.match(/^bay(\\d+)_pull(\\d+)_\\d+/);
+      if (pm) {{
+        const key = pm[1] + '_' + pm[2];
+        const pair = _pairFor(key);
+        if (!pair.pulls) pair.pulls = [];
+        pair.pulls.push(obj);
+        break;
+      }}
     }}
   }});
 
@@ -523,6 +536,9 @@ function toggleOpenDrawers() {{
     const delta = pair.pullVec.clone().multiplyScalar(sign);
     pair.box.position.add(delta);
     pair.face.position.add(delta);
+    if (pair.pulls) {{
+      for (const pull of pair.pulls) pull.position.add(delta);
+    }}
   }}
   drawersOpen = !drawersOpen;
 }}

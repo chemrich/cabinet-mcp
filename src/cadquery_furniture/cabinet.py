@@ -23,7 +23,7 @@ try:
 except ImportError:
     cq = None  # allow import for type checking / planning without cadquery installed
 
-from .hardware import DrawerSlideSpec, get_slide, LegSpec, get_leg
+from .hardware import DrawerSlideSpec, get_slide, LegSpec, get_leg, get_pull, MountStyle
 from .joinery import (
     CarcassJoinery,
     DominoSpec,
@@ -490,6 +490,26 @@ def build_cabinet(
     return assy, parts
 
 
+def _make_pull_shape(pull_spec) -> "Optional[cq.Workplane]":
+    """Return a simple 3D body for a pull, centered at its geometric midpoint.
+
+    The caller places this shape so its origin sits at:
+        (face_center_x, face_front_y - projection/2, face_center_z)
+
+    Returns None for flush/recessed pulls (nothing projects above the face).
+    """
+    _require_cq()
+    proj = max(pull_spec.projection_mm, 4.0)
+    if pull_spec.mount_style is MountStyle.FLUSH:
+        return None
+    if pull_spec.mount_style is MountStyle.KNOB:
+        r = max(proj * 0.6, 8.0)
+        return cq.Workplane("XY").sphere(r)
+    # SURFACE or EDGE bar pull — a rounded rectangular bar
+    bar_h = min(proj * 0.7, 12.0)
+    return cq.Workplane("XY").box(pull_spec.length_mm, proj, bar_h, centered=True)
+
+
 def build_multi_bay_cabinet(
     bay_configs: list["CabinetConfig"],
     foot_height: Optional[float] = None,
@@ -806,6 +826,67 @@ def build_multi_bay_cabinet(
                             edge_band=["all"],
                         ))
                 z_acc += opening_h
+
+    # ── Pull hardware ──────────────────────────────────────────────────────────
+    # For each bay that has a drawer_pull configured, place the pull body on
+    # every drawer face.  Pulls are named bay{i}_pull{j}_{k} so the visualizer
+    # can animate them alongside the matching face (bay{i}_face{j}).
+    if include_faces:
+        from .pulls import pull_positions as _pull_positions
+        pull_colour = cq.Color(0.40, 0.40, 0.45, 1.0)
+
+        for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
+            if not cfg.drawer_pull or not cfg.drawer_config:
+                continue
+            try:
+                pull_spec = get_pull(cfg.drawer_pull)
+            except KeyError:
+                continue
+
+            pull_body = _make_pull_shape(pull_spec)
+            if pull_body is None:
+                continue  # flush / recessed pulls have nothing to render
+
+            is_leftmost  = bay_idx == 0
+            is_rightmost = bay_idx == n_bays - 1
+            left_ov  = outer_overlay if is_leftmost  else inner_overlay
+            right_ov = outer_overlay if is_rightmost else inner_overlay
+            face_w   = left_ov + cfg.interior_width + right_ov
+            face_x   = 0.0 if is_leftmost else bx + cfg.side_thickness - inner_overlay
+
+            z_face_start = cfg.bottom_thickness - face_bottom_overhang
+            z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
+
+            drawer_slots: list[tuple[int, float, float]] = []
+            z_acc = cfg.bottom_thickness
+            for drw_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
+                if slot_type == "drawer":
+                    drawer_slots.append((drw_idx, opening_h, z_acc))
+                z_acc += opening_h
+
+            n_faces = len(drawer_slots)
+            pull_py = -face_thickness - pull_spec.projection_mm / 2.0
+
+            for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
+                is_first = face_num == 0
+                is_last  = face_num == n_faces - 1
+                face_z_bot = z_face_start if is_first else opening_z + face_gap / 2
+                face_z_top = z_face_end   if is_last  else opening_z + opening_h - face_gap / 2
+                face_h = face_z_top - face_z_bot
+
+                try:
+                    placements = _pull_positions(face_w, face_h, pull_spec, cfg.drawer_pull)
+                except ValueError:
+                    continue
+
+                for p_idx, placement in enumerate(placements):
+                    cx, cz = placement.center
+                    assy.add(
+                        pull_body,
+                        name=f"bay{bay_idx}_pull{drw_idx}_{p_idx}",
+                        loc=cq.Location((face_x + cx, pull_py, face_z_bot + cz)),
+                        color=pull_colour,
+                    )
 
     # ── Feet ───────────────────────────────────────────────────────────────────
     if include_feet:

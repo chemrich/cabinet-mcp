@@ -96,9 +96,9 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 ## Known issues
 
 ### Geometry / evaluation bugs
-- **`cabinet.py` shelf pin holes wrong workplane** — `make_side_panel` creates shelf pin holes on the "XY" workplane (cylinder axis = Z, vertical), which cuts narrow vertical columns instead of horizontal bores perpendicular to the interior face. The workplane should produce X-axis cylinders so the holes are drilled into the face. Additionally, `hole_x` incorrectly reuses `shelf_pin_row_inset` (a Y-direction value) for the X position, placing holes outside the panel thickness.
-- **Shelf pin hole x-position** is identical for both left and right panels (both branches compute `side_thickness / 2`).
-- **`evaluation.py`** emits a duplicate drawer height error (same check runs in both `validate_drawer_dims` and the evaluation layer).
+- ~~**`cabinet.py` shelf pin holes wrong workplane**~~ — fixed: `make_side_panel` now uses "YZ" workplane (normal = X) so cylinders bore horizontally into the interior face. `x_start` computes correctly for both mirror/non-mirror panels.
+- ~~**Shelf pin hole x-position** is identical for both panels~~ — fixed: left panel uses `side_thickness - shelf_pin_depth`, right uses `0`.
+- ~~**`evaluation.py`** emits a duplicate drawer height error~~ — fixed: `check_drawer_carcass_clearances` now only flags the degenerate `box_height ≤ 0` case; the `min_drawer_height` check lives exclusively in `check_drawer_hardware_clearances`.
 
 ### Cutlist / BOM gaps
 - ~~**`cutlist.extract_bom_parametric`** silent empty-list bug~~ — already correct in current code; fallback path returns one placeholder panel per input part when CadQuery is unavailable.
@@ -107,7 +107,7 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 
 ### Visualizer bugs
 - ~~**`visualize_cabinet` "O" shortcut** (open drawers) does not work~~ — fixed: `pullVec` was computed in world space (via `Box3.setFromObject`) but applied to local-space `position.add()`; root node has −90° X rotation so world Z ≠ local Y. Fix: hardcode pull direction as local −Y and read depth from world Z extent.
-- **`visualize_cabinet` pulls not rendered** — drawer pulls/handles from `design_pulls` are not included in the 3D model; the viewer shows bare drawer fronts.
+- ~~**`visualize_cabinet` pulls not rendered**~~ — fixed: `build_multi_bay_cabinet` now adds a `bay{i}_pull{j}_{k}` mesh for each pull placement; the visualizer tracks these nodes and animates them alongside the face and box when "O" is pressed.
 
 ## Planned enhancements
 
