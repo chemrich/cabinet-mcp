@@ -84,7 +84,7 @@ server.py       ← MCP server (17 tools, stdio or HTTP/SSE)
 | `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
-| `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `to_json()`, `to_csv()` |
+| `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `generate_sheet_layout_pdf()` produces an A4-landscape PDF with sheet drawings, parts list, and guillotine cut sequence tables; `to_json()`, `to_csv()` |
 | `server.py` | Seventeen MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749 |
 
 ### Eval harness
@@ -106,9 +106,9 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 - ~~**`consolidate_bom` merges differently-named identical panels**~~ — fixed: `name` is now part of the consolidation key, so "top" and "bottom" panels with the same dimensions stay distinct.
 
 ### Visualizer bugs
-- **`visualize_cabinet` "O" shortcut** (open drawers) does not work — drawers remain closed regardless of keypress.
+- ~~**`visualize_cabinet` "O" shortcut** (open drawers) does not work~~ — fixed: `pullVec` was computed in world space (via `Box3.setFromObject`) but applied to local-space `position.add()`; root node has −90° X rotation so world Z ≠ local Y. Fix: hardcode pull direction as local −Y and read depth from world Z extent.
 - **`visualize_cabinet` pulls not rendered** — drawer pulls/handles from `design_pulls` are not included in the 3D model; the viewer shows bare drawer fronts.
 
 ## Planned enhancements
 
-- **Cutlist PDF export** — printable shop document with panel list, sheet layouts, and hardware BOM; useful at the bench without a screen.
+- **Cutlist PDF hardware BOM** — the PDF currently shows sheet layouts and cut parts; add a hardware BOM page (slides, hinges, pulls with quantities).

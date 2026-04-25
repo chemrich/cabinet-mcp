@@ -425,7 +425,7 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     for (let si = 0; si < searchNames.length; si++) {{
       const nm = searchNames[si];
       if (!nm) continue;
-      const m = nm.match(/^bay(\d+)_(face|drawer)(\d+)/);
+      const m = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)/);
       if (!m) continue;
       const key = m[1] + '_' + m[3];
       const pair = _pairFor(key);
@@ -443,21 +443,18 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     }}
   }});
 
-  // Compute each drawer's pull vector once:  (face centre − box centre),
-  // then scale so the pull distance equals ~70% of the box depth along that axis.
+  // Compute each drawer's pull vector in CadQuery local space so that
+  // position.add() works correctly.  The root node has a -90° X rotation
+  // (CadQuery Z-up → GLTF Y-up); world-space direction vectors do not match
+  // the local-space positions we are adding to.  Drawers always open in the
+  // local -Y direction (CadQuery depth axis / cabinet front).
+  // After the -90° X rotation, local Y ↔ world Z, so world Z extent == local Y depth.
   for (const pair of drawerPairs.values()) {{
     if (!pair.box || !pair.face) continue;
-    const boxBB   = new THREE.Box3().setFromObject(pair.box);
-    const faceBB  = new THREE.Box3().setFromObject(pair.face);
-    const dir     = faceBB.getCenter(new THREE.Vector3())
-                      .sub(boxBB.getCenter(new THREE.Vector3()));
-    if (dir.lengthSq() < 1e-6) continue;
-    dir.normalize();
-    const size    = boxBB.getSize(new THREE.Vector3());
-    const depth   = Math.abs(dir.x) * size.x
-                  + Math.abs(dir.y) * size.y
-                  + Math.abs(dir.z) * size.z;
-    pair.pullVec  = dir.multiplyScalar(depth * 0.70);
+    const dir    = new THREE.Vector3(0, -1, 0);          // local -Y = pull out
+    const boxBB  = new THREE.Box3().setFromObject(pair.box);
+    const depth  = boxBB.getSize(new THREE.Vector3()).z;  // world Z = local Y
+    pair.pullVec = dir.multiplyScalar(depth * 0.70);
   }}
 
   scene.add(model);
