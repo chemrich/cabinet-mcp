@@ -305,7 +305,10 @@ def make_back_panel(cfg: CabinetConfig) -> "cq.Workplane":
     )
 
 
-def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
+def make_interior_divider(
+    cfg: CabinetConfig,
+    height_override: Optional[float] = None,
+) -> "cq.Workplane":
     """Create an interior vertical divider for multi-bay assemblies.
 
     Unlike a standard side panel, the divider:
@@ -314,11 +317,16 @@ def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
     - Has dados for the bottom panel on *both* interior faces so adjacent bay
       horizontal panels are properly supported.
     - Has no back rabbet (the continuous back panel covers the back).
+
+    ``height_override`` clips the divider to a shorter height (e.g. the top of
+    the drawer zone in an armoire so the upper door section stays open).  When
+    clipped, only bottom dados are cut; no top dados are added.
     """
     _require_cq()
     panel_depth = cfg.depth - cfg.back_rabbet_width
+    height      = height_override if height_override is not None else cfg.height
 
-    panel = cq.Workplane("XY").box(cfg.side_thickness, panel_depth, cfg.height, centered=False)
+    panel = cq.Workplane("XY").box(cfg.side_thickness, panel_depth, height, centered=False)
 
     # Bottom dado — left face (x = 0 side, facing the bay to the left)
     panel = panel.cut(
@@ -332,20 +340,21 @@ def make_interior_divider(cfg: CabinetConfig) -> "cq.Workplane":
         .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, 0))
         .box(cfg.dado_depth, panel_depth, cfg.bottom_thickness, centered=False)
     )
-    # Top dado — left face (full panel depth to receive the full-depth top panel)
-    panel = panel.cut(
-        cq.Workplane("XY")
-        .transformed(offset=(0, 0, cfg.height - cfg.top_thickness))
-        .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
-    )
-    # Top dado — right face
-    panel = panel.cut(
-        cq.Workplane("XY")
-        .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, cfg.height - cfg.top_thickness))
-        .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
-    )
-    # Note: divider depth = depth - back_rabbet_width (591 mm); the top panel
-    # extends 9 mm further back but sits above the divider, so no conflict.
+    if height_override is None:
+        # Top dado — left face (full panel depth to receive the full-depth top panel)
+        panel = panel.cut(
+            cq.Workplane("XY")
+            .transformed(offset=(0, 0, height - cfg.top_thickness))
+            .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
+        )
+        # Top dado — right face
+        panel = panel.cut(
+            cq.Workplane("XY")
+            .transformed(offset=(cfg.side_thickness - cfg.dado_depth, 0, height - cfg.top_thickness))
+            .box(cfg.dado_depth, panel_depth, cfg.top_thickness, centered=False)
+        )
+    # Note: divider depth = depth - back_rabbet_width; the top panel
+    # extends further back but sits above the divider, so no conflict.
 
     return panel
 
@@ -534,6 +543,8 @@ def build_multi_bay_cabinet(
     include_feet: bool = True,
     feet_at_dividers: bool = True,
     furniture_top: bool = False,
+    transition_shelf_zs: Optional[list[float]] = None,
+    divider_top_z: Optional[float] = None,
 ) -> tuple["cq.Assembly", list["PartInfo"]]:
     """Build a multi-bay cabinet assembly with bays positioned side-by-side.
 
@@ -648,7 +659,7 @@ def build_multi_bay_cabinet(
     # front face of the continuous back panel (no protrusion behind the back).
     divider_colour = cq.Color(0.87, 0.72, 0.53, 1.0)
     for div_idx, (div_x, cfg) in enumerate(zip(x_offsets[1:], bay_configs)):
-        div_shape = make_interior_divider(cfg)
+        div_shape = make_interior_divider(cfg, height_override=divider_top_z)
         assy.add(div_shape, name=f"divider_{div_idx}",
                  loc=cq.Location((div_x, 0, 0)),
                  color=divider_colour)
@@ -686,6 +697,34 @@ def build_multi_bay_cabinet(
         grain_direction="width",
         notes="1/4 inch plywood — single panel spanning all bays",
     ))
+
+    # ── Transition shelves ─────────────────────────────────────────────────────
+    # Full-width horizontal panels at drawer-to-door boundaries (e.g. armoire base).
+    if transition_shelf_zs:
+        shelf_colour_ts = cq.Color(0.87, 0.72, 0.53, 1.0)
+        ts_cfg  = bay_configs[0]
+        ts_w    = total_width - 2 * ts_cfg.side_thickness
+        ts_dep  = ts_cfg.depth - ts_cfg.back_rabbet_width
+        ts_thk  = ts_cfg.shelf_thickness
+        for ts_idx, ts_z in enumerate(transition_shelf_zs):
+            ts_panel = (
+                cq.Workplane("XY")
+                .box(ts_w, ts_dep, ts_thk, centered=False)
+            )
+            assy.add(
+                ts_panel,
+                name=f"transition_shelf_{ts_idx}",
+                loc=cq.Location((ts_cfg.side_thickness, 0.0, ts_z)),
+                color=shelf_colour_ts,
+            )
+            all_parts.append(PartInfo(
+                name=f"transition_shelf_{ts_idx}",
+                shape=ts_panel,
+                material_thickness=ts_thk,
+                grain_direction="width",
+                edge_band=["front"],
+                notes="transition shelf — drawer-to-door boundary",
+            ))
 
     # ── Furniture top cap ──────────────────────────────────────────────────────
     # A thin horizontal strip that extends the top panel forward to the drawer
@@ -787,8 +826,12 @@ def build_multi_bay_cabinet(
                     face_z_bot = opening_z + face_gap / 2
 
                 # Top edge of this face.
-                # Non-last faces end face_gap/2 below the next opening boundary.
-                if is_last:
+                # Anchor to z_face_end only when this drawer is also the last
+                # slot in the column (i.e. no door/open slots above it).
+                # If door slots follow, apply the same face_gap/2 trim so the
+                # gap above the top drawer matches the gaps between drawers.
+                is_last_in_col = (drw_idx == len(cfg.drawer_config) - 1)
+                if is_last and is_last_in_col:
                     face_z_top = z_face_end
                 else:
                     face_z_top = opening_z + opening_h - face_gap / 2
@@ -839,6 +882,8 @@ def build_multi_bay_cabinet(
                 if slot_type in ("door", "door_pair"):
                     is_first = slot_idx == 0
                     is_last  = slot_idx == n_slots - 1
+                    # Door face starts at z_acc + face_gap/2 — same rule as between
+                    # adjacent drawers.  The transition shelf sits behind the face.
                     face_z_bot = z_face_start if is_first else z_acc + face_gap / 2
                     face_z_top = z_face_end   if is_last  else z_acc + opening_h - face_gap / 2
                     face_h = face_z_top - face_z_bot
@@ -925,11 +970,16 @@ def build_multi_bay_cabinet(
             n_faces = len(drawer_slots)
             pull_py = -face_thickness - pull_spec.projection_mm / 2.0
 
+            is_last_slot_drawer = str(cfg.drawer_config[-1][1]) == "drawer"
             for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
                 is_first = face_num == 0
                 is_last  = face_num == n_faces - 1
+                is_last_in_col = drw_idx == len(cfg.drawer_config) - 1
                 face_z_bot = z_face_start if is_first else opening_z + face_gap / 2
-                face_z_top = z_face_end   if is_last  else opening_z + opening_h - face_gap / 2
+                if is_last and is_last_in_col:
+                    face_z_top = z_face_end
+                else:
+                    face_z_top = opening_z + opening_h - face_gap / 2
                 face_h = face_z_top - face_z_bot
 
                 try:
@@ -1000,6 +1050,7 @@ def build_multi_bay_cabinet(
                                 placements = _pull_positions(
                                     door_w, face_h, pull_spec, cfg.door_pull,
                                     x_override_mm=cx,
+                                    vertical="upper_third",
                                 )
                             except ValueError:
                                 continue
@@ -1019,6 +1070,7 @@ def build_multi_bay_cabinet(
                             placements = _pull_positions(
                                 face_w, face_h, pull_spec, cfg.door_pull,
                                 x_override_mm=cx,
+                                vertical="upper_third",
                             )
                         except ValueError:
                             continue

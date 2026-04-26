@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .cabinet import CabinetConfig
+from .cabinet import CabinetConfig, ColumnConfig
 from .joinery import CarcassJoinery
 
 
@@ -70,7 +70,7 @@ class CabinetPreset:
     def config_dict(self) -> dict[str, Any]:
         """Full config as a flat dict — suitable for passing to design_cabinet / apply_preset."""
         cfg = self.config
-        return {
+        result: dict[str, Any] = {
             "width": cfg.width,
             "height": cfg.height,
             "depth": cfg.depth,
@@ -88,7 +88,20 @@ class CabinetPreset:
             "adj_shelf_holes": cfg.adj_shelf_holes,
             "drawer_slide": cfg.drawer_slide,
             "door_hinge": cfg.door_hinge,
+            "drawer_pull": cfg.drawer_pull,
+            "door_pull": cfg.door_pull,
+            "door_hinge_side": cfg.door_hinge_side,
+            "door_pull_inset_mm": cfg.door_pull_inset_mm,
         }
+        if cfg.columns:
+            result["columns"] = [
+                {
+                    "width_mm": col.width_mm,
+                    "drawer_config": [[h, t] for h, t in col.drawer_config],
+                }
+                for col in cfg.columns
+            ]
+        return result
 
 
 # ─── Registry ─────────────────────────────────────────────────────────────────
@@ -512,6 +525,57 @@ _p(CabinetPreset(
         drawer_slide="blum_tandem_550h",
         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
+    ),
+))
+
+
+# ── Bedroom ───────────────────────────────────────────────────────────────────
+
+_p(CabinetPreset(
+    name="armoire_2col",
+    display_name="Armoire — 2-Column Drawer Base + Doors",
+    description=(
+        "44\" × 71\" tall armoire (100 mm legs included) with two equal columns of "
+        "three drawers at the base (10\"/6\"/4\") and a full-width two-door section "
+        "above. A transition shelf separates the drawer and door zones. "
+        "21\" deep, floating-tenon carcass, Blum Tandem 550H slides. "
+        "Pass this preset's columns array to design_multi_column_cabinet or "
+        "visualize_cabinet (with divider_full_height=false)."
+    ),
+    category="bedroom",
+    tags=["bedroom", "armoire", "wardrobe", "door", "drawer", "multi_column", "legs"],
+    difficulty="advanced",
+    config=CabinetConfig(
+        width=1117.6,
+        height=1703.4,   # carcass only — 100 mm legs bring the total to 71"
+        depth=533.4,
+        # drawer_config is unused when columns is set, but kept for reference
+        drawer_config=[],
+        columns=[
+            ColumnConfig(
+                width_mm=531.8,
+                drawer_config=(
+                    (254.0,  "drawer"),   # 10" bottom
+                    (152.4,  "drawer"),   # 6"  middle
+                    (101.6,  "drawer"),   # 4"  top of drawer zone
+                    (1159.4, "door"),     # door zone (transition shelf accounts for 18 mm)
+                ),
+            ),
+            ColumnConfig(
+                width_mm=531.8,
+                drawer_config=(
+                    (254.0,  "drawer"),
+                    (152.4,  "drawer"),
+                    (101.6,  "drawer"),
+                    (1159.4, "door"),
+                ),
+            ),
+        ],
+        drawer_slide="blum_tandem_550h",
+        door_hinge="blum_clip_top_110_full",
+        carcass_joinery=CarcassJoinery.FLOATING_TENON,
+        drawer_pull="topknobs-hb-96",
+        door_pull="topknobs-hb-96",
     ),
 ))
 

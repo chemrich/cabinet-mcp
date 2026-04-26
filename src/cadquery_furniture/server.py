@@ -130,10 +130,16 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
 
 
 def _sort_drawer_config(dc: list) -> list:
-    """Sort a drawer_config stack largest-first (bottom) when all slot types match."""
-    if dc and len({str(row[1]) for row in dc}) == 1:
+    """Sort drawer slots largest-first (bottom); non-drawer slots stay at the end."""
+    if not dc:
+        return dc
+    types = {str(row[1]) for row in dc}
+    if len(types) == 1:
         return sorted(dc, key=lambda x: x[0], reverse=True)
-    return dc
+    # Mixed config: sort drawer slots among themselves, append doors/others after.
+    drawers = sorted([r for r in dc if str(r[1]) == "drawer"], key=lambda x: x[0], reverse=True)
+    others  = [r for r in dc if str(r[1]) != "drawer"]
+    return drawers + others
 
 
 def _build_cabinet_config(args: dict) -> CabinetConfig:
@@ -909,6 +915,17 @@ async def list_tools() -> list[types.Tool]:
                             "When true, renders a 'furniture top' style: a front cap strip "
                             "extends the top panel flush to the drawer-face plane, and the "
                             "bottom of the lowest drawer face drops to the carcass underside."
+                        ),
+                        "default": False,
+                    },
+                    "divider_full_height": {
+                        "type": "boolean",
+                        "description": (
+                            "Controls the center divider in mixed drawer+door columns "
+                            "(e.g. armoire). Default false: divider is clipped to the "
+                            "drawer zone — the upper door/open section stays open with "
+                            "no divider. Set true to extend the divider the full cabinet "
+                            "height, separating the upper bay into independent compartments."
                         ),
                         "default": False,
                     },
@@ -2267,18 +2284,36 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     open_browser  = bool(args.pop("open_browser", True))
     tolerance     = float(args.pop("tolerance", 0.1))
     num_bays      = int(args.pop("num_bays", 1))
-    columns_raw   = args.pop("columns", None)
-    furniture_top = bool(args.pop("furniture_top", False))
+    columns_raw        = args.pop("columns", None)
+    furniture_top      = bool(args.pop("furniture_top", False))
+    divider_full_height = bool(args.pop("divider_full_height", False))
 
     cfg = _build_cabinet_config(args)
+
+    transition_shelf_zs: list[float] = []
+    divider_top_z: float | None = None
 
     if columns_raw:
         # Build one bay config per column so build_multi_bay_cabinet renders
         # the correct dividers.  Bay exterior width = column interior width +
         # 2×side_thickness; the multi-bay function handles shared dividers.
         side_t = cfg.side_thickness
-        bay_configs = [
-            CabinetConfig(
+        # Determine which column indices have door slots, then assign hinge sides:
+        # leftmost door column → "left", rightmost → "right" (French-door style).
+        _has_door = [
+            any(str(r[1]) in ("door", "door_pair") for r in col.get("drawer_config", []))
+            for col in columns_raw
+        ]
+        _door_col_indices = [i for i, has in enumerate(_has_door) if has]
+        _rightmost_door_col = _door_col_indices[-1] if _door_col_indices else -1
+
+        bay_configs = []
+        for col_idx, col in enumerate(columns_raw):
+            if col_idx == _rightmost_door_col and len(_door_col_indices) > 1:
+                hinge_side = "right"
+            else:
+                hinge_side = cfg.door_hinge_side
+            bay_configs.append(CabinetConfig(
                 width=float(col["width_mm"]) + 2 * side_t,
                 height=cfg.height,
                 depth=cfg.depth,
@@ -2290,7 +2325,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 drawer_slide=cfg.drawer_slide,
                 drawer_pull=cfg.drawer_pull,
                 door_pull=cfg.door_pull,
-                door_hinge_side=cfg.door_hinge_side,
+                door_hinge_side=hinge_side,
                 door_pull_inset_mm=cfg.door_pull_inset_mm,
                 fixed_shelf_positions=[
                     float(z) for z in col.get("fixed_shelf_positions", [])
@@ -2299,20 +2334,40 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                     (float(h), str(t))
                     for h, t in _sort_drawer_config(col.get("drawer_config", []))
                 ),
-            )
-            for col in columns_raw
-        ]
+            ))
         total_width = cfg.width
         info = {"width": total_width, "height": cfg.height, "depth": cfg.depth,
                 "columns": len(bay_configs)}
+
+        # Detect drawer-to-door transitions and render a full-width shelf there.
+        ref_config = bay_configs[0]
+        z_scan = ref_config.bottom_thickness
+        for h, t in ref_config.drawer_config:
+            if t in ("door", "door_pair"):
+                transition_shelf_zs.append(z_scan)
+                break
+            z_scan += h
+
+        # Clip center divider to drawer zone unless caller wants full-height.
+        if not divider_full_height and transition_shelf_zs:
+            divider_top_z = transition_shelf_zs[0] + ref_config.shelf_thickness
     else:
         bay_configs = [cfg] * num_bays
         info = {"width": cfg.width * num_bays, "height": cfg.height, "depth": cfg.depth}
+
+    # When there's a door zone at the top of the column, extend faces to the
+    # carcass exterior top so doors don't leave a gap at the top panel.
+    face_top_overhang = (
+        bay_configs[0].top_thickness if transition_shelf_zs else 0.0
+    )
 
     assy, parts = _build_multi_bay_cabinet(
         bay_configs,
         feet_at_dividers=(columns_raw is None),
         furniture_top=furniture_top,
+        face_top_overhang=face_top_overhang,
+        transition_shelf_zs=transition_shelf_zs or None,
+        divider_top_z=divider_top_z,
     )
     result = _visualize_assembly(
         assy,
