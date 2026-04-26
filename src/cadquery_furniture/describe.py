@@ -12,6 +12,7 @@ The module has no CadQuery dependency.
 from __future__ import annotations
 
 from .cabinet import CabinetConfig
+from .drawer import DrawerConfig, DrawerJoineryStyle
 from .hardware import HINGES, SLIDES
 from .joinery import CarcassJoinery
 
@@ -60,6 +61,20 @@ def _joinery_name(j: CarcassJoinery) -> str:
         CarcassJoinery.BISCUIT:        "biscuit",
         CarcassJoinery.DOWEL:          "dowel",
     }.get(j, j.value)
+
+
+def _drawer_joinery_name(j: DrawerJoineryStyle) -> str:
+    return {
+        DrawerJoineryStyle.BUTT:         "butt joint",
+        DrawerJoineryStyle.QQQ:          "lock-rabbet (QQQ)",
+        DrawerJoineryStyle.HALF_LAP:     "half-lap",
+        DrawerJoineryStyle.DRAWER_LOCK:  "drawer-lock joint",
+    }.get(j, j.value)
+
+
+def _default_drawer_joinery() -> DrawerJoineryStyle:
+    """Return the current default DrawerJoineryStyle from DrawerConfig."""
+    return DrawerConfig.__dataclass_fields__["joinery_style"].default
 
 
 def _slot_phrase(count: int, label: str) -> str:
@@ -162,18 +177,22 @@ def describe_design(cfg: CabinetConfig) -> dict:
         hardware_phrases.append(f"{hinge.name}{soft} hinges ({overlay} overlay)")
 
     # ── 4. Materials + joinery ───────────────────────────────────────────────
+    drawer_joinery = _default_drawer_joinery()
     materials = {
-        "carcass_joinery":    cfg.carcass_joinery.value,
-        "side_thickness_mm":  cfg.side_thickness,
-        "back_thickness_mm":  cfg.back_thickness,
-        "shelf_thickness_mm": cfg.shelf_thickness,
-        "adj_shelf_holes":    cfg.adj_shelf_holes,
+        "carcass_joinery":        cfg.carcass_joinery.value,
+        "drawer_box_joinery":     drawer_joinery.value,
+        "side_thickness_mm":      cfg.side_thickness,
+        "back_thickness_mm":      cfg.back_thickness,
+        "shelf_thickness_mm":     cfg.shelf_thickness,
+        "adj_shelf_holes":        cfg.adj_shelf_holes,
     }
     material_phrase = (
         f"{_mm_to_ft_in(cfg.side_thickness)} carcass panels with a "
         f"{_mm_to_ft_in(cfg.back_thickness)} back, "
-        f"{_joinery_name(cfg.carcass_joinery)} joinery"
+        f"{_joinery_name(cfg.carcass_joinery)} carcass joinery"
     )
+    if has_drawers:
+        material_phrase += f", {_drawer_joinery_name(drawer_joinery)} drawer-box corners"
     if cfg.adj_shelf_holes:
         material_phrase += ", 32-mm adjustable shelf-pin holes"
     if cfg.fixed_shelf_positions:

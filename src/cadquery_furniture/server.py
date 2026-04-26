@@ -1048,18 +1048,23 @@ async def list_tools() -> list[types.Tool]:
             description=textwrap.dedent("""\
                 Generate a human-readable prose description of a cabinet
                 configuration — dimensions in both metric and imperial, opening
-                layout, hardware names, joinery method, and materials — suitable
+                layout, hardware names, joinery methods, and materials — suitable
                 for presenting to the user during design review.
 
                 Returns:
                   - prose: a short paragraph summarising the design
                   - dimensions, openings, hardware, materials: structured dicts
+                  - materials.carcass_joinery: the carcass joinery method
+                  - materials.drawer_box_joinery: the drawer-box corner joint
 
                 ── WORKFLOW ──
                 Call this after evaluate_cabinet returns zero errors (or after
                 auto_fix_cabinet has cleaned them).  Present the prose to the
-                user and wait for explicit approval before calling
-                visualize_cabinet.
+                user, then EXPLICITLY ask them to confirm or change the two
+                joinery choices — carcass joinery (materials.carcass_joinery)
+                and drawer-box joinery (materials.drawer_box_joinery) — before
+                calling visualize_cabinet.  Do not proceed to visualization
+                until the user has acknowledged the joinery methods.
             """),
             inputSchema={
                 "type": "object",
