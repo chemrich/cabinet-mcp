@@ -1095,3 +1095,105 @@ def get_pull_preset(key: str) -> PullPreset:
         raise KeyError(
             f"Pull preset {key!r} not found. Available: {available}"
         ) from None
+
+
+# ─── Price list ───────────────────────────────────────────────────────────────
+# List / MSRP prices in USD.  Not market prices — use as rough estimates only.
+# Keys match hardware catalog keys (SLIDES, HINGES, LEGS, PULLS) and joinery
+# SKUs used in cutlist.py.  Sheet goods keys: "sheet_baltic_birch_{t}mm".
+
+PRICE_LIST: dict[str, float] = {
+    # ── Sheet goods — per 4×8 sheet ──────────────────────────────────────────
+    "sheet_baltic_birch_18mm":  95.00,
+    "sheet_baltic_birch_15mm":  82.00,
+    "sheet_baltic_birch_6mm":   46.00,
+
+    # ── Drawer slides — per pair ──────────────────────────────────────────────
+    "blum_tandem_550h":             28.50,
+    "blum_tandem_plus_563h":        48.00,
+    "blum_movento_760h":            36.00,
+    "blum_movento_769":             58.00,
+    "accuride_3832":                18.00,
+    "salice_futura":                32.00,
+    "salice_futura_smove":          48.00,
+    "salice_progressa_plus":        38.00,
+    "salice_progressa_plus_smove":  54.00,
+
+    # ── Hinges — each ─────────────────────────────────────────────────────────
+    "blum_clip_top_110_full":             9.50,
+    "blum_clip_top_blumotion_110_full":  14.00,
+    "blum_clip_top_110_half":             9.50,
+    "blum_clip_top_blumotion_110_half":  14.00,
+    "blum_clip_top_110_inset":            9.50,
+    "blum_clip_top_blumotion_110_inset": 14.00,
+    "blum_clip_top_170_full":            12.00,
+    "blum_clip_top_110":                  9.50,
+    "blum_clip_top_170":                 12.00,
+
+    # ── Legs — each ───────────────────────────────────────────────────────────
+    "richelieu_176138106":      18.00,
+    "richelieu_17613b106":      18.00,
+    "richelieu_adjustable_40mm": 8.00,
+    "hairpin_200mm":            25.00,
+
+    # ── Pulls — each ─────────────────────────────────────────────────────────
+    "topknobs-hb-76":    9.00,
+    "topknobs-hb-96":   10.00,
+    "topknobs-hb-128":  12.00,
+    "topknobs-hb-160":  14.00,
+    "topknobs-hb-305":  22.00,
+    "topknobs-ag-76":   10.00,
+    "topknobs-ag-96":   11.00,
+    "topknobs-ag-128":  13.00,
+    "topknobs-ag-160":  15.00,
+    "topknobs-ag-305":  24.00,
+    "topknobs-blk-76":  11.00,
+    "topknobs-blk-96":  12.00,
+    "topknobs-blk-128": 14.00,
+    "topknobs-blk-160": 16.00,
+    "topknobs-blk-305": 26.00,
+    "topknobs-bsn-76":   9.00,
+    "topknobs-bsn-96":  10.00,
+    "topknobs-bsn-128": 12.00,
+    "topknobs-bsn-160": 14.00,
+    "topknobs-bsn-305": 22.00,
+    "rockler-wnl-160":  18.00,
+    "rockler-wnl-224":  22.00,
+    "rockler-wnl-288":  26.00,
+    "rockler-okl-160":  15.00,
+    "rockler-okl-224":  18.00,
+    "rockler-okl-288":  22.00,
+    "richelieu-chbrz-32":   4.00,
+    "richelieu-chbrz-96":   8.00,
+    "richelieu-chbrz-128": 10.00,
+    "richelieu-chbrz-416": 20.00,
+    "richelieu-900-32":     4.00,
+    "richelieu-900-96":     8.00,
+    "richelieu-900-128":   10.00,
+    "richelieu-900-416":   18.00,
+    "richelieu-30-32":      3.00,
+    "richelieu-30-96":      6.00,
+    "richelieu-30-128":     8.00,
+    "richelieu-30-416":    16.00,
+    "hafele-193.18.766":   12.00,
+    "hafele-151.35.665":    8.00,
+    "rockler-42250":        6.00,
+    "ikea-bagganas-black-128":   5.00,
+    "ikea-hackas-anthracite-128": 5.00,
+    "ikea-borghamn-black-416":   8.00,
+    "ikea-billsbro-white-120":   5.00,
+
+    # ── Joinery consumables — per pack ────────────────────────────────────────
+    "festool-494869":          17.00,   # Domino 8×40, 50-pack
+    "kreg-sml-c32-100":        12.00,   # pocket screws 1-1/4", 100-pack
+    "kreg-sml-c38-100":        12.00,
+    "kreg-sml-c45-100":        12.00,
+    "biscuit-10-100pk":         8.00,
+    "dowel-8x40-50pk":          6.00,
+    "screw-8x32-panhead-100pk": 8.00,   # false-front screws
+}
+
+
+def price_for(key: str) -> float:
+    """Return the list price for a hardware/sheet key, or 0.0 if not listed."""
+    return PRICE_LIST.get(key, 0.0)

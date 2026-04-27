@@ -91,7 +91,7 @@ from .cutlist import (
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
-from .hardware import HINGES, SLIDES, LEGS, PULLS, OverlayType, LegPattern, get_leg, get_pull
+from .hardware import HINGES, SLIDES, LEGS, PULLS, OverlayType, LegPattern, get_leg, get_pull, price_for
 from .joinery import (
     CarcassJoinery,
     DrawerJoineryStyle,
@@ -1877,6 +1877,26 @@ async def _tool_design_drawer(args: dict) -> list[types.TextContent]:
     return _ok(result)
 
 
+def _build_cost_estimate(
+    sheet_goods: list[dict],
+    hw_lines: list,
+) -> dict:
+    """Summarise list-price cost by category with a grand total."""
+    sheets_total = sum(e.get("line_total_usd", 0.0) for e in sheet_goods)
+    hw_by_cat: dict[str, float] = {}
+    for h in hw_lines:
+        cat = h.category
+        hw_by_cat[cat] = hw_by_cat.get(cat, 0.0) + round(h.packs_to_order * price_for(h.sku), 2)
+    hw_total = sum(hw_by_cat.values())
+    return {
+        "sheet_goods_usd": round(sheets_total, 2),
+        "hardware_by_category_usd": {k: round(v, 2) for k, v in hw_by_cat.items()},
+        "hardware_total_usd": round(hw_total, 2),
+        "grand_total_usd": round(sheets_total + hw_total, 2),
+        "note": "List/MSRP prices — actual cost varies by supplier and region.",
+    }
+
+
 # ── generate_cutlist ──────────────────────────────────────────────────────────
 
 async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
@@ -2040,21 +2060,33 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
     if carcass_panels:
+        sheets = opt_carcass.get("sheets_used", 0)
+        unit_p = price_for("sheet_baltic_birch_18mm")
         entry = {"material": f"Baltic Birch 3/4\" ({carcass_t:.0f} mm)",
                  "thickness_mm": carcass_t,
-                 "panel_count": sum(p.quantity for p in carcass_panels)}
+                 "panel_count": sum(p.quantity for p in carcass_panels),
+                 "price_per_sheet_usd": unit_p,
+                 "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_carcass)
         sheet_goods.append(entry)
     if box_panels:
+        sheets = opt_box.get("sheets_used", 0)
+        unit_p = price_for("sheet_baltic_birch_15mm")
         entry = {"material": f"Baltic Birch 5/8\" ({box_t:.0f} mm)",
                  "thickness_mm": box_t,
-                 "panel_count": sum(p.quantity for p in box_panels)}
+                 "panel_count": sum(p.quantity for p in box_panels),
+                 "price_per_sheet_usd": unit_p,
+                 "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_box)
         sheet_goods.append(entry)
     if panels_6mm:
+        sheets = opt_6mm.get("sheets_used", 0)
+        unit_p = price_for("sheet_baltic_birch_6mm")
         entry = {"material": f"Baltic Birch 1/4\" ({bottom_t:.0f} mm)",
                  "thickness_mm": bottom_t,
-                 "panel_count": sum(p.quantity for p in panels_6mm)}
+                 "panel_count": sum(p.quantity for p in panels_6mm),
+                 "price_per_sheet_usd": unit_p,
+                 "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_6mm)
         sheet_goods.append(entry)
     if false_fronts:
@@ -2138,9 +2170,12 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                 "packs_to_order": h.packs_to_order,
                 "leftover": h.leftover,
                 "notes": h.notes,
+                "unit_price_usd": price_for(h.sku),
+                "line_total_usd": round(h.packs_to_order * price_for(h.sku), 2),
             }
             for h in hw_lines
         ],
+        "cost_estimate": _build_cost_estimate(sheet_goods, hw_lines),
         "files": files,
     }
 
