@@ -42,3 +42,39 @@ All Clip Top hinges use a 35 mm cup (13 mm deep, 22.5 mm from door edge). `Hinge
 | `hairpin_200mm` | Hairpin Leg 200 mm | 200 mm | No | 30 kg | Matte black |
 
 `get_leg(key)` returns the `LegSpec`. The `design_legs` MCP tool returns placement coordinates, load-per-leg, and hardware BOM lines.
+
+## Pricing
+
+`hardware.py` exports a `PRICE_LIST` dict and a `price_for(key)` helper used by `generate_cutlist` to add cost estimates to the BOM output.
+
+```python
+from cadquery_furniture.hardware import price_for, PRICE_LIST
+
+price_for("blum_tandem_550h")   # → 28.5  (per pair)
+price_for("topknobs-hb-96")     # → 10.0  (each)
+price_for("unknown-key")        # → 0.0   (never raises)
+```
+
+All prices are list/MSRP in USD — not market prices. `generate_cutlist` labels the output accordingly and returns a `cost_estimate` block:
+
+```json
+"cost_estimate": {
+  "sheet_goods_usd": 318.00,
+  "hardware_by_category_usd": {
+    "slide": 342.00,
+    "hinge": 38.00,
+    "leg": 72.00,
+    "joinery": 17.00,
+    "fastener": 8.00
+  },
+  "hardware_total_usd": 477.00,
+  "grand_total_usd": 795.00,
+  "note": "List/MSRP prices — actual cost varies by supplier and region."
+}
+```
+
+Each `hardware_bom` entry also gets `unit_price_usd` and `line_total_usd` fields, and each `sheet_goods` entry gets `price_per_sheet_usd` and `line_total_usd`.
+
+### Updating prices
+
+Edit the `PRICE_LIST` dict at the bottom of `hardware.py`. Keys must match the hardware catalog key (for slides/hinges/legs/pulls) or the SKU string used in `cutlist.py` (for joinery consumables and fasteners). Sheet goods use the keys `sheet_baltic_birch_18mm`, `sheet_baltic_birch_15mm`, and `sheet_baltic_birch_6mm`. Missing keys silently return `0.0` — no test failures, but the line will show `$0.00` in the estimate.
