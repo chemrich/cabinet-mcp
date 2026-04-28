@@ -395,15 +395,16 @@ def drawers_from_cabinet_config(cab_cfg: CabinetConfig) -> list[tuple["cq.Assemb
     Returns:
         List of (drawer_assembly, parts, z_position) tuples.
     """
-    if not cab_cfg.drawer_config:
+    if not cab_cfg.openings:
         return []
 
     drawers = []
     # Start stacking from the bottom panel
     current_z = cab_cfg.bottom_thickness
 
-    for opening_height, slot_type in cab_cfg.drawer_config:
-        if slot_type == "drawer":
+    for op in cab_cfg.openings:
+        opening_height = op.height_mm
+        if op.opening_type == "drawer":
             dcfg = DrawerConfig(
                 opening_width=cab_cfg.interior_width,
                 opening_height=opening_height,

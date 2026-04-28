@@ -119,15 +119,15 @@ def describe_design(cfg: CabinetConfig) -> dict:
     }
 
     # ── 2. Opening layout ────────────────────────────────────────────────────
-    slots = list(cfg.drawer_config)
+    ops = list(cfg.openings)
     counts: dict[str, int] = {}
-    for _, kind in slots:
-        counts[kind] = counts.get(kind, 0) + 1
-    stack_total = sum(h for h, _ in slots)
+    for op in ops:
+        counts[op.opening_type] = counts.get(op.opening_type, 0) + 1
+    stack_total = sum(op.height_mm for op in ops)
 
     openings = {
         "stack_from_bottom": [
-            {"height_mm": float(h), "type": t} for h, t in slots
+            {"height_mm": float(op.height_mm), "type": op.opening_type} for op in ops
         ],
         "total_stack_height_mm":  stack_total,
         "interior_height_mm":     cfg.interior_height,
@@ -135,7 +135,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
         "counts": counts,
     }
 
-    if slots:
+    if ops:
         parts = [_slot_phrase(counts[k], k) for k in sorted(counts)]
         layout_phrase = ", ".join(parts[:-1])
         if layout_phrase:
@@ -144,7 +144,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
             layout_phrase = parts[-1]
         stack_desc = (
             f"{layout_phrase} stacked from bottom to top — "
-            + ", ".join(f"{int(h)} mm {t}" for h, t in slots)
+            + ", ".join(f"{int(op.height_mm)} mm {op.opening_type}" for op in ops)
         )
     else:
         stack_desc = "an open carcass with no fixed openings"
@@ -152,8 +152,8 @@ def describe_design(cfg: CabinetConfig) -> dict:
     # ── 3. Hardware ──────────────────────────────────────────────────────────
     slide = SLIDES.get(cfg.drawer_slide)
     hinge = HINGES.get(cfg.door_hinge)
-    has_drawers = any(t == "drawer" for _, t in slots)
-    has_doors   = any(t in ("door", "door_pair") for _, t in slots)
+    has_drawers = any(op.opening_type == "drawer" for op in ops)
+    has_doors   = any(op.opening_type in ("door", "door_pair") for op in ops)
 
     hardware: dict = {}
     hardware_phrases: list[str] = []
@@ -208,7 +208,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
         lines.append("Hardware: " + "; ".join(hardware_phrases) + ".")
     lines.append("Construction: " + material_phrase + ".")
 
-    if not openings["stack_fills_interior"] and slots:
+    if not openings["stack_fills_interior"] and ops:
         delta = stack_total - cfg.interior_height
         lines.append(
             f"⚠ Opening stack does not fill interior "

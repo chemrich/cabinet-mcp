@@ -73,6 +73,7 @@ from .proportions import (
 )
 from .describe import describe_design as _describe_design
 from .presets import PRESETS, get_preset, list_presets as _list_presets
+from .furniture_refs import identify_furniture, get_furniture, SYNONYM_TO_PRESETS
 from .visualize import build_and_visualize as _build_and_visualize, visualize_assembly as _visualize_assembly
 from .cutlist import (
     CutlistPanel,
@@ -88,6 +89,7 @@ from .cutlist import (
     _OPCUT_AVAILABLE,
     _RECTPACK_AVAILABLE,
 )
+from .cabinet import OpeningConfig
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
@@ -129,24 +131,49 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
     ]
 
 
+def _to_opening(raw) -> OpeningConfig:
+    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
+    if isinstance(raw, OpeningConfig):
+        return raw
+    if isinstance(raw, dict):
+        return OpeningConfig(
+            height_mm=float(raw["height_mm"]),
+            opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
+            hinge_key=raw.get("hinge_key"),
+            hinge_side=raw.get("hinge_side"),
+            pull_key=raw.get("pull_key"),
+            num_doors=raw.get("num_doors"),
+            door_thickness=raw.get("door_thickness"),
+        )
+    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
+
+
 def _sort_drawer_config(dc: list) -> list:
-    """Sort drawer slots largest-first (bottom); non-drawer slots stay at the end."""
+    """Sort drawer openings largest-first (bottom); non-drawer openings stay at the end."""
     if not dc:
         return dc
-    types = {str(row[1]) for row in dc}
-    if len(types) == 1:
-        return sorted(dc, key=lambda x: x[0], reverse=True)
-    # Mixed config: sort drawer slots among themselves, append doors/others after.
-    drawers = sorted([r for r in dc if str(r[1]) == "drawer"], key=lambda x: x[0], reverse=True)
-    others  = [r for r in dc if str(r[1]) != "drawer"]
+
+    def _type(row):
+        return row.opening_type if isinstance(row, OpeningConfig) else str(row[1])
+
+    def _height(row):
+        return row.height_mm if isinstance(row, OpeningConfig) else float(row[0])
+
+    types_set = {_type(r) for r in dc}
+    if len(types_set) == 1:
+        return sorted(dc, key=_height, reverse=True)
+    drawers = sorted([r for r in dc if _type(r) == "drawer"], key=_height, reverse=True)
+    others  = [r for r in dc if _type(r) != "drawer"]
     return drawers + others
 
 
 def _build_cabinet_config(args: dict) -> CabinetConfig:
-    """
-    Build a CabinetConfig from a flat dict of keyword arguments.
-    Handles nested list fields (drawer_config, fixed_shelf_positions, columns).
-    Enums are accepted as strings.
+    """Build a CabinetConfig from a flat dict of keyword arguments.
+
+    Accepts ``drawer_config`` (backward-compat API name) as an alias for
+    ``openings``. Each entry may be a ``[height_mm, opening_type]`` list,
+    a dict, or an ``OpeningConfig`` object — all are normalised by
+    ``_to_opening``.
     """
     preset_key = args.pop("pull_preset", None)
     if preset_key:
@@ -156,16 +183,24 @@ def _build_cabinet_config(args: dict) -> CabinetConfig:
         args.setdefault("door_pull", preset.door_pull)
         args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
 
+    # Accept drawer_config as a backward-compat alias for openings.
+    if "drawer_config" in args and "openings" not in args:
+        args["openings"] = args.pop("drawer_config")
+    else:
+        args.pop("drawer_config", None)
+
     kwargs: dict[str, Any] = {}
     for key, value in args.items():
         if key == "carcass_joinery" and isinstance(value, str):
             kwargs[key] = CarcassJoinery(value)
+        elif key == "openings" and isinstance(value, list):
+            kwargs[key] = [_to_opening(r) for r in value]
         elif key == "columns" and isinstance(value, list):
             kwargs[key] = [
                 ColumnConfig(
                     width_mm=float(c["width_mm"]),
-                    drawer_config=tuple(
-                        (float(h), str(t)) for h, t in c.get("drawer_config", [])
+                    openings=tuple(
+                        _to_opening(r) for r in c.get("drawer_config", c.get("openings", []))
                     ),
                 )
                 for c in value
@@ -953,7 +988,8 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["kitchen", "workshop", "bedroom", "bathroom", "storage", "living_room"],
+                        "enum": ["kitchen", "workshop", "bedroom", "bathroom", "storage",
+                                 "living_room", "entryway", "office"],
                         "description": "Filter by cabinet category.",
                     },
                     "tag": {
@@ -1005,6 +1041,32 @@ async def list_tools() -> list[types.Tool]:
                             "the preset (e.g. {\"width\": 750, \"drawer_slide\": \"blum_movento_760h\"})."
                         ),
                         "default": {},
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        types.Tool(
+            name="identify_furniture_type",
+            description=textwrap.dedent("""\
+                Look up a furniture piece by common name or synonym and return
+                its canonical type, category, typical dimensions, related names,
+                and any matching preset slugs.
+
+                Accepts plain English names including historical, regional, and
+                foreign-language terms: "chifforobe", "semainier", "tallboy",
+                "credenza", "tansu", "armadio", "chevet", etc.
+
+                Use this tool when the user names a furniture type you want to
+                confirm, or to discover which preset best matches what they want.
+                Returns up to 5 candidates when the name is ambiguous.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Furniture piece name or synonym to look up.",
                     },
                 },
                 "required": ["name"],
@@ -1379,6 +1441,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_list_presets(arguments)
         elif name == "apply_preset":
             return await _tool_apply_preset(arguments)
+        elif name == "identify_furniture_type":
+            return await _tool_identify_furniture_type(arguments)
         elif name == "auto_fix_cabinet":
             return await _tool_auto_fix_cabinet(arguments)
         elif name == "describe_design":
@@ -1608,7 +1672,7 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         }
 
     opening_stack = [
-        {"height_mm": h, "type": t} for h, t in cfg.drawer_config
+        {"height_mm": op.height_mm, "type": op.opening_type} for op in cfg.openings
     ]
 
     result = {
@@ -1686,8 +1750,8 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
     col_x = 0.0  # running interior x from left column
     col_details = []
     for i, col in enumerate(cfg.columns):
-        stack = [{"height_mm": h, "type": t} for h, t in col.drawer_config]
-        stack_total = sum(h for h, _ in col.drawer_config)
+        stack = [{"height_mm": op.height_mm, "type": op.opening_type} for op in col.openings]
+        stack_total = sum(op.height_mm for op in col.openings)
         col_details.append({
             "index":             i,
             "interior_width_mm": col.width_mm,
@@ -1974,9 +2038,10 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                     material="baltic_birch",
                     edge_band=["front"],
                 ))
-            col_drawers = col.get("drawer_config", [])
+            col_drawers = col.get("openings", col.get("drawer_config", []))
             for row in col_drawers:
-                opening_h, slot_type = float(row[0]), str(row[1])
+                op = _to_opening(row)
+                opening_h, slot_type = op.height_mm, op.opening_type
                 if slot_type != "drawer":
                     continue
                 dcfg = DrawerConfig(
@@ -2335,8 +2400,12 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         side_t = cfg.side_thickness
         # Determine which column indices have door slots, then assign hinge sides:
         # leftmost door column → "left", rightmost → "right" (French-door style).
+        def _col_openings_raw(col: dict) -> list:
+            return col.get("openings", col.get("drawer_config", []))
+
         _has_door = [
-            any(str(r[1]) in ("door", "door_pair") for r in col.get("drawer_config", []))
+            any(_to_opening(r).opening_type in ("door", "door_pair")
+                for r in _col_openings_raw(col))
             for col in columns_raw
         ]
         _door_col_indices = [i for i, has in enumerate(_has_door) if has]
@@ -2365,27 +2434,30 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 fixed_shelf_positions=[
                     float(z) for z in col.get("fixed_shelf_positions", [])
                 ],
-                drawer_config=tuple(
-                    (float(h), str(t))
-                    for h, t in _sort_drawer_config(col.get("drawer_config", []))
-                ),
+                openings=[
+                    _to_opening(r)
+                    for r in _sort_drawer_config(_col_openings_raw(col))
+                ],
             ))
         total_width = cfg.width
         info = {"width": total_width, "height": cfg.height, "depth": cfg.depth,
                 "columns": len(bay_configs)}
 
-        # Detect drawer-to-door transitions and render a full-width shelf there.
-        ref_config = bay_configs[0]
-        z_scan = ref_config.bottom_thickness
-        for h, t in ref_config.drawer_config:
-            if t in ("door", "door_pair"):
-                transition_shelf_zs.append(z_scan)
-                break
-            z_scan += h
+        # Detect drawer-to-door transitions per column; use lowest transition z.
+        per_bay_transitions = []
+        for bc in bay_configs:
+            z = bc.bottom_thickness
+            for op in bc.openings:
+                if op.opening_type in ("door", "door_pair"):
+                    per_bay_transitions.append(z)
+                    break
+                z += op.height_mm
+        if per_bay_transitions:
+            transition_shelf_zs.append(min(per_bay_transitions))
 
         # Clip center divider to drawer zone unless caller wants full-height.
         if not divider_full_height and transition_shelf_zs:
-            divider_top_z = transition_shelf_zs[0] + ref_config.shelf_thickness
+            divider_top_z = transition_shelf_zs[0] + bay_configs[0].shelf_thickness
     else:
         bay_configs = [cfg] * num_bays
         info = {"width": cfg.width * num_bays, "height": cfg.height, "depth": cfg.depth}
@@ -2446,13 +2518,31 @@ async def _tool_apply_preset(args: dict) -> list[types.TextContent]:
     name      = args.get("name", "")
     overrides = args.get("overrides") or {}
 
+    synonym_redirect: str | None = None
     try:
         preset = get_preset(name)
     except KeyError:
-        return _ok({
-            "error": f"Unknown preset {name!r}.",
-            "available": sorted(PRESETS.keys()),
-        })
+        # Try resolving via furniture-type synonym (e.g. "dresser" → "bedroom_dresser").
+        synonym_slugs = SYNONYM_TO_PRESETS.get(name.lower().strip(), ())
+        resolved = next(
+            (get_preset(slug) for slug in synonym_slugs if slug in PRESETS),
+            None,
+        )
+        if resolved is not None:
+            preset = resolved
+            synonym_redirect = name
+        else:
+            ref = get_furniture(name)
+            note = (
+                f"No preset named {name!r}. "
+                + (
+                    f"Closest furniture type: '{ref.piece}' ({ref.category}). "
+                    f"Suggested presets: {list(ref.preset_keys) or 'none yet'}."
+                    if ref else
+                    "No matching furniture type found either."
+                )
+            )
+            return _ok({"error": note, "available": sorted(PRESETS.keys())})
 
     # Merge: start from preset's config dict, apply caller overrides on top.
     merged = preset.config_dict()
@@ -2469,7 +2559,7 @@ async def _tool_apply_preset(args: dict) -> list[types.TextContent]:
         return _err(f"Override produced an invalid config: {type(exc).__name__}: {exc}")
 
     interior_h = cfg.height - cfg.bottom_thickness - cfg.top_thickness
-    stack_total = sum(h for h, _ in cfg.drawer_config)
+    stack_total = sum(op.height_mm for op in cfg.openings)
     stack_matches = abs(stack_total - interior_h) < 0.01
 
     result: dict[str, Any] = {
@@ -2482,8 +2572,10 @@ async def _tool_apply_preset(args: dict) -> list[types.TextContent]:
         "opening_stack_total_mm":      stack_total,
         "opening_stack_matches_interior": stack_matches,
     }
+    if synonym_redirect:
+        result["resolved_from"] = synonym_redirect
 
-    if not stack_matches and cfg.drawer_config:
+    if not stack_matches and cfg.openings:
         diff = interior_h - stack_total
         result["opening_stack_warning"] = (
             f"Opening stack ({stack_total:.0f} mm) does not fill interior height "
@@ -2493,6 +2585,38 @@ async def _tool_apply_preset(args: dict) -> list[types.TextContent]:
         )
 
     return _ok(result)
+
+
+# ── identify_furniture_type ───────────────────────────────────────────────────
+
+async def _tool_identify_furniture_type(args: dict) -> list[types.TextContent]:
+    query = str(args.get("name", "")).strip()
+    if not query:
+        return _ok({"error": "'name' is required."})
+
+    matches = identify_furniture(query)
+    if not matches:
+        return _ok({
+            "error": f"No furniture type found matching {query!r}.",
+            "suggestion": "Try a common English name or synonym (e.g. 'dresser', 'armoire', 'credenza').",
+        })
+
+    def _enrich(ref) -> dict:
+        d = ref.to_dict()
+        d["presets"] = [
+            PRESETS[slug].summary()
+            for slug in ref.preset_keys
+            if slug in PRESETS
+        ]
+        return d
+
+    if len(matches) == 1:
+        return _ok({"match": _enrich(matches[0])})
+
+    return _ok({
+        "candidates": [_enrich(r) for r in matches],
+        "note": f"Multiple furniture types match {query!r}. Narrow your query for an exact match.",
+    })
 
 
 # ── auto_fix_cabinet ─────────────────────────────────────────────────────────
@@ -2516,7 +2640,7 @@ async def _tool_auto_fix_cabinet(args: dict) -> list[types.TextContent]:
         "top_thickness":    fixed_cfg.top_thickness,
         "shelf_thickness":  fixed_cfg.shelf_thickness,
         "back_thickness":   fixed_cfg.back_thickness,
-        "drawer_config":    list(fixed_cfg.drawer_config),
+        "drawer_config":    [[op.height_mm, op.opening_type] for op in fixed_cfg.openings],
         "carcass_joinery":  fixed_cfg.carcass_joinery.value,
         "door_hinge":       fixed_cfg.door_hinge,
         "drawer_slide":     fixed_cfg.drawer_slide,
@@ -2698,24 +2822,28 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
 
     def _walk_stack(stack, interior_width: float, interior_depth: float,
                     column_index: int | None) -> None:
-        for slot_idx, (opening_h, slot_type) in enumerate(stack):
+        for slot_idx, item in enumerate(stack):
+            op = _to_opening(item)
+            opening_h  = op.height_mm
+            slot_type  = op.opening_type
             base: dict[str, Any] = {
-                "slot_index":     slot_idx,
+                "slot_index":        slot_idx,
                 "opening_height_mm": opening_h,
-                "slot_type":      slot_type,
+                "slot_type":         slot_type,
             }
             if column_index is not None:
                 base["column_index"] = column_index
 
             if slot_type == "drawer":
-                if cab_cfg.drawer_pull is None:
+                pull_key = op.pull_key or cab_cfg.drawer_pull
+                if pull_key is None:
                     continue  # nothing to place
                 dcfg = DrawerConfig(
                     opening_width=interior_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
                     slide_key=cab_cfg.drawer_slide,
-                    pull_key=cab_cfg.drawer_pull,
+                    pull_key=pull_key,
                     pull_vertical=drawer_pull_vertical,
                 )
                 try:
@@ -2727,7 +2855,7 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
                     **base,
                     "face_width_mm":   dcfg.face_width,
                     "face_height_mm":  dcfg.face_height,
-                    "pull_key":        cab_cfg.drawer_pull,
+                    "pull_key":        pull_key,
                     "vertical_policy": drawer_pull_vertical,
                     "placements":      _pull_placements_to_dicts(placements),
                     "count":           len(placements),
@@ -2735,15 +2863,17 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
                 })
 
             elif slot_type in ("door", "door_pair"):
-                if cab_cfg.door_pull is None:
+                pull_key = op.pull_key or cab_cfg.door_pull
+                hinge_key = op.hinge_key or cab_cfg.door_hinge
+                if pull_key is None:
                     continue
                 num_doors = 2 if slot_type == "door_pair" else 1
                 dcfg = DoorConfig(
                     opening_width=interior_width,
                     opening_height=opening_h,
                     num_doors=num_doors,
-                    hinge_key=cab_cfg.door_hinge,
-                    pull_key=cab_cfg.door_pull,
+                    hinge_key=hinge_key,
+                    pull_key=pull_key,
                     pull_vertical=door_pull_vertical,
                 )
                 try:
@@ -2758,7 +2888,7 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
                     "num_doors":           num_doors,
                     "leaf_width_mm":       dcfg.door_width,
                     "leaf_height_mm":      dcfg.door_height,
-                    "pull_key":            cab_cfg.door_pull,
+                    "pull_key":            pull_key,
                     "vertical_policy":     door_pull_vertical,
                     "placements_per_leaf": _pull_placements_to_dicts(placements),
                     "pulls_per_leaf":      len(placements),
@@ -2769,9 +2899,9 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
 
     if getattr(cab_cfg, "columns", None):
         for ci, col in enumerate(cab_cfg.columns):
-            _walk_stack(col.drawer_config, col.width_mm, cab_cfg.interior_depth, ci)
+            _walk_stack(col.openings, col.width_mm, cab_cfg.interior_depth, ci)
     else:
-        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width,
+        _walk_stack(cab_cfg.openings, cab_cfg.interior_width,
                     cab_cfg.interior_depth, None)
 
     cabinet_issues = check_cabinet_pull_consistency(cab_cfg)

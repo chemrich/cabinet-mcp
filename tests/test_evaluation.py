@@ -27,7 +27,7 @@ class TestCumulativeHeights:
         cfg = CabinetConfig(
             height=720,
             bottom_thickness=18,
-            drawer_config=[(150, "drawer"), (150, "drawer"), (200, "drawer")],
+            openings=[(150, "drawer"), (150, "drawer"), (200, "drawer")],
         )
         issues = check_cumulative_heights(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
@@ -39,7 +39,7 @@ class TestCumulativeHeights:
             height=720,
             bottom_thickness=18,
             # 3 × 250 = 750mm but interior is only 702mm
-            drawer_config=[(250, "drawer"), (250, "drawer"), (250, "drawer")],
+            openings=[(250, "drawer"), (250, "drawer"), (250, "drawer")],
         )
         issues = check_cumulative_heights(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
@@ -52,7 +52,7 @@ class TestCumulativeHeights:
             height=720,
             bottom_thickness=18,
             top_thickness=18,
-            drawer_config=[(684, "drawer")],  # exactly fills interior (720 - 18 - 18)
+            openings=[(684, "drawer")],  # exactly fills interior (720 - 18 - 18)
         )
         issues = check_cumulative_heights(cfg)
         warnings = [i for i in issues if i.severity == Severity.WARNING]
@@ -274,7 +274,7 @@ class TestEvaluateCabinetIntegration:
         """Overflowing drawer config should produce an error even via full runner."""
         cfg = CabinetConfig(
             height=720, width=600, depth=550,
-            drawer_config=[(300, "drawer"), (300, "drawer"), (300, "drawer")],
+            openings=[(300, "drawer"), (300, "drawer"), (300, "drawer")],
         )
         issues = evaluate_cabinet(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
@@ -294,7 +294,7 @@ class TestDrawerCarcassClearances:
         """A well-proportioned cabinet with standard drawers should pass."""
         cfg = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(150, "drawer"), (150, "drawer"), (150, "drawer")],
+            openings=[(150, "drawer"), (150, "drawer"), (150, "drawer")],
         )
         issues = check_drawer_carcass_clearances(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
@@ -312,7 +312,7 @@ class TestDrawerCarcassClearances:
         # A 60 mm wide cabinet has interior_width = 60 - 36 = 24 mm < 42 mm.
         cfg = CabinetConfig(
             width=60, height=720, depth=550,
-            drawer_config=[(150, "drawer")],
+            openings=[(150, "drawer")],
         )
         issues = check_drawer_carcass_clearances(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
@@ -335,7 +335,7 @@ class TestDrawerCarcassClearances:
         # slide_length=270 mm, rear_gap=5 mm < 10 mm → WARNING.
         cfg = CabinetConfig(
             width=600, height=720, depth=284,
-            drawer_config=[(150, "drawer")],
+            openings=[(150, "drawer")],
         )
         issues = check_drawer_carcass_clearances(cfg)
         warnings = [i for i in issues if i.severity == Severity.WARNING]
@@ -345,7 +345,7 @@ class TestDrawerCarcassClearances:
         """Each drawer issue should reference its index label."""
         cfg = CabinetConfig(
             width=60, height=720, depth=550,
-            drawer_config=[(150, "drawer"), (150, "drawer")],
+            openings=[(150, "drawer"), (150, "drawer")],
         )
         issues = check_drawer_carcass_clearances(cfg)
         labels = {i.part_a for i in issues if i.part_a}
@@ -355,7 +355,7 @@ class TestDrawerCarcassClearances:
         """Slots of type 'door' or 'door_pair' should not be checked."""
         cfg = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(600, "door_pair")],
+            openings=[(600, "door_pair")],
         )
         issues = check_drawer_carcass_clearances(cfg)
         assert issues == []
@@ -365,7 +365,7 @@ class TestDrawerCarcassClearances:
         # Use a cabinet too narrow for the slide — the carcass check should fire.
         cfg = CabinetConfig(
             width=60, height=720, depth=550,
-            drawer_config=[(150, "drawer")],
+            openings=[(150, "drawer")],
         )
         all_issues = evaluate_cabinet(cfg)
         carcass_errors = [
@@ -380,7 +380,7 @@ class TestFaceClearances:
 
     def _bay(self, width, drawers):
         return CabinetConfig(width=width, height=720, depth=550,
-                             drawer_config=drawers)
+                             openings=drawers)
 
     def test_single_bay_valid(self):
         """Single bay, valid face stack — no issues."""

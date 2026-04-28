@@ -913,14 +913,23 @@ def pull_lines_for_cabinet_config(
     interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
 
     def _walk_stack(stack, interior_width: float) -> None:
-        for opening_h, slot_type in stack:
+        for item in stack:
+            # Accept both OpeningConfig objects and raw [height, type] lists/tuples
+            if hasattr(item, "opening_type"):
+                opening_h, slot_type = item.height_mm, item.opening_type
+                pull_key_override = item.pull_key
+                hinge_key_override = item.hinge_key
+            else:
+                opening_h, slot_type = float(item[0]), str(item[1])
+                pull_key_override = hinge_key_override = None
+
             if slot_type == "drawer":
                 dcfg = DrawerConfig(
                     opening_width=interior_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
                     slide_key=cab_cfg.drawer_slide,
-                    pull_key=cab_cfg.drawer_pull,
+                    pull_key=pull_key_override or cab_cfg.drawer_pull,
                 )
                 line = pull_line_from_drawer(dcfg)
                 if line is not None:
@@ -931,8 +940,8 @@ def pull_lines_for_cabinet_config(
                     opening_width=interior_width,
                     opening_height=opening_h,
                     num_doors=num_doors,
-                    hinge_key=cab_cfg.door_hinge,
-                    pull_key=cab_cfg.door_pull,
+                    hinge_key=hinge_key_override or cab_cfg.door_hinge,
+                    pull_key=pull_key_override or cab_cfg.door_pull,
                 )
                 line = pull_line_from_door(dcfg)
                 if line is not None:
@@ -944,9 +953,9 @@ def pull_lines_for_cabinet_config(
             _walk_stack(col.get("drawer_config", []), col_w)
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            _walk_stack(col.drawer_config, col.width_mm)
+            _walk_stack(col.openings, col.width_mm)
     else:
-        _walk_stack(cab_cfg.drawer_config, cab_cfg.interior_width)
+        _walk_stack(cab_cfg.openings, cab_cfg.interior_width)
 
     return consolidate_hardware_lines(lines)
 
@@ -973,7 +982,11 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
 
     def _slides_from_stack(stack, interior_width: float) -> list[HardwareLine]:
         lines: list[HardwareLine] = []
-        for opening_h, slot_type in stack:
+        for item in stack:
+            if hasattr(item, "opening_type"):
+                opening_h, slot_type = item.height_mm, item.opening_type
+            else:
+                opening_h, slot_type = float(item[0]), str(item[1])
             if slot_type != "drawer":
                 continue
             dcfg = DrawerConfig(
@@ -1004,9 +1017,9 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
             raw.extend(_slides_from_stack(col.get("drawer_config", []), col_w))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            raw.extend(_slides_from_stack(col.drawer_config, col.width_mm))
+            raw.extend(_slides_from_stack(col.openings, col.width_mm))
     else:
-        raw.extend(_slides_from_stack(cab_cfg.drawer_config, cab_cfg.interior_width))
+        raw.extend(_slides_from_stack(cab_cfg.openings, cab_cfg.interior_width))
 
     return consolidate_hardware_lines(raw)
 
@@ -1029,7 +1042,13 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
 
     def _hinges_from_stack(stack, interior_width: float) -> int:
         total = 0
-        for opening_h, slot_type in stack:
+        for item in stack:
+            if hasattr(item, "opening_type"):
+                opening_h, slot_type = item.height_mm, item.opening_type
+                hinge_key = item.hinge_key or cab_cfg.door_hinge
+            else:
+                opening_h, slot_type = float(item[0]), str(item[1])
+                hinge_key = cab_cfg.door_hinge
             if slot_type not in ("door", "door_pair"):
                 continue
             num_doors = 2 if slot_type == "door_pair" else 1
@@ -1037,7 +1056,7 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 opening_width=interior_width,
                 opening_height=opening_h,
                 num_doors=num_doors,
-                hinge_key=cab_cfg.door_hinge,
+                hinge_key=hinge_key,
             )
             total += dcfg.total_hinge_count
         return total
@@ -1048,9 +1067,9 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
             pieces += _hinges_from_stack(col.get("drawer_config", []), float(col["width_mm"]))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            pieces += _hinges_from_stack(col.drawer_config, col.width_mm)
+            pieces += _hinges_from_stack(col.openings, col.width_mm)
     else:
-        pieces += _hinges_from_stack(cab_cfg.drawer_config, cab_cfg.interior_width)
+        pieces += _hinges_from_stack(cab_cfg.openings, cab_cfg.interior_width)
 
     if pieces <= 0:
         return []
@@ -1213,16 +1232,19 @@ def drawer_front_screw_lines_for_cabinet_config(
     n_drawers = 0
 
     def _count_drawers(stack) -> int:
-        return sum(1 for _, t in stack if t == "drawer")
+        return sum(
+            1 for item in stack
+            if (item.opening_type if hasattr(item, "opening_type") else str(item[1])) == "drawer"
+        )
 
     if columns_raw:
         for col in columns_raw:
             n_drawers += _count_drawers(col.get("drawer_config", []))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            n_drawers += _count_drawers(col.drawer_config)
+            n_drawers += _count_drawers(col.openings)
     else:
-        n_drawers = _count_drawers(getattr(cab_cfg, "drawer_config", []))
+        n_drawers = _count_drawers(getattr(cab_cfg, "openings", []))
 
     if n_drawers == 0:
         return []

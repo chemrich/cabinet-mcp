@@ -187,13 +187,13 @@ class TestPullLinesForCabinetConfig:
         assert pull_lines_for_cabinet_config(cab) == []
 
     def test_cabinet_with_no_pulls_returns_empty(self):
-        cab = CabinetConfig(drawer_config=[(150, "drawer"), (150, "drawer")])
+        cab = CabinetConfig(openings=[(150, "drawer"), (150, "drawer")])
         assert pull_lines_for_cabinet_config(cab) == []
 
     def test_drawer_stack_with_pull_consolidates(self):
         cab = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(150, "drawer"), (150, "drawer"), (300, "drawer")],
+            openings=[(150, "drawer"), (150, "drawer"), (300, "drawer")],
             drawer_pull="topknobs-hb-128",
         )
         lines = pull_lines_for_cabinet_config(cab)
@@ -204,7 +204,7 @@ class TestPullLinesForCabinetConfig:
     def test_mixed_drawer_and_door_layout(self):
         cab = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(150, "drawer"), (570, "door")],
+            openings=[(150, "drawer"), (570, "door")],
             drawer_pull="topknobs-hb-128",
             door_pull="topknobs-hb-96",
         )
@@ -215,7 +215,7 @@ class TestPullLinesForCabinetConfig:
     def test_door_pair_counts_two(self):
         cab = CabinetConfig(
             width=800, height=720, depth=550,
-            drawer_config=[(720, "door_pair")],
+            openings=[(720, "door_pair")],
             door_pull="topknobs-hb-96",
         )
         lines = pull_lines_for_cabinet_config(cab)
@@ -225,7 +225,7 @@ class TestPullLinesForCabinetConfig:
     def test_shelf_and_open_slots_contribute_nothing(self):
         cab = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(300, "shelf"), (300, "open"), (120, "drawer")],
+            openings=[(300, "shelf"), (300, "open"), (120, "drawer")],
             drawer_pull="topknobs-hb-128",
         )
         lines = pull_lines_for_cabinet_config(cab)
@@ -237,7 +237,7 @@ class TestPullLinesForCabinetConfig:
         # pull_unknown check is responsible for warning the user.)
         cab = CabinetConfig(
             width=600, height=720, depth=550,
-            drawer_config=[(150, "drawer")],
+            openings=[(150, "drawer")],
             drawer_pull="ghost-pull",
         )
         assert pull_lines_for_cabinet_config(cab) == []
@@ -247,11 +247,11 @@ class TestPullLinesForCabinetConfig:
         # interior_width = 600 - 2·18 = 564, so columns must sum to 564.
         left = ColumnConfig(
             width_mm=282.0,
-            drawer_config=((150.0, "drawer"), (150.0, "drawer")),
+            openings=((150.0, "drawer"), (150.0, "drawer")),
         )
         right = ColumnConfig(
             width_mm=282.0,
-            drawer_config=((600.0, "door"),),
+            openings=((600.0, "door"),),
         )
         cab = CabinetConfig(
             width=600, height=720, depth=550,

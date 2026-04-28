@@ -7402,7 +7402,454 @@ _s(Scenario(
 ))
 
 
-# ─── Index helpers ────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# identify_furniture_type scenarios
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="identify_sideboard_canonical",
+    prompt="What kind of cabinet is a sideboard?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "sideboard"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Sideboard"),
+                Assertion("match.category", Op.EQ, "Case Pieces & Storage"),
+                Assertion("match.preset_keys", Op.CONTAINS, "living_room_sideboard"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_credenza_synonym",
+    prompt="I want to build a credenza — what is that?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "credenza"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Credenza"),
+                Assertion("match.preset_keys", Op.CONTAINS, "living_room_credenza"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_tallboy_maps_to_preset",
+    prompt="What is a tallboy and what preset should I use?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "tallboy"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Tallboy"),
+                Assertion("match.preset_keys", Op.CONTAINS, "bedroom_tall_chest"),
+                Assertion("match.presets", Op.LEN_GTE, 1),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_chevet_synonym",
+    prompt="What is a chevet?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "chevet"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Chevet"),
+                Assertion("match.preset_keys", Op.CONTAINS, "bedroom_nightstand"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_unknown_returns_error",
+    prompt="What kind of cabinet is a widget-o-matic?",
+    tags=["identify_furniture", "furniture_refs", "edge_case"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "widget-o-matic"},
+            assertions=[
+                Assertion("error", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+# ─── Synonym-aware apply_preset scenarios ─────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="apply_preset_by_synonym_dresser",
+    prompt="Apply the dresser preset.",
+    tags=["presets", "identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "dresser"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_dresser"),
+                Assertion("resolved_from", Op.EQ, "dresser"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_preset_by_synonym_nightstand",
+    prompt="Give me a nightstand preset.",
+    tags=["presets", "identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "nightstand"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_nightstand"),
+                Assertion("resolved_from", Op.EQ, "nightstand"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_preset_by_synonym_chiffonier",
+    prompt="I want to build a chiffonier — load a preset for that.",
+    tags=["presets", "identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "chiffonier"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_chiffoniere"),
+                Assertion("resolved_from", Op.EQ, "chiffonier"),
+            ],
+        ),
+    ],
+))
+
+# ─── New preset scenarios ──────────────────────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_nightstand",
+    prompt="Load the bedroom nightstand preset and check it evaluates cleanly.",
+    tags=["presets", "bedroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_nightstand"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_nightstand"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.width", Op.EQ, 550),
+                Assertion("config.height", Op.EQ, 650),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_tall_chest",
+    prompt="Load the tall chest preset — 8 drawers.",
+    tags=["presets", "bedroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_tall_chest"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_tall_chest"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.height", Op.EQ, 1400),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_lingerie_chest",
+    prompt="Load the lingerie chest preset.",
+    tags=["presets", "bedroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_lingerie_chest"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_lingerie_chest"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.width", Op.EQ, 500),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bathroom_linen_tower",
+    prompt="Load the bathroom linen tower preset.",
+    tags=["presets", "bathroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bathroom_linen_tower"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bathroom_linen_tower"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.height", Op.EQ, 1900),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_office_filing_cabinet",
+    prompt="Load the office filing cabinet preset.",
+    tags=["presets", "office"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "office_filing_cabinet"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "office_filing_cabinet"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.depth", Op.EQ, 600),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_entryway_entry_cabinet",
+    prompt="Load the entryway entry cabinet preset.",
+    tags=["presets", "entryway"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "entryway_entry_cabinet"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "entryway_entry_cabinet"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_entryway_hall_tree",
+    prompt="Load the hall tree preset.",
+    tags=["presets", "entryway"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "entryway_hall_tree"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "entryway_hall_tree"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.height", Op.EQ, 1900),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_living_room_bar_cabinet",
+    prompt="Load the bar cabinet preset.",
+    tags=["presets", "living_room"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "living_room_bar_cabinet"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "living_room_bar_cabinet"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_gentleman_chest",
+    prompt="Load the gentleman's chest preset.",
+    tags=["presets", "bedroom", "multi_column"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_gentleman_chest"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_gentleman_chest"),
+                Assertion("config.width", Op.EQ, 1400),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="list_presets_entryway",
+    prompt="List all entryway presets.",
+    tags=["presets", "entryway"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="list_presets",
+            args={"category": "entryway"},
+            assertions=[
+                Assertion("count", Op.GTE, 2),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="list_presets_office",
+    prompt="List all office presets.",
+    tags=["presets", "office"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="list_presets",
+            args={"category": "office"},
+            assertions=[
+                Assertion("count", Op.GTE, 1),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_armoire",
+    prompt="Load the standard armoire preset.",
+    tags=["presets", "bedroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_armoire"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_armoire"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.height", Op.EQ, 1900),
+                Assertion("config.width", Op.EQ, 1100),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_bedroom_chiffoniere",
+    prompt="Load the chiffonière preset.",
+    tags=["presets", "bedroom"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "bedroom_chiffoniere"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_chiffoniere"),
+                Assertion("opening_stack_matches_interior", Op.IS_TRUE),
+                Assertion("config.width", Op.EQ, 500),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_preset_by_synonym_armoire",
+    prompt="Load a preset for an armoire.",
+    tags=["presets", "identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "armoire"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_armoire"),
+                Assertion("resolved_from", Op.EQ, "armoire"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="apply_preset_by_synonym_wardrobe",
+    prompt="I need a wardrobe preset.",
+    tags=["presets", "identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "wardrobe"},
+            assertions=[
+                Assertion("preset_name", Op.EQ, "bedroom_armoire"),
+                Assertion("resolved_from", Op.EQ, "wardrobe"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_armoire_has_two_presets",
+    prompt="What presets exist for an armoire?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "armoire"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Armoire"),
+                Assertion("match.preset_keys", Op.CONTAINS, "bedroom_armoire"),
+                Assertion("match.preset_keys", Op.CONTAINS, "armoire_2col"),
+                Assertion("match.presets", Op.LEN_EQ, 2),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="identify_chiffonier_has_chiffoniere_preset",
+    prompt="What is a chiffonier and what preset should I use?",
+    tags=["identify_furniture", "furniture_refs"],
+    difficulty="basic",
+    tool_calls=[
+        ToolCall(
+            tool="identify_furniture_type",
+            args={"name": "chiffonier"},
+            assertions=[
+                Assertion("match.piece", Op.EQ, "Chiffonier"),
+                Assertion("match.preset_keys", Op.CONTAINS, "bedroom_chiffoniere"),
+                Assertion("match.presets", Op.LEN_GTE, 1),
+            ],
+        ),
+    ],
+))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Index helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def scenarios_by_tag(tag: str) -> list[Scenario]:
     return [s for s in SCENARIOS if tag in s.tags]
