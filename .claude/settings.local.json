@@ -17,7 +17,13 @@
       "mcp__cabinet__design_multi_column_cabinet",
       "Bash(open *)",
       "Bash(/Users/charlie/Documents/code/cabinet-mcp/.venv/bin/python -m evals)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__cabinet__list_hardware",
+      "mcp__cabinet__design_pulls",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(uv pip *)"
     ]
   }
 }
