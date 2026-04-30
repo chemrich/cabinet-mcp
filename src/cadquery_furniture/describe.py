@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .cabinet import CabinetConfig
 from .drawer import DrawerConfig, DrawerJoineryStyle
-from .hardware import HINGES, SLIDES
+from .hardware import HINGES, PULLS, SLIDES
 from .joinery import CarcassJoinery
 
 
@@ -176,6 +176,27 @@ def describe_design(cfg: CabinetConfig) -> dict:
         overlay = hinge.overlay_type.value.replace("_", "-")
         hardware_phrases.append(f"{hinge.name}{soft} hinges ({overlay} overlay)")
 
+    pull_selection_required = False
+    drawer_pull_spec = PULLS.get(cfg.drawer_pull or "")
+    door_pull_spec   = PULLS.get(cfg.door_pull or "")
+    if drawer_pull_spec and has_drawers:
+        hardware["drawer_pull"] = {
+            "key":  cfg.drawer_pull,
+            "name": drawer_pull_spec.name,
+        }
+        hardware_phrases.append(f"{drawer_pull_spec.name} drawer pulls")
+    elif has_drawers and not cfg.drawer_pull:
+        pull_selection_required = True
+    if door_pull_spec and has_doors:
+        hardware["door_pull"] = {
+            "key":  cfg.door_pull,
+            "name": door_pull_spec.name,
+        }
+        if not drawer_pull_spec:
+            hardware_phrases.append(f"{door_pull_spec.name} door pulls")
+    elif has_doors and not cfg.door_pull:
+        pull_selection_required = True
+
     # ── 4. Materials + joinery ───────────────────────────────────────────────
     drawer_joinery = _default_drawer_joinery()
     materials = {
@@ -215,13 +236,19 @@ def describe_design(cfg: CabinetConfig) -> dict:
             f"(off by {delta:+.0f} mm). Run auto_fix_cabinet or adjust "
             f"drawer_config before visualizing."
         )
+    if pull_selection_required:
+        lines.append(
+            "⚠ No pull hardware selected. Ask the user to choose a pull style "
+            "(call list_pull_presets) before calling visualize_cabinet."
+        )
 
     prose = " ".join(lines)
 
     return {
-        "prose":       prose,
-        "dimensions":  dimensions,
-        "openings":    openings,
-        "hardware":    hardware,
-        "materials":   materials,
+        "prose":                   prose,
+        "dimensions":              dimensions,
+        "openings":                openings,
+        "hardware":                hardware,
+        "materials":               materials,
+        "pull_selection_required": pull_selection_required,
     }
