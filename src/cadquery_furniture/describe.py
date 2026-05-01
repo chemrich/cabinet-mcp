@@ -198,7 +198,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
         pull_selection_required = True
 
     # ── 4. Materials + joinery ───────────────────────────────────────────────
-    drawer_joinery = _default_drawer_joinery()
+    drawer_joinery = getattr(cfg, "drawer_joinery", _default_drawer_joinery())
     materials = {
         "carcass_joinery":        cfg.carcass_joinery.value,
         "drawer_box_joinery":     drawer_joinery.value,

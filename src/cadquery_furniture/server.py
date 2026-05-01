@@ -193,6 +193,8 @@ def _build_cabinet_config(args: dict) -> CabinetConfig:
     for key, value in args.items():
         if key == "carcass_joinery" and isinstance(value, str):
             kwargs[key] = CarcassJoinery(value)
+        elif key == "drawer_joinery" and isinstance(value, str):
+            kwargs[key] = DrawerJoineryStyle(value)
         elif key == "openings" and isinstance(value, list):
             kwargs[key] = [_to_opening(r) for r in value]
         elif key == "columns" and isinstance(value, list):
@@ -364,6 +366,12 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
+                    },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
                     },
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "door_hinge": {
@@ -1118,6 +1126,12 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
                     },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
+                    },
                     "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
@@ -1174,6 +1188,12 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
+                    },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
                     },
                     "door_hinge":    {"type": "string", "default": "blum_clip_top_110_full"},
                     "drawer_slide":  {"type": "string", "default": "blum_tandem_550h"},
