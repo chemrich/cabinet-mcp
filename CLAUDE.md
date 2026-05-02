@@ -109,11 +109,38 @@ Baseline: 77 scenarios / 332 assertions / 100% pass rate. Run the eval suite aft
 
 ### Visualizer bugs
 - ~~**`visualize_cabinet` pulls not rendered**~~ — fixed: `build_multi_bay_cabinet` now adds a `bay{i}_pull{j}_{k}` mesh for each pull placement; `visualize_cabinet` now forwards `drawer_pull` into per-column bay configs for multi-column layouts; the viewer tracks `bay{i}_pull{j}_{k}` nodes and animates them alongside the face when "O" is pressed.
-- **`visualize_cabinet` "O" shortcut** (open drawers) does not work — investigation notes:
-  - The viewer uses `<script type="module">` + importmap; must be served over HTTP (not `file://`) for Chrome — use `python3 -m http.server 8765` in `~/.cabinet-mcp/visualizations/`.
-  - Root cause of O not working: `pair.box` is never populated for any of the 12 drawer pairs. The JS traversal looks up to grandparent (`p2 = obj.parent.parent`) for the `bay{i}_drawer{j}` group name, but Three.js r165 GLTFLoader appears to insert additional wrapper nodes, placing the named group deeper than 2 levels from the leaf mesh. Confirmed via console: `pair.face` is set on all pairs (face meshes are only 1 level deep) but `pair.box` is always null.
-  - Next step: add temporary ancestry logging (`while (cur) { anc.push(cur.name); cur = cur.parent; }`) to a fresh render and read the actual depth, then extend the JS search loop to match that depth. Also investigate whether `gltf.scene` itself adds a wrapper level not present in the GLTF JSON node list.
+- ~~**`visualize_cabinet` "O" shortcut** (open drawers) does not work~~ — fixed. Two root causes:
+  1. **Wrong traversal depth for `pair.box`**: Three.js r165 GLTFLoader wraps multi-primitive GLTF meshes in an extra Group node, making the ancestry `leaf_mesh → _part_N Group → panel_part Group → panel_name Group → bay{i}_drawer{j} Group`. The old code only searched 3 levels (depths 0–2); `bay{i}_drawer{j}` sits at depth 3. Fixed by adding `p3 = p2?.parent` and extending `searchNames`/`searchNodes` to 4 entries.
+  2. **Unanchored face/drawer regex set `pair.face` to a leaf mesh**: The match regex `/^bay(\d+)_(face|drawer)(\d+)/` had no `$` anchor, so leaf mesh names like `bay0_face0_part_0` matched at `si=0`, storing the individual mesh primitive as `pair.face` instead of the `bay0_face0` group node. Only the last-processed primitive was moved on open/close. Fixed by adding `$` to the regex: `/^bay(\d+)_(face|drawer)(\d+)$/`.
 - ~~**Pulls don't hide in X-ray mode**~~ — fixed: added `pullMeshes` array; pull mesh objects are pushed there during traversal alongside `pair.pulls`; `toggleXray` now iterates `[...drawerFronts, ...pullMeshes]`.
+
+### Viewer keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `X` | X-ray drawer and door fronts (transparent overlay) |
+| `O` | Open / close all drawers (slides box + face + pulls together) |
+| `C` | Toggle clip plane (axis buttons + slider + mm readout) |
+| `V` | Toggle diagnostic colors: drawer sides → pink, drawer front/back → yellow, drawer bottom → green, carcass sides → blue, carcass top/bottom → orange |
+
+### Viewer GLTF node hierarchy (Three.js r165)
+
+Three.js GLTFLoader wraps each multi-primitive GLTF mesh in an extra `Group`, adding one level beyond the GLTF JSON hierarchy. Confirmed ancestry (depth 0 = leaf `THREE.Mesh`):
+
+```
+bay0_face0_part_N  (THREE.Mesh, si=0)
+  bay0_face0_part  (Group,      si=1)
+    bay0_face0     (Object3D,   si=2)  ← pair.face set here (regex $ match)
+      multi_bay_cabinet
+
+bay0_drawer0/side_L_part_N  (THREE.Mesh, si=0)
+  side_L_part                (Group,     si=1)
+    side_L                   (Object3D,  si=2)
+      bay0_drawer0           (Object3D,  si=3)  ← pair.box set here (depth-4 search)
+        multi_bay_cabinet
+```
+
+Three.js deduplicates repeated node names across the scene by appending `_1`, `_2`, … (e.g. `back` → `back_1` for the second drawer's back panel, since the carcass already has a `back` node). The V-key diagnostic color logic strips this suffix with `name.replace(/_\d+$/, '')` before the PANEL_DIAG_COLS lookup.
 
 ## Vertical overlay styles
 

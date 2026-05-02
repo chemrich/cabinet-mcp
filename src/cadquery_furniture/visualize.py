@@ -297,6 +297,29 @@ def _build_html(title: str, glb_b64: str, info: dict) -> str:
       transform: translate(-50%, -50%);
       color: #666; font-size: 15px; letter-spacing: 0.06em;
     }}
+
+    #clip-ui {{
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      display: none; flex-direction: column; align-items: center; gap: 6px;
+      background: rgba(10, 10, 25, 0.72); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.09); border-radius: 10px;
+      padding: 10px 18px; user-select: none;
+    }}
+    #clip-ui.active {{ display: flex; }}
+    #clip-label {{
+      color: rgba(240,192,96,0.85); font-size: 11px; letter-spacing: 0.06em;
+    }}
+    #clip-axis-btns {{ display: flex; gap: 8px; }}
+    #clip-axis-btns button {{
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+      color: #ccc; border-radius: 5px; padding: 2px 10px; font-size: 11px; cursor: pointer;
+    }}
+    #clip-axis-btns button.sel {{
+      background: rgba(240,192,96,0.22); border-color: rgba(240,192,96,0.55); color: #f0c060;
+    }}
+    #clip-range {{
+      width: 260px; accent-color: #f0c060;
+    }}
   </style>
 </head>
 <body>
@@ -312,7 +335,21 @@ def _build_html(title: str, glb_b64: str, info: dict) -> str:
     Right-drag&nbsp;&nbsp;pan<br>
     Scroll&nbsp;&nbsp;zoom<br>
     <span style="color: rgba(240, 192, 96, 0.55);">X</span>&nbsp;&nbsp;x-ray fronts<br>
-    <span style="color: rgba(240, 192, 96, 0.55);">O</span>&nbsp;&nbsp;open drawers
+    <span style="color: rgba(240, 192, 96, 0.55);">O</span>&nbsp;&nbsp;open drawers<br>
+    <span style="color: rgba(240, 192, 96, 0.55);">C</span>&nbsp;&nbsp;clip plane<br>
+    <span style="color: rgba(240, 192, 96, 0.55);">V</span>&nbsp;&nbsp;diag colors
+  </div>
+
+  <div id="clip-ui">
+    <div id="clip-label">CLIP PLANE</div>
+    <div id="clip-axis-btns">
+      <button id="btn-x" onclick="setClipAxis('x')">X</button>
+      <button id="btn-y" onclick="setClipAxis('y')">Y  depth</button>
+      <button id="btn-z" class="sel" onclick="setClipAxis('z')">Z  height</button>
+    </div>
+    <input id="clip-range" type="range" min="0" max="100" step="0.1" value="50"
+           oninput="updateClipPlane()">
+    <div id="clip-pos" style="color:#f0c060;font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:0.04em;">— mm</div>
   </div>
 
   <script type="importmap">
@@ -393,6 +430,9 @@ controls.minDistance      = 50;
 controls.maxDistance      = 20000;
 controls.maxPolarAngle    = Math.PI / 2 + 0.18;
 
+// Suppress the browser context menu so right-drag pan works.
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
 // ── Load model ────────────────────────────────────────────────────────────────
 // Drawer pair bookkeeping for the X-ray & Open toggles.
 // Names come from cabinet.py:  "bay{{i}}_drawer{{j}}" (box)  +  "bay{{i}}_face{{j}}" (front).
@@ -407,8 +447,10 @@ function _pairFor(key) {{
   return drawerPairs.get(key);
 }}
 
+let cabinetRoot = null;
 new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   const model = gltf.scene;
+  cabinetRoot = model;
 
   model.traverse(obj => {{
     if (!obj.isMesh) return;
@@ -423,19 +465,21 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     }});
 
     // Bucket drawer meshes by (bay, slot) for the X-ray + Open toggles.
-    // CadQuery wraps each shape in a Group + _part mesh, so the named node
-    // may be the mesh itself (si=0), its parent (si=1), or its grandparent
-    // (si=2 — drawer box parts are 2 levels deep: bay0_drawer0/side_L/side_L_part).
+    // Three.js GLTFLoader wraps multi-primitive meshes in a Group, adding one
+    // extra level vs the GLTF JSON: leaf mesh → _part Group → panel Group →
+    // bay{{i}}_drawer{{j}} Group.  Search 4 levels to cover all node types.
     const p1 = obj.parent;
     const p2 = p1 ? p1.parent : null;
-    const searchNames = [obj.name, p1 ? p1.name : '', p2 ? p2.name : ''];
-    const searchNodes = [obj, p1, p2];
+    const p3 = p2 ? p2.parent : null;
+    const searchNames = [obj.name, p1 ? p1.name : '', p2 ? p2.name : '', p3 ? p3.name : ''];
+    const searchNodes = [obj, p1, p2, p3];
     for (let si = 0; si < searchNames.length; si++) {{
       const nm = searchNames[si];
       if (!nm) continue;
 
-      // Drawer face (bay_i_face_j) or box (bay_i_drawer_j)
-      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)/);
+      // Drawer face (bay_i_face_j) or box (bay_i_drawer_j) — $ ensures we
+      // match the group node name exactly, not leaf mesh names like bay0_face0_part_0
+      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)$/);
       if (dm) {{
         const key = dm[1] + '_' + dm[3];
         const pair = _pairFor(key);
@@ -511,6 +555,7 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   controls.target.copy(centre);
   controls.update();
 
+  initDiagColors();
   document.getElementById('loading').style.display = 'none';
 
 }}, err => {{
@@ -527,10 +572,11 @@ const xrayCache  = new WeakMap();    // mesh → {{ orig, xray }}
 
 function _makeXrayMaterial(src) {{
   const x = src.clone();
-  x.transparent = true;
-  x.opacity     = 0.22;
-  x.depthWrite  = false;
-  x.side        = THREE.DoubleSide;
+  x.transparent      = true;
+  x.opacity          = 0.28;
+  x.depthWrite       = false;
+  x.alphaToCoverage  = true;   // routes alpha through MSAA — much smoother edges
+  x.side             = THREE.FrontSide;  // DoubleSide doubles fragments and worsens aliasing
   return x;
 }}
 
@@ -562,12 +608,156 @@ function toggleOpenDrawers() {{
   drawersOpen = !drawersOpen;
 }}
 
+// ── Clipping plane ────────────────────────────────────────────────────────────
+let clipActive = false;
+let clipAxis   = 'z';
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+
+function axisSpan(box, axis) {{
+  if (axis === 'x') return {{ span: box.max.x - box.min.x, min: box.min.x }};
+  if (axis === 'y') return {{ span: box.max.z - box.min.z, min: box.min.z }};  // cabinet Y = Three.js Z
+  return {{ span: box.max.y - box.min.y, min: box.min.y }};                    // cabinet Z = Three.js Y
+}}
+
+function setSliderStep(axis) {{
+  const box = new THREE.Box3().setFromObject(cabinetRoot || scene);
+  const {{ span }} = axisSpan(box, axis);
+  // Target 1 mm per slider step
+  const step = Math.max(0.001, Math.min(1, 100 / span));
+  document.getElementById('clip-range').step = step.toFixed(4);
+}}
+
+function setClipAxis(axis) {{
+  clipAxis = axis;
+  document.querySelectorAll('#clip-axis-btns button').forEach(b => b.classList.remove('sel'));
+  document.getElementById('btn-' + axis).classList.add('sel');
+  setSliderStep(axis);
+  updateClipPlane();
+}}
+
+function updateClipPlane() {{
+  if (!clipActive) return;
+  const t = parseFloat(document.getElementById('clip-range').value) / 100;
+  const box = new THREE.Box3().setFromObject(cabinetRoot || scene);
+  const {{ span, min }} = axisSpan(box, clipAxis);
+  const v = min + t * span;
+  let normal, constant, axisLabel;
+  if (clipAxis === 'x') {{
+    normal = new THREE.Vector3(-1, 0, 0); constant = v; axisLabel = 'from left';
+  }} else if (clipAxis === 'y') {{
+    normal = new THREE.Vector3(0, 0, -1); constant = v; axisLabel = 'from front';
+  }} else {{
+    normal = new THREE.Vector3(0, -1, 0); constant = v; axisLabel = 'from bottom';
+  }}
+  clipPlane.set(normal, constant);
+  const posEl = document.getElementById('clip-pos');
+  if (posEl) posEl.textContent = Math.round(t * span) + ' mm ' + axisLabel;
+}}
+
+function toggleClip() {{
+  clipActive = !clipActive;
+  const ui = document.getElementById('clip-ui');
+  if (clipActive) {{
+    ui.classList.add('active');
+    renderer.clippingPlanes = [clipPlane];
+    renderer.localClippingEnabled = true;
+    setSliderStep(clipAxis);
+    updateClipPlane();
+  }} else {{
+    ui.classList.remove('active');
+    renderer.clippingPlanes = [];
+  }}
+}}
+
+window.setClipAxis  = setClipAxis;
+window.updateClipPlane = updateClipPlane;
+
 window.addEventListener('keydown', (e) => {{
   // Ignore when modifier keys are held so we don't clash with browser shortcuts.
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'x' || e.key === 'X') {{ toggleXray();        e.preventDefault(); }}
   if (e.key === 'o' || e.key === 'O') {{ toggleOpenDrawers(); e.preventDefault(); }}
+  if (e.key === 'c' || e.key === 'C') {{ toggleClip();        e.preventDefault(); }}
+  if (e.key === 'v' || e.key === 'V') {{ toggleDiagColors(); e.preventDefault(); }}
 }});
+
+// ── Diagnostic colors (V key) ─────────────────────────────────────────────────
+// Vivid per-panel-type colors for drawer box inspection.
+// Three.js deduplicates node names across the scene (back → back_1, back_2, …)
+// so we strip the numeric suffix before looking up the panel type.
+const PINK   = new THREE.Color(1.00, 0.25, 0.60);
+const YELLOW = new THREE.Color(1.00, 0.85, 0.10);
+const GREEN  = new THREE.Color(0.10, 0.82, 0.40);
+const BLUE   = new THREE.Color(0.25, 0.55, 1.00);
+const ORANGE = new THREE.Color(1.00, 0.60, 0.15);
+
+// Drawer box panels (inside bay{{i}}_drawer{{j}} groups)
+const DRAWER_DIAG_COLS = {{
+  side_L: PINK, side_R: PINK,
+  sub_front: YELLOW, back: YELLOW,
+  bottom: GREEN,
+}};
+// Carcass panels (inside bay_{{i}} groups)
+const CARCASS_DIAG_COLS = {{
+  left_side: BLUE, right_side: BLUE,
+  top: ORANGE, bottom: ORANGE,
+}};
+
+let diagOn = false;
+const diagMeshes = [];
+
+function _diagAncestorColor(obj, table) {{
+  let cur = obj.parent;
+  for (let i = 0; i < 5; i++) {{
+    if (!cur) return null;
+    const base = cur.name.replace(/_\\d+$/, '');
+    if (table[base]) return table[base];
+    cur = cur.parent;
+  }}
+  return null;
+}}
+
+function isInDrawerGroup(obj) {{
+  let cur = obj.parent;
+  for (let i = 0; i < 7; i++) {{
+    if (!cur) return false;
+    if (/^bay\\d+_drawer\\d+$/.test(cur.name)) return true;
+    cur = cur.parent;
+  }}
+  return false;
+}}
+
+function isInCarcassGroup(obj) {{
+  let cur = obj.parent;
+  for (let i = 0; i < 7; i++) {{
+    if (!cur) return false;
+    if (/^bay_\\d+$/.test(cur.name)) return true;
+    cur = cur.parent;
+  }}
+  return false;
+}}
+
+function initDiagColors() {{
+  (cabinetRoot || scene).traverse(obj => {{
+    if (!obj.isMesh || !obj.material) return;
+    let diagCol = null;
+    if (isInDrawerGroup(obj))  diagCol = _diagAncestorColor(obj, DRAWER_DIAG_COLS);
+    else if (isInCarcassGroup(obj)) diagCol = _diagAncestorColor(obj, CARCASS_DIAG_COLS);
+    if (diagCol) {{
+      const diagMat = obj.material.clone();
+      diagMat.color.copy(diagCol);
+      diagMat.roughness = 0.45;
+      diagMeshes.push({{ mesh: obj, origMat: obj.material, diagMat }});
+    }}
+  }});
+}}
+
+function toggleDiagColors() {{
+  diagOn = !diagOn;
+  for (const {{ mesh, origMat, diagMat }} of diagMeshes) {{
+    mesh.material = diagOn ? diagMat : origMat;
+  }}
+}}
 
 // ── Render loop ───────────────────────────────────────────────────────────────
 (function animate() {{
