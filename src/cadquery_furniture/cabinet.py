@@ -27,6 +27,7 @@ from .hardware import DrawerSlideSpec, get_slide, LegSpec, get_leg, get_pull, Mo
 from .pulls import HingeSide, door_pull_x_center
 from .joinery import (
     CarcassJoinery,
+    DrawerJoineryStyle,
     DominoSpec,
     PocketScrewSpec,
     BiscuitSpec,
@@ -146,6 +147,9 @@ class CabinetConfig:
 
     # Carcass joinery method
     carcass_joinery: CarcassJoinery = CarcassJoinery.FLOATING_TENON
+
+    # Drawer box corner joinery
+    drawer_joinery: DrawerJoineryStyle = DrawerJoineryStyle.HALF_LAP
 
     # Per-method joinery specs (used when the matching joinery method is selected)
     domino_spec: DominoSpec = field(default_factory=lambda: DEFAULT_DOMINO)
@@ -803,6 +807,7 @@ def build_multi_bay_cabinet(
                         opening_depth=cfg.interior_depth,
                         slide_key=cfg.drawer_slide,
                         applied_face=False,  # faces handled below
+                        joinery_style=cfg.drawer_joinery,
                     )
                     drw_assy, drw_parts = build_drawer(dcfg)
 

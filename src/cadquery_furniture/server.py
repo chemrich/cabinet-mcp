@@ -193,6 +193,8 @@ def _build_cabinet_config(args: dict) -> CabinetConfig:
     for key, value in args.items():
         if key == "carcass_joinery" and isinstance(value, str):
             kwargs[key] = CarcassJoinery(value)
+        elif key == "drawer_joinery" and isinstance(value, str):
+            kwargs[key] = DrawerJoineryStyle(value)
         elif key == "openings" and isinstance(value, list):
             kwargs[key] = [_to_opening(r) for r in value]
         elif key == "columns" and isinstance(value, list):
@@ -364,6 +366,12 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
+                    },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
                     },
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "door_hinge": {
@@ -1024,8 +1032,11 @@ async def list_tools() -> list[types.Tool]:
                 After calling this tool you MUST immediately call
                 evaluate_cabinet on the returned config.  If errors are found,
                 call auto_fix_cabinet, then re-evaluate.  Once clean, call
-                describe_design and present the summary to the user.  Do NOT
-                call visualize_cabinet until the user has approved.
+                describe_design and present the summary to the user.  If
+                describe_design returns pull_selection_required=true, call
+                list_pull_presets and ask the user to choose a pull style
+                before visualizing.  Do NOT call visualize_cabinet until the
+                user has approved the design and pull hardware.
             """),
             inputSchema={
                 "type": "object",
@@ -1115,6 +1126,12 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
                     },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
+                    },
                     "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
@@ -1136,14 +1153,20 @@ async def list_tools() -> list[types.Tool]:
                   - materials.carcass_joinery: the carcass joinery method
                   - materials.drawer_box_joinery: the drawer-box corner joint
 
+                Returns:
+                  - pull_selection_required: true when drawers or doors have no
+                    pull assigned — ask the user to pick one before visualizing.
+
                 ── WORKFLOW ──
                 Call this after evaluate_cabinet returns zero errors (or after
                 auto_fix_cabinet has cleaned them).  Present the prose to the
-                user, then EXPLICITLY ask them to confirm or change the two
-                joinery choices — carcass joinery (materials.carcass_joinery)
-                and drawer-box joinery (materials.drawer_box_joinery) — before
-                calling visualize_cabinet.  Do not proceed to visualization
-                until the user has acknowledged the joinery methods.
+                user, then EXPLICITLY ask them to confirm or change:
+                  1. Carcass joinery (materials.carcass_joinery)
+                  2. Drawer-box joinery (materials.drawer_box_joinery)
+                  3. Pull style — if pull_selection_required is true, call
+                     list_pull_presets and ask the user to choose before
+                     calling visualize_cabinet.
+                Do not proceed to visualization until all three are confirmed.
             """),
             inputSchema={
                 "type": "object",
@@ -1166,9 +1189,23 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
                     },
-                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "default": "half_lap",
+                        "description": "Drawer box corner joint style.",
+                    },
+                    "door_hinge":    {"type": "string", "default": "blum_clip_top_110_full"},
+                    "drawer_slide":  {"type": "string", "default": "blum_tandem_550h"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
-                    "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
+                    "drawer_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key from list_hardware (category='pulls'). Include when a pull has been selected.",
+                    },
+                    "door_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key for door openings.",
+                    },
                 },
                 "required": ["width", "height", "depth"],
             },

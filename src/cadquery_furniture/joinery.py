@@ -155,6 +155,22 @@ class DrawerJoinerySpec:
         return self.side_thickness - self.side_dado_depth_x
 
     @property
+    def engagement_x(self) -> float:
+        """How far the sub-front/back must extend past the carcass interior edge
+        to engage the side panel's rabbet.
+
+        For BUTT this is 0 — the sub-front sits flush between the sides.
+        For all other styles the visualization uses a uniform inside-face rabbet
+        of depth ``side_dado_depth_x``, so the sub-front must extend that far
+        into each side to fill the rabbet.  (The shop cuts captured by the
+        other DrawerJoinerySpec fields — QQQ tongue, DRAWER_LOCK L-step — are
+        recorded for the BOM/spec but not modelled in 3D.)
+        """
+        if self.style == DrawerJoineryStyle.BUTT:
+            return 0.0
+        return self.side_dado_depth_x
+
+    @property
     def glue_area_corner(self) -> float:
         """Approximate glue contact area at one corner (mm²).
 
@@ -645,71 +661,55 @@ def apply_drawer_joinery_to_side(
     spec: DrawerJoinerySpec,
     box_depth: float,
     box_height: float,
+    side: str = "left",
 ) -> "cq.Workplane":
-    """Apply corner-joint cuts to a drawer SIDE panel.
+    """Cut the inside-face rabbet that receives the sub-front / back panels.
 
     The panel is assumed to start at the origin (0, 0, 0) with:
       X = 0 … side_thickness
       Y = 0 … box_depth
       Z = 0 … box_height
 
-    The INSIDE face of the LEFT side panel is at X = side_thickness.
-    Joints are cut at the FRONT (y = 0) and BACK (y = box_depth) ends.
+    For BUTT: no cut.
 
-    For BUTT: no cuts.
-    For QQQ: dado removed from the inside-face half at each end, leaving a
-             tongue (outer half × half-thickness in y).
-    For HALF_LAP: rabbet removed from inside face at each end, full
-                  front_back_thickness deep in y.
-    For DRAWER_LOCK: L-shaped profile at each end (two subtractive passes).
+    For QQQ / HALF_LAP / DRAWER_LOCK the visualization uses a uniform rabbet —
+    ``engagement_x`` deep in X (= ``side_dado_depth_x``), full
+    ``front_back_thickness`` deep in Y — at each end of the side.  The
+    sub-front / back is widened by ``2 × engagement_x`` and seats into this
+    rabbet, producing a correctly engaged joint with no material interference.
+    The shop cuts (QQQ ½-thickness tongue, DRAWER_LOCK L-step) are recorded
+    on the spec for the BOM but not modelled here.
+
+    ``side="left"`` puts the inside face at panel-local X = side_thickness;
+    ``side="right"`` puts it at X = 0.
     """
     _require_cq()
 
     if spec.style == DrawerJoineryStyle.BUTT:
         return panel
 
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+
     t_s = spec.side_thickness
-    dx = spec.side_dado_depth_x   # how deep into side (x, from inside face)
-    dy = spec.side_dado_depth_y   # how far into end (y)
+    dx = spec.engagement_x
+    dy = spec.front_back_thickness
 
-    inside_face_x = t_s  # for left-side panel; caller mirrors for right side
+    cut_x_start = (t_s - dx) if side == "left" else 0.0
 
-    # --- Cut at FRONT end (y = 0) ---
-    # Remove material from inside face (x = inside_face_x - dx … inside_face_x)
-    # from y = 0 to y = dy
     front_cut = (
         cq.Workplane("XY")
-        .transformed(offset=(inside_face_x - dx, 0, 0))
+        .transformed(offset=(cut_x_start, 0, 0))
         .box(dx, dy, box_height, centered=False)
     )
     panel = panel.cut(front_cut)
 
-    # --- Cut at BACK end (y = box_depth - dy) ---
     back_cut = (
         cq.Workplane("XY")
-        .transformed(offset=(inside_face_x - dx, box_depth - dy, 0))
+        .transformed(offset=(cut_x_start, box_depth - dy, 0))
         .box(dx, dy, box_height, centered=False)
     )
     panel = panel.cut(back_cut)
-
-    # DRAWER_LOCK: add the inner step of the L-tongue
-    if spec.style == DrawerJoineryStyle.DRAWER_LOCK and spec.lock_step_depth_y > 0:
-        ls_dx = spec.lock_step_depth_x
-        ls_dy = spec.lock_step_depth_y - dy  # incremental depth beyond first cut
-
-        front_lock = (
-            cq.Workplane("XY")
-            .transformed(offset=(inside_face_x - ls_dx, dy, 0))
-            .box(ls_dx, ls_dy, box_height, centered=False)
-        )
-        panel = panel.cut(front_lock)
-
-        back_lock = (
-            cq.Workplane("XY")
-            .transformed(offset=(inside_face_x - ls_dx, box_depth - spec.lock_step_depth_y, 0))
-            .box(ls_dx, ls_dy, box_height, centered=False)
-        )
-        panel = panel.cut(back_lock)
 
     return panel
 
@@ -719,64 +719,19 @@ def apply_drawer_joinery_to_front_back(
     spec: DrawerJoinerySpec,
     interior_width: float,
     box_height: float,
+    position: str = "back",
 ) -> "cq.Workplane":
-    """Apply corner-joint cuts to a drawer FRONT or BACK panel.
+    """No-op in the simplified rabbet model.
 
-    The panel is assumed to start at the origin (0, 0, 0) with:
-      X = 0 … interior_width
-      Y = 0 … front_back_thickness
-      Z = 0 … box_height
-
-    Channels are cut at the LEFT end (x = 0) and RIGHT end (x = interior_width).
-
-    For BUTT: no cuts.
-    For QQQ: channel (rabbet) accepts the side tongue.
-    For HALF_LAP: rabbet overlaps with the side rabbet.
-    For DRAWER_LOCK: L-shaped socket matching the side L-tongue.
+    The sub-front / back is widened by ``2 × engagement_x`` and its solid
+    body fills the side panel's rabbet on its own — no separate channel cut
+    is needed.  Kept as a function so callers don't need to special-case
+    BUTT vs. other styles, and so future per-style joinery (a real QQQ
+    tongue-and-groove or DRAWER_LOCK L-socket) can re-use this entry point.
     """
     _require_cq()
-
-    if spec.style == DrawerJoineryStyle.BUTT:
-        return panel
-
-    cx = spec.fb_channel_depth_x  # depth from outer edge (x direction)
-    cy = spec.fb_channel_depth_y  # depth from front face (y direction)
-
-    # --- Cut at LEFT end (x = 0) ---
-    left_cut = (
-        cq.Workplane("XY")
-        .transformed(offset=(0, 0, 0))
-        .box(cx, cy, box_height, centered=False)
-    )
-    panel = panel.cut(left_cut)
-
-    # --- Cut at RIGHT end (x = interior_width - cx) ---
-    right_cut = (
-        cq.Workplane("XY")
-        .transformed(offset=(interior_width - cx, 0, 0))
-        .box(cx, cy, box_height, centered=False)
-    )
-    panel = panel.cut(right_cut)
-
-    # DRAWER_LOCK: inner step of the L-socket
-    if spec.style == DrawerJoineryStyle.DRAWER_LOCK and spec.lock_step_depth_y > 0:
-        ls_cx = spec.lock_step_depth_x
-        ls_cy = spec.lock_step_depth_y - cy  # incremental depth
-
-        left_lock = (
-            cq.Workplane("XY")
-            .transformed(offset=(0, cy, 0))
-            .box(ls_cx, ls_cy, box_height, centered=False)
-        )
-        panel = panel.cut(left_lock)
-
-        right_lock = (
-            cq.Workplane("XY")
-            .transformed(offset=(interior_width - ls_cx, cy, 0))
-            .box(ls_cx, ls_cy, box_height, centered=False)
-        )
-        panel = panel.cut(right_lock)
-
+    if position not in ("front", "back"):
+        raise ValueError(f"position must be 'front' or 'back', got {position!r}")
     return panel
 
 

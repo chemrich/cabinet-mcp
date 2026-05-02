@@ -214,62 +214,73 @@ def _require_cq():
         raise ImportError("cadquery is required. Install with: pip install cadquery")
 
 
-def make_drawer_side(cfg: DrawerConfig) -> "cq.Workplane":
+def make_drawer_side(cfg: DrawerConfig, side: str = "left") -> "cq.Workplane":
     """Create a drawer side panel with bottom dado and corner joinery cuts.
 
-    Corner joints (QQQ, half-lap, drawer-lock) are applied at the front and
-    back ends of the panel via ``apply_drawer_joinery_to_side()``.
+    ``side`` is ``"left"`` or ``"right"`` and determines which face the bottom
+    dado and corner joinery are cut into so they end up on the *inside* face
+    once the panel is placed in the assembly.
     """
     _require_cq()
+
+    if side not in ("left", "right"):
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}")
 
     panel = (
         cq.Workplane("XY")
         .box(cfg.side_thickness, cfg.box_depth, cfg.box_height, centered=False)
     )
 
-    # Cut dado for bottom panel
+    dado_x = (cfg.side_thickness - cfg.bottom_dado_depth) if side == "left" else 0.0
     dado = (
         cq.Workplane("XY")
-        .transformed(offset=(0, 0, cfg.bottom_dado_inset))
+        .transformed(offset=(dado_x, 0, cfg.bottom_dado_inset))
         .box(cfg.bottom_dado_depth, cfg.box_depth, cfg.bottom_thickness, centered=False)
     )
     panel = panel.cut(dado)
 
-    # Apply corner joinery cuts (no-op for BUTT style)
     panel = apply_drawer_joinery_to_side(
-        panel, cfg.joinery, cfg.box_depth, cfg.box_height
+        panel, cfg.joinery, cfg.box_depth, cfg.box_height, side=side
     )
 
     return panel
 
 
-def make_drawer_front_back(cfg: DrawerConfig) -> "cq.Workplane":
-    """Create a drawer sub-front or back panel with bottom dado and joinery cuts.
+def make_drawer_front_back(cfg: DrawerConfig, position: str = "back") -> "cq.Workplane":
+    """Create a drawer sub-front or back panel with the bottom dado.
 
-    Corner channels (QQQ, half-lap, drawer-lock) are applied at the left and
-    right ends of the panel via ``apply_drawer_joinery_to_front_back()``.
+    ``position`` is ``"front"`` (sub-front) or ``"back"``; it controls which
+    face the bottom dado is cut into so it ends up on the *inside* of the
+    assembled drawer.
+
+    The panel width is ``box_width − 2 × (side_thickness − engagement_x)`` so
+    each end overhangs the carcass interior by ``engagement_x`` to seat in the
+    side panel's rabbet (zero overhang for BUTT, ``side_dado_depth_x`` for
+    QQQ / HALF_LAP / DRAWER_LOCK).
     """
     _require_cq()
 
-    # Width: box interior (between sides)
-    interior_width = cfg.box_width - (cfg.side_thickness * 2)
+    if position not in ("front", "back"):
+        raise ValueError(f"position must be 'front' or 'back', got {position!r}")
+
+    engagement_x = cfg.joinery.engagement_x
+    interior_width = cfg.box_width - 2 * (cfg.side_thickness - engagement_x)
 
     panel = (
         cq.Workplane("XY")
         .box(interior_width, cfg.front_back_thickness, cfg.box_height, centered=False)
     )
 
-    # Cut dado for bottom panel
+    dado_y = 0.0 if position == "back" else (cfg.front_back_thickness - cfg.bottom_dado_depth)
     dado = (
         cq.Workplane("XY")
-        .transformed(offset=(0, 0, cfg.bottom_dado_inset))
+        .transformed(offset=(0, dado_y, cfg.bottom_dado_inset))
         .box(interior_width, cfg.bottom_dado_depth, cfg.bottom_thickness, centered=False)
     )
     panel = panel.cut(dado)
 
-    # Apply corner joinery cuts (no-op for BUTT style)
     panel = apply_drawer_joinery_to_front_back(
-        panel, cfg.joinery, interior_width, cfg.box_height
+        panel, cfg.joinery, interior_width, cfg.box_height, position=position
     )
 
     return panel
@@ -304,10 +315,10 @@ def build_drawer(cfg: DrawerConfig) -> tuple["cq.Assembly", list[PartInfo]]:
     parts: list[PartInfo] = []
 
     # ── Build parts ──────────────────────────────────────────────────────
-    left_side = make_drawer_side(cfg)
-    right_side = make_drawer_side(cfg)
-    sub_front = make_drawer_front_back(cfg)
-    back = make_drawer_front_back(cfg)
+    left_side = make_drawer_side(cfg, side="left")
+    right_side = make_drawer_side(cfg, side="right")
+    sub_front = make_drawer_front_back(cfg, position="front")
+    back = make_drawer_front_back(cfg, position="back")
     bottom = make_drawer_bottom(cfg)
 
     parts.append(PartInfo(
@@ -358,14 +369,17 @@ def build_drawer(cfg: DrawerConfig) -> tuple["cq.Assembly", list[PartInfo]]:
              loc=cq.Location((cfg.box_width - cfg.side_thickness, 0, 0)),
              color=cq.Color(0.85, 0.75, 0.55, 1.0))
 
-    # Sub-front between sides at y=0
+    # Sub-front and back: each end seats into the side panel's rabbet, so the
+    # x-offset is reduced by engagement_x (= 0 for BUTT, side_dado_depth_x for
+    # the other styles).
+    fb_x = cfg.side_thickness - cfg.joinery.engagement_x
+
     assy.add(sub_front, name="sub_front",
-             loc=cq.Location((cfg.side_thickness, 0, 0)),
+             loc=cq.Location((fb_x, 0, 0)),
              color=cq.Color(0.85, 0.75, 0.55, 1.0))
 
-    # Back between sides at y = box_depth - front_back_thickness
     assy.add(back, name="back",
-             loc=cq.Location((cfg.side_thickness, cfg.box_depth - cfg.front_back_thickness, 0)),
+             loc=cq.Location((fb_x, cfg.box_depth - cfg.front_back_thickness, 0)),
              color=cq.Color(0.85, 0.75, 0.55, 1.0))
 
     # Bottom panel in dados
