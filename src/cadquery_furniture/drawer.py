@@ -360,35 +360,33 @@ def build_drawer(cfg: DrawerConfig) -> tuple["cq.Assembly", list[PartInfo]]:
     # ── Assembly ─────────────────────────────────────────────────────────
     assy = cq.Assembly(name="drawer_box")
 
-    # Left side at x=0
-    assy.add(left_side, name="side_L", loc=cq.Location((0, 0, 0)),
-             color=cq.Color(0.85, 0.75, 0.55, 1.0))
+    COL_SIDE   = cq.Color(0.90, 0.76, 0.50, 1.0)   # warm honey maple — sides
+    COL_FB     = cq.Color(0.96, 0.91, 0.76, 1.0)   # light ash cream  — front/back
+    COL_BOTTOM = cq.Color(0.60, 0.46, 0.28, 1.0)   # dark ply brown   — bottom
 
-    # Right side at x = box_width - side_thickness
+    assy.add(left_side, name="side_L", loc=cq.Location((0, 0, 0)), color=COL_SIDE)
+
     assy.add(right_side, name="side_R",
              loc=cq.Location((cfg.box_width - cfg.side_thickness, 0, 0)),
-             color=cq.Color(0.85, 0.75, 0.55, 1.0))
+             color=COL_SIDE)
 
-    # Sub-front and back: each end seats into the side panel's rabbet, so the
-    # x-offset is reduced by engagement_x (= 0 for BUTT, side_dado_depth_x for
-    # the other styles).
+    # Sub-front and back: each end seats into the side panel's rabbet.
+    # x-offset reduced by engagement_x (= 0 for BUTT, side_dado_depth_x otherwise).
     fb_x = cfg.side_thickness - cfg.joinery.engagement_x
 
-    assy.add(sub_front, name="sub_front",
-             loc=cq.Location((fb_x, 0, 0)),
-             color=cq.Color(0.85, 0.75, 0.55, 1.0))
+    assy.add(sub_front, name="sub_front", loc=cq.Location((fb_x, 0, 0)), color=COL_FB)
 
     assy.add(back, name="back",
              loc=cq.Location((fb_x, cfg.box_depth - cfg.front_back_thickness, 0)),
-             color=cq.Color(0.85, 0.75, 0.55, 1.0))
+             color=COL_FB)
 
-    # Bottom panel in dados
+    # Bottom panel captured in dados
     bottom_x = cfg.side_thickness - cfg.bottom_dado_depth
     bottom_y = cfg.front_back_thickness - cfg.bottom_dado_depth
     bottom_z = cfg.bottom_dado_inset
     assy.add(bottom, name="bottom",
              loc=cq.Location((bottom_x, bottom_y, bottom_z)),
-             color=cq.Color(0.80, 0.65, 0.45, 0.9))
+             color=COL_BOTTOM)
 
     # Applied face
     if cfg.applied_face:

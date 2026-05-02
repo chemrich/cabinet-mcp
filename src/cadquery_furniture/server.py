@@ -944,6 +944,12 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Mesh tessellation tolerance in mm. Lower = finer mesh, bigger file. Default: 0.1",
                         "default": 0.1,
                     },
+                    "drawer_joinery": {
+                        "type": "string",
+                        "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
+                        "description": "Drawer box corner joint style.",
+                        "default": "half_lap",
+                    },
                     "drawer_pull": {
                         "type": "string",
                         "description": "Pull catalog key from list_hardware (category='pulls'). Omit for no pull hardware in render.",
@@ -2424,7 +2430,6 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
     divider_full_height = bool(args.pop("divider_full_height", False))
-
     cfg = _build_cabinet_config(args)
 
     transition_shelf_zs: list[float] = []
