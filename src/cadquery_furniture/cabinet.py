@@ -39,6 +39,31 @@ from .joinery import (
 
 
 @dataclass(frozen=True)
+class OpeningConfig:
+    """One opening (a single face-height zone) within a column stack.
+
+    ``height_mm`` is the vertical space allocated to this opening.
+    ``opening_type`` describes what fills it:
+      "drawer"    — a drawer box on slides
+      "door"      — a single swinging door
+      "door_pair" — a matched pair of doors side-by-side
+      "shelf"     — a fixed shelf
+      "open"      — open compartment (no door/drawer)
+
+    The optional override fields (all default to ``None``) let individual
+    openings deviate from the cabinet-level defaults.  ``None`` means
+    "inherit from the column or cabinet config".
+    """
+    height_mm: float
+    opening_type: str
+    hinge_key:      Optional[str]   = None
+    hinge_side:     Optional[str]   = None   # "left" | "right"
+    pull_key:       Optional[str]   = None
+    num_doors:      Optional[int]   = None   # 1 or 2; only for door types
+    door_thickness: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class ColumnConfig:
     """One vertical column within a single cabinet carcass.
 
@@ -50,12 +75,9 @@ class ColumnConfig:
     including adjacent divider panel thickness).  The sum of all column
     widths plus ``(n_columns − 1) × side_thickness`` must equal the
     cabinet's ``interior_width``; the evaluator enforces this.
-
-    ``drawer_config`` follows the same format as ``CabinetConfig.drawer_config``:
-    a list of ``(height_mm, slot_type)`` pairs stacked bottom-to-top.
     """
     width_mm: float
-    drawer_config: tuple[tuple[float, str], ...]  # frozen-friendly tuple of tuples
+    openings: tuple[OpeningConfig, ...]  # stacked bottom-to-top
 
 
 @dataclass
@@ -92,18 +114,13 @@ class CabinetConfig:
     shelf_pin_end_z: float = 640.0  # last hole height from bottom
     shelf_pin_spacing: float = 32.0  # 32mm system
 
-    # Opening stack (from bottom up, list of (height, slot_type)).
-    # slot_type options:
-    #   "drawer"     — a drawer box on slides
-    #   "door"       — a single swinging door
-    #   "door_pair"  — a matched pair of doors side-by-side
-    #   "shelf"      — a fixed or adjustable shelf opening
-    #   "open"       — open compartment (no door/drawer)
-    drawer_config: list[tuple[float, str]] = field(default_factory=list)
+    # Opening stack (from bottom up).  Used in single-column mode.
+    # When ``columns`` is non-empty this field is ignored; each ColumnConfig
+    # carries its own stack.
+    openings: list[OpeningConfig] = field(default_factory=list)
 
     # Multi-column layout.  When non-empty, the cabinet interior is divided into
-    # side-by-side vertical columns by interior dividers.  In this mode
-    # ``drawer_config`` is ignored; each ColumnConfig carries its own stack.
+    # side-by-side vertical columns by interior dividers.
     # Column widths must sum to ``interior_width``; the evaluator checks this.
     columns: list[ColumnConfig] = field(default_factory=list)
 
@@ -135,6 +152,27 @@ class CabinetConfig:
     pocket_screw_spec: PocketScrewSpec = field(default_factory=lambda: DEFAULT_POCKET_SCREW)
     biscuit_spec: BiscuitSpec = field(default_factory=lambda: DEFAULT_BISCUIT)
     dowel_spec: DownelSpec = field(default_factory=lambda: DEFAULT_DOWEL)
+
+    def __post_init__(self) -> None:
+        """Normalize openings and column openings to OpeningConfig objects."""
+        self.openings = [
+            op if isinstance(op, OpeningConfig)
+            else OpeningConfig(height_mm=float(op[0]), opening_type=str(op[1]))
+            for op in self.openings
+        ]
+        normalized_cols = []
+        for col in self.columns:
+            if col.openings and not isinstance(col.openings[0], OpeningConfig):
+                normalized_cols.append(ColumnConfig(
+                    width_mm=col.width_mm,
+                    openings=tuple(
+                        OpeningConfig(height_mm=float(op[0]), opening_type=str(op[1]))
+                        for op in col.openings
+                    ),
+                ))
+            else:
+                normalized_cols.append(col)
+        self.columns = normalized_cols
 
     # Derived / computed
     @property
@@ -750,14 +788,15 @@ def build_multi_bay_cabinet(
     # ── Drawer boxes ───────────────────────────────────────────────────────────
     if include_drawers:
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-            if not cfg.drawer_config:
+            if not cfg.openings:
                 continue
 
             slide = get_slide(cfg.drawer_slide)
             z = cfg.bottom_thickness  # drawers sit above the bottom panel
 
-            for drw_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
-                if slot_type == "drawer":
+            for drw_idx, op in enumerate(cfg.openings):
+                opening_h = op.height_mm
+                if op.opening_type == "drawer":
                     dcfg = DrawerConfig(
                         opening_width=cfg.interior_width,
                         opening_height=opening_h,
@@ -780,7 +819,7 @@ def build_multi_bay_cabinet(
     # ── Drawer faces ───────────────────────────────────────────────────────────
     if include_faces:
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-            if not cfg.drawer_config:
+            if not cfg.openings:
                 continue
 
             is_leftmost  = bay_idx == 0
@@ -803,14 +842,14 @@ def build_multi_bay_cabinet(
             z_face_start = cfg.bottom_thickness - face_bottom_overhang
             z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
 
-            # Collect drawer slots with their cumulative Z position within the
+            # Collect drawer openings with their cumulative Z position within the
             # carcass interior (measured from the top of the bottom panel).
             drawer_slots: list[tuple[int, int, float]] = []  # (drw_idx, opening_h, opening_z)
             z_acc = cfg.bottom_thickness
-            for drw_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
-                if slot_type == "drawer":
-                    drawer_slots.append((drw_idx, opening_h, z_acc))
-                z_acc += opening_h
+            for drw_idx, op in enumerate(cfg.openings):
+                if op.opening_type == "drawer":
+                    drawer_slots.append((drw_idx, op.height_mm, z_acc))
+                z_acc += op.height_mm
 
             n_faces = len(drawer_slots)
             for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
@@ -827,10 +866,10 @@ def build_multi_bay_cabinet(
 
                 # Top edge of this face.
                 # Anchor to z_face_end only when this drawer is also the last
-                # slot in the column (i.e. no door/open slots above it).
-                # If door slots follow, apply the same face_gap/2 trim so the
+                # opening in the column (i.e. no door/open openings above it).
+                # If door openings follow, apply the same face_gap/2 trim so the
                 # gap above the top drawer matches the gaps between drawers.
-                is_last_in_col = (drw_idx == len(cfg.drawer_config) - 1)
+                is_last_in_col = (drw_idx == len(cfg.openings) - 1)
                 if is_last and is_last_in_col:
                     face_z_top = z_face_end
                 else:
@@ -861,9 +900,8 @@ def build_multi_bay_cabinet(
     # in mixed columns all face edges align at the top and bottom.
     if include_faces:
         door_gap_centre = 3.0
-        n_slots_total = len(bay_configs[0].drawer_config) if bay_configs else 0
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-            if not cfg.drawer_config:
+            if not cfg.openings:
                 continue
 
             is_leftmost  = bay_idx == 0
@@ -875,10 +913,12 @@ def build_multi_bay_cabinet(
 
             z_face_start = cfg.bottom_thickness - face_bottom_overhang
             z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
-            n_slots      = len(cfg.drawer_config)
+            n_slots      = len(cfg.openings)
 
             z_acc = cfg.bottom_thickness
-            for slot_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
+            for slot_idx, op in enumerate(cfg.openings):
+                opening_h  = op.height_mm
+                slot_type  = op.opening_type
                 if slot_type in ("door", "door_pair"):
                     is_first = slot_idx == 0
                     is_last  = slot_idx == n_slots - 1
@@ -939,7 +979,7 @@ def build_multi_bay_cabinet(
         pull_colour = cq.Color(0.40, 0.40, 0.45, 1.0)
 
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-            if not cfg.drawer_pull or not cfg.drawer_config:
+            if not cfg.drawer_pull or not cfg.openings:
                 continue
             try:
                 pull_spec = get_pull(cfg.drawer_pull)
@@ -962,19 +1002,19 @@ def build_multi_bay_cabinet(
 
             drawer_slots: list[tuple[int, float, float]] = []
             z_acc = cfg.bottom_thickness
-            for drw_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
-                if slot_type == "drawer":
-                    drawer_slots.append((drw_idx, opening_h, z_acc))
-                z_acc += opening_h
+            for drw_idx, op in enumerate(cfg.openings):
+                if op.opening_type == "drawer":
+                    drawer_slots.append((drw_idx, op.height_mm, z_acc))
+                z_acc += op.height_mm
 
             n_faces = len(drawer_slots)
             pull_py = -face_thickness - pull_spec.projection_mm / 2.0
 
-            is_last_slot_drawer = str(cfg.drawer_config[-1][1]) == "drawer"
+            is_last_slot_drawer = cfg.openings[-1].opening_type == "drawer"
             for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
                 is_first = face_num == 0
                 is_last  = face_num == n_faces - 1
-                is_last_in_col = drw_idx == len(cfg.drawer_config) - 1
+                is_last_in_col = drw_idx == len(cfg.openings) - 1
                 face_z_bot = z_face_start if is_first else opening_z + face_gap / 2
                 if is_last and is_last_in_col:
                     face_z_top = z_face_end
@@ -1004,7 +1044,7 @@ def build_multi_bay_cabinet(
         door_gap_centre = 3.0
 
         for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
-            if not cfg.door_pull or not cfg.drawer_config:
+            if not cfg.door_pull or not cfg.openings:
                 continue
             try:
                 pull_spec = get_pull(cfg.door_pull)
@@ -1024,11 +1064,13 @@ def build_multi_bay_cabinet(
 
             z_face_start = cfg.bottom_thickness - face_bottom_overhang
             z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
-            n_slots      = len(cfg.drawer_config)
+            n_slots      = len(cfg.openings)
             pull_py      = -face_thickness - pull_spec.projection_mm / 2.0
 
             z_acc = cfg.bottom_thickness
-            for slot_idx, (opening_h, slot_type) in enumerate(cfg.drawer_config):
+            for slot_idx, op in enumerate(cfg.openings):
+                opening_h = op.height_mm
+                slot_type = op.opening_type
                 if slot_type in ("door", "door_pair"):
                     is_first   = slot_idx == 0
                     is_last    = slot_idx == n_slots - 1

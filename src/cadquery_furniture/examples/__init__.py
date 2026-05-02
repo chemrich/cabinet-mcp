@@ -55,7 +55,7 @@ def main():
         back_rabbet_width=9,
         back_rabbet_depth=6,
         fixed_shelf_positions=[],  # no fixed shelves — all drawers
-        drawer_config=[
+        openings=[
             (150, "drawer"),  # top drawer
             (150, "drawer"),  # middle drawer
             (250, "drawer"),  # bottom (tall) drawer
@@ -74,8 +74,9 @@ def main():
 
     # Create drawer configs for evaluation
     drawer_configs = []
-    for opening_height, slot_type in cfg.drawer_config:
-        if slot_type == "drawer":
+    for op in cfg.openings:
+        opening_height = op.height_mm
+        if op.opening_type == "drawer":
             dcfg = DrawerConfig(
                 opening_width=cfg.interior_width,
                 opening_height=opening_height,
@@ -158,8 +159,9 @@ def main():
         ]
 
         # Add drawer parts
-        for i, (opening_height, slot_type) in enumerate(cfg.drawer_config):
-            if slot_type == "drawer":
+        for i, op in enumerate(cfg.openings):
+            opening_height = op.height_mm
+            if op.opening_type == "drawer":
                 dcfg = DrawerConfig(
                     opening_width=cfg.interior_width,
                     opening_height=opening_height,

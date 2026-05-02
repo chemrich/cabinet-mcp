@@ -208,8 +208,8 @@ def build_and_visualize(
         "depth":  cfg.depth,
         "parts":  len(parts),
     }
-    if cfg.drawer_config:
-        cabinet_info["openings"] = len(cfg.drawer_config)
+    if cfg.openings:
+        cabinet_info["openings"] = len(cfg.openings)
 
     generate_viewer_html(
         glb_path,

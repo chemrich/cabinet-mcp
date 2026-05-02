@@ -332,15 +332,16 @@ def doors_from_cabinet_config(
     Returns:
         List of (assembly, parts, z_bottom_of_opening) tuples.
     """
-    if not cab_cfg.drawer_config:
+    if not cab_cfg.openings:
         return []
 
     doors = []
     current_z = cab_cfg.bottom_thickness
 
-    for opening_height, slot_type in cab_cfg.drawer_config:
-        if slot_type in ("door", "door_pair"):
-            num_doors = 2 if slot_type == "door_pair" else 1
+    for op in cab_cfg.openings:
+        opening_height = op.height_mm
+        if op.opening_type in ("door", "door_pair"):
+            num_doors = 2 if op.opening_type == "door_pair" else 1
             dcfg = DoorConfig(
                 opening_width=cab_cfg.interior_width,
                 opening_height=opening_height,

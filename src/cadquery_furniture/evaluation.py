@@ -87,11 +87,11 @@ def check_drawer_stack_order(cab_cfg: CabinetConfig) -> list[Issue]:
     TOLERANCE_MM = 0.5
     issues: list[Issue] = []
 
-    # Collect just the drawer slots with their original stack position (0 = bottom).
+    # Collect just the drawer openings with their original stack position (0 = bottom).
     drawer_slots = [
-        (i, h)
-        for i, (h, t) in enumerate(cab_cfg.drawer_config)
-        if t == "drawer"
+        (i, op.height_mm)
+        for i, op in enumerate(cab_cfg.openings)
+        if op.opening_type == "drawer"
     ]
 
     for idx in range(len(drawer_slots) - 1):
@@ -124,9 +124,9 @@ def check_cumulative_heights(cab_cfg: CabinetConfig) -> list[Issue]:
     """
     issues = []
 
-    # Check drawer stack heights
-    if cab_cfg.drawer_config:
-        total_opening_height = sum(h for h, _ in cab_cfg.drawer_config)
+    # Check opening stack heights
+    if cab_cfg.openings:
+        total_opening_height = sum(op.height_mm for op in cab_cfg.openings)
         available_height = cab_cfg.interior_height
 
         if total_opening_height > available_height:
@@ -1186,15 +1186,16 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
         List of Issue objects (empty if all drawers clear the carcass).
     """
     issues: list[Issue] = []
-    if not cab_cfg.drawer_config:
+    if not cab_cfg.openings:
         return issues
 
     slide = get_slide(cab_cfg.drawer_slide)
     MIN_REAR_CLEARANCE = 10.0  # mm — space needed for rear mounting bracket
 
-    for idx, (opening_h, slot_type) in enumerate(cab_cfg.drawer_config):
-        if slot_type != "drawer":
+    for idx, op in enumerate(cab_cfg.openings):
+        if op.opening_type != "drawer":
             continue
+        opening_h = op.height_mm
 
         label = f"drawer_{idx}"
         dcfg = DrawerConfig(
@@ -1419,8 +1420,8 @@ def check_face_clearances(
             left_cfg  = bay_configs[boundary]
             right_cfg = bay_configs[boundary + 1]
 
-            left_has_faces  = bool(left_cfg.drawer_config)
-            right_has_faces = bool(right_cfg.drawer_config)
+            left_has_faces  = bool(left_cfg.openings)
+            right_has_faces = bool(right_cfg.openings)
             if not (left_has_faces and right_has_faces):
                 continue
 
@@ -1453,18 +1454,18 @@ def check_face_clearances(
 
     # ── Per-bay vertical face heights and inter-face gaps ─────────────────────
     for bay_idx, cfg in enumerate(bay_configs):
-        if not cfg.drawer_config:
+        if not cfg.openings:
             continue
 
         z_face_start = cfg.bottom_thickness - face_bottom_overhang
         z_face_end   = cfg.height - cfg.top_thickness + face_top_overhang
 
-        # All slot types (drawer, door, door_pair) contribute a face panel.
+        # All opening types (drawer, door, door_pair) contribute a face panel.
         face_slots: list[tuple[int, float, float]] = []  # (slot_idx, opening_h, opening_z)
         z_acc = cfg.bottom_thickness
-        for slot_idx, (opening_h, _slot_type) in enumerate(cfg.drawer_config):
-            face_slots.append((slot_idx, opening_h, z_acc))
-            z_acc += opening_h
+        for slot_idx, op in enumerate(cfg.openings):
+            face_slots.append((slot_idx, op.height_mm, z_acc))
+            z_acc += op.height_mm
 
         n_faces = len(face_slots)
         prev_face_z_top: Optional[float] = None
@@ -1508,6 +1509,47 @@ def check_face_clearances(
                     ))
 
             prev_face_z_top = face_z_top
+
+    return issues
+
+
+def check_column_stack_heights(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Verify each column's opening stack sums to the cabinet interior height."""
+    if not cab_cfg.columns:
+        return []
+
+    issues: list[Issue] = []
+    interior_h = cab_cfg.interior_height
+
+    for i, col in enumerate(cab_cfg.columns):
+        total = sum(op.height_mm for op in col.openings)
+        if total > interior_h + 0.5:
+            issues.append(Issue(
+                check="column_stack_height",
+                severity=Severity.ERROR,
+                message=(
+                    f"Column {i} opening stack ({total:.1f} mm) exceeds "
+                    f"cabinet interior height ({interior_h:.1f} mm) by "
+                    f"{total - interior_h:.1f} mm."
+                ),
+                part_a=f"column_{i}",
+                value=total,
+                limit=interior_h,
+            ))
+        elif total < interior_h - 0.5:
+            issues.append(Issue(
+                check="column_stack_height",
+                severity=Severity.WARNING,
+                message=(
+                    f"Column {i} opening stack ({total:.1f} mm) is "
+                    f"{interior_h - total:.1f} mm shorter than the cabinet "
+                    f"interior height ({interior_h:.1f} mm). Unfilled space "
+                    f"at the top of the column."
+                ),
+                part_a=f"column_{i}",
+                value=total,
+                limit=interior_h,
+            ))
 
     return issues
 
@@ -1591,21 +1633,55 @@ def evaluate_cabinet(
     all_issues.extend(check_back_panel_fit(cab_cfg))
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
-    all_issues.extend(check_drawer_carcass_clearances(cab_cfg))
+    if cab_cfg.columns:
+        # Run carcass clearance checks per-column using correct per-column width.
+        import copy
+        for col in cab_cfg.columns:
+            col_cfg = copy.copy(cab_cfg)
+            col_cfg.openings = list(col.openings)
+            col_cfg.width = col.width_mm + 2 * cab_cfg.side_thickness
+            all_issues.extend(check_drawer_carcass_clearances(col_cfg))
+    else:
+        all_issues.extend(check_drawer_carcass_clearances(cab_cfg))
     all_issues.extend(check_column_widths(cab_cfg))
+    all_issues.extend(check_column_stack_heights(cab_cfg))
     all_issues.extend(check_cabinet_pull_consistency(cab_cfg))
 
     # Hardware constraints checked parametrically — no assembly required.
-    for opening_height, slot_type in cab_cfg.drawer_config:
-        if slot_type == "drawer":
+    _openings_to_check = []
+    if cab_cfg.columns:
+        for col in cab_cfg.columns:
+            for op in col.openings:
+                _openings_to_check.append((op, col.width_mm))
+    else:
+        for op in cab_cfg.openings:
+            _openings_to_check.append((op, cab_cfg.interior_width))
+
+    for op, opening_width in _openings_to_check:
+        if op.opening_type == "drawer":
             dcfg = DrawerConfig(
-                opening_width=cab_cfg.interior_width,
-                opening_height=opening_height,
+                opening_width=opening_width,
+                opening_height=op.height_mm,
                 opening_depth=cab_cfg.interior_depth,
                 slide_key=cab_cfg.drawer_slide,
-                pull_key=cab_cfg.drawer_pull,
+                pull_key=op.pull_key or cab_cfg.drawer_pull,
             )
             all_issues.extend(check_drawer_hardware_clearances(dcfg))
+        elif op.opening_type in ("door", "door_pair") and not door_configs:
+            # Auto-generate door check from opening data when caller didn't
+            # provide explicit door_configs — covers multi-column designs.
+            num_doors = 2 if op.opening_type == "door_pair" else 1
+            dcfg_door = DoorConfig(
+                opening_width=opening_width,
+                opening_height=op.height_mm,
+                num_doors=num_doors,
+                hinge_key=op.hinge_key or cab_cfg.door_hinge,
+                pull_key=op.pull_key or cab_cfg.door_pull,
+            )
+            all_issues.extend(check_door_hinge_count(dcfg_door))
+            all_issues.extend(check_door_dimensions(dcfg_door))
+            if num_doors == 2:
+                all_issues.extend(check_door_pair_width(dcfg_door))
 
     # ── Drawer hardware + joinery checks (geometry-dependent) ────────────
     if drawer_assemblies:

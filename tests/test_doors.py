@@ -379,21 +379,21 @@ class TestCabinetConfigDoorSlots:
 
     def test_door_slot_accepted(self):
         from cadquery_furniture.cabinet import CabinetConfig
-        cfg = CabinetConfig(drawer_config=[(716, "door")])
-        assert cfg.drawer_config[0][1] == "door"
+        cfg = CabinetConfig(openings=[(716, "door")])
+        assert cfg.openings[0].opening_type == "door"
 
     def test_door_pair_slot_accepted(self):
         from cadquery_furniture.cabinet import CabinetConfig
-        cfg = CabinetConfig(drawer_config=[(716, "door_pair")])
-        assert cfg.drawer_config[0][1] == "door_pair"
+        cfg = CabinetConfig(openings=[(716, "door_pair")])
+        assert cfg.openings[0].opening_type == "door_pair"
 
     def test_mixed_slots_accepted(self):
         from cadquery_furniture.cabinet import CabinetConfig
         cfg = CabinetConfig(
-            drawer_config=[
+            openings=[
                 (200, "drawer"),
                 (516, "door"),
             ]
         )
-        total = sum(h for h, _ in cfg.drawer_config)
+        total = sum(op.height_mm for op in cfg.openings)
         assert total == pytest.approx(716)

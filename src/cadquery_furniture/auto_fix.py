@@ -107,41 +107,60 @@ def _fix_cumulative_heights(
     largest residual mm onto the biggest slot so the sum is *exact* and
     re-evaluation passes cleanly.
     """
-    if not cfg.drawer_config:
+    if not cfg.openings:
         return cfg, []
 
+    from .cabinet import OpeningConfig
     interior = cfg.interior_height
-    total    = sum(h for h, _ in cfg.drawer_config)
+    total    = sum(op.height_mm for op in cfg.openings)
     if abs(total - interior) < 0.01:
         return cfg, []
 
     notes: list[str] = []
-    stack = [(float(h), t) for h, t in cfg.drawer_config]
 
     if total > interior:
-        # Shrink every slot proportionally, then round to 1 mm.
+        # Shrink every opening proportionally, then round to 1 mm.
         scale = interior / total
-        new_stack = [(round(h * scale), t) for h, t in stack]
+        new_openings = [
+            OpeningConfig(height_mm=round(op.height_mm * scale),
+                          opening_type=op.opening_type,
+                          hinge_key=op.hinge_key, hinge_side=op.hinge_side,
+                          pull_key=op.pull_key, num_doors=op.num_doors,
+                          door_thickness=op.door_thickness)
+            for op in cfg.openings
+        ]
         reason = "overshoots interior"
     else:
-        # Grow the tallest slot to absorb the whole gap.
-        new_stack = stack.copy()
-        idx = max(range(len(stack)), key=lambda k: stack[k][0])
-        new_h = round(stack[idx][0] + (interior - total))
-        new_stack[idx] = (new_h, stack[idx][1])
+        # Grow the tallest opening to absorb the whole gap.
+        new_openings = list(cfg.openings)
+        idx = max(range(len(new_openings)), key=lambda k: new_openings[k].height_mm)
+        op = new_openings[idx]
+        new_h = round(op.height_mm + (interior - total))
+        new_openings[idx] = OpeningConfig(
+            height_mm=new_h, opening_type=op.opening_type,
+            hinge_key=op.hinge_key, hinge_side=op.hinge_side,
+            pull_key=op.pull_key, num_doors=op.num_doors,
+            door_thickness=op.door_thickness,
+        )
         reason = "underruns interior"
 
     # Reconcile residuals so the new sum is exactly the interior height.
-    drift = round(interior - sum(h for h, _ in new_stack))
+    drift = round(interior - sum(op.height_mm for op in new_openings))
     if drift != 0:
-        idx = max(range(len(new_stack)), key=lambda k: new_stack[k][0])
-        h, t = new_stack[idx]
-        new_stack[idx] = (h + drift, t)
+        idx = max(range(len(new_openings)), key=lambda k: new_openings[k].height_mm)
+        op = new_openings[idx]
+        new_openings[idx] = OpeningConfig(
+            height_mm=op.height_mm + drift, opening_type=op.opening_type,
+            hinge_key=op.hinge_key, hinge_side=op.hinge_side,
+            pull_key=op.pull_key, num_doors=op.num_doors,
+            door_thickness=op.door_thickness,
+        )
 
-    cfg.drawer_config = new_stack
+    cfg.openings = new_openings
     notes.append(
         f"Opening stack {reason} ({total:.0f} mm vs {interior:.0f} mm). "
-        f"Rebalanced to: {[f'{int(h)}mm {t}' for h, t in new_stack]}."
+        f"Rebalanced to: "
+        f"{[f'{int(op.height_mm)}mm {op.opening_type}' for op in new_openings]}."
     )
     return cfg, notes
 
