@@ -465,19 +465,21 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     }});
 
     // Bucket drawer meshes by (bay, slot) for the X-ray + Open toggles.
-    // CadQuery wraps each shape in a Group + _part mesh, so the named node
-    // may be the mesh itself (si=0), its parent (si=1), or its grandparent
-    // (si=2 — drawer box parts are 2 levels deep: bay0_drawer0/side_L/side_L_part).
+    // Three.js GLTFLoader wraps multi-primitive meshes in a Group, adding one
+    // extra level vs the GLTF JSON: leaf mesh → _part Group → panel Group →
+    // bay{{i}}_drawer{{j}} Group.  Search 4 levels to cover all node types.
     const p1 = obj.parent;
     const p2 = p1 ? p1.parent : null;
-    const searchNames = [obj.name, p1 ? p1.name : '', p2 ? p2.name : ''];
-    const searchNodes = [obj, p1, p2];
+    const p3 = p2 ? p2.parent : null;
+    const searchNames = [obj.name, p1 ? p1.name : '', p2 ? p2.name : '', p3 ? p3.name : ''];
+    const searchNodes = [obj, p1, p2, p3];
     for (let si = 0; si < searchNames.length; si++) {{
       const nm = searchNames[si];
       if (!nm) continue;
 
-      // Drawer face (bay_i_face_j) or box (bay_i_drawer_j)
-      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)/);
+      // Drawer face (bay_i_face_j) or box (bay_i_drawer_j) — $ ensures we
+      // match the group node name exactly, not leaf mesh names like bay0_face0_part_0
+      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)$/);
       if (dm) {{
         const key = dm[1] + '_' + dm[3];
         const pair = _pairFor(key);
