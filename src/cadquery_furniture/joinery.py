@@ -160,11 +160,12 @@ class DrawerJoinerySpec:
         to engage the side panel's rabbet.
 
         For BUTT this is 0 — the sub-front sits flush between the sides.
-        For all other styles the visualization uses a uniform inside-face rabbet
-        of depth ``side_dado_depth_x``, so the sub-front must extend that far
-        into each side to fill the rabbet.  (The shop cuts captured by the
-        other DrawerJoinerySpec fields — QQQ tongue, DRAWER_LOCK L-step — are
-        recorded for the BOM/spec but not modelled in 3D.)
+        For HALF_LAP / DRAWER_LOCK the sub-front fills a full-thickness rabbet
+        (``side_dado_depth_x`` deep × ``front_back_thickness`` wide) on the
+        side.  For QQQ the side rabbet is shallower in Y (only
+        ``side_dado_depth_y`` = t_s/2), and the sub-front carries a matching
+        inside-face rabbet so the two pieces interlock as tongue-and-tongue;
+        the X engagement value is the same in both cases.
         """
         if self.style == DrawerJoineryStyle.BUTT:
             return 0.0
@@ -672,13 +673,18 @@ def apply_drawer_joinery_to_side(
 
     For BUTT: no cut.
 
-    For QQQ / HALF_LAP / DRAWER_LOCK the visualization uses a uniform rabbet —
-    ``engagement_x`` deep in X (= ``side_dado_depth_x``), full
-    ``front_back_thickness`` deep in Y — at each end of the side.  The
-    sub-front / back is widened by ``2 × engagement_x`` and seats into this
-    rabbet, producing a correctly engaged joint with no material interference.
-    The shop cuts (QQQ ½-thickness tongue, DRAWER_LOCK L-step) are recorded
-    on the spec for the BOM but not modelled here.
+    For HALF_LAP / DRAWER_LOCK: a uniform inside-face rabbet — ``engagement_x``
+    deep in X, full ``front_back_thickness`` deep in Y — at each end.  The
+    sub-front / back is widened by ``2 × engagement_x`` and seats into the
+    rabbet edge-to-edge.
+
+    For QQQ: the rabbet is shallower in Y — only ``side_dado_depth_y`` (= t_s/2)
+    instead of the full ``front_back_thickness``.  The side body therefore
+    extends inward past Y = t_s/2 and meets the sub-front's body, with the
+    front/back's inside-face rabbet (cut in apply_drawer_joinery_to_front_back)
+    carving out the conflict zone.  The remaining outer-face tongue on the side
+    (panel-local X = 0…t_s/2 × Y = 0…t_s/2) interlocks with the sub-front's
+    matching outer-face tongue, filling the outer half of the corner.
 
     ``side="left"`` puts the inside face at panel-local X = side_thickness;
     ``side="right"`` puts it at X = 0.
@@ -693,7 +699,10 @@ def apply_drawer_joinery_to_side(
 
     t_s = spec.side_thickness
     dx = spec.engagement_x
-    dy = spec.front_back_thickness
+    if spec.style == DrawerJoineryStyle.QQQ:
+        dy = spec.side_dado_depth_y
+    else:
+        dy = spec.front_back_thickness
 
     cut_x_start = (t_s - dx) if side == "left" else 0.0
 
@@ -721,17 +730,52 @@ def apply_drawer_joinery_to_front_back(
     box_height: float,
     position: str = "back",
 ) -> "cq.Workplane":
-    """No-op in the simplified rabbet model.
+    """Cut the QQQ inside-face rabbet on the sub-front / back panel.
 
-    The sub-front / back is widened by ``2 × engagement_x`` and its solid
-    body fills the side panel's rabbet on its own — no separate channel cut
-    is needed.  Kept as a function so callers don't need to special-case
-    BUTT vs. other styles, and so future per-style joinery (a real QQQ
-    tongue-and-groove or DRAWER_LOCK L-socket) can re-use this entry point.
+    For BUTT / HALF_LAP / DRAWER_LOCK this is a no-op — the sub-front's solid
+    body fills the side's rabbet directly.
+
+    For QQQ the side's rabbet is shallow in Y (only ``side_dado_depth_y``),
+    so the side's body extends past Y = t_s/2 and would interfere with the
+    sub-front's body at the corner.  We carve out that conflict zone with an
+    inside-face rabbet at each end of the front/back: panel-local
+    X = 0…fb_channel_depth_x × Y = (t_s/2)…t_fb (inside-face strip), full Z.
+    What remains at the corner is a ½-thickness outer-face tongue
+    (X = 0…fb_channel_depth_x × Y = 0…fb_channel_depth_y) that fills the
+    side's inside-face dado.
+
+    The "inside face" depends on ``position``: for a sub-front (front=0 is the
+    outer face) the rabbet is at panel-local Y > fb_channel_depth_y; for the
+    back panel (Y = t_fb is the outer face) the rabbet is at Y < t_fb − fb_channel_depth_y.
     """
     _require_cq()
     if position not in ("front", "back"):
         raise ValueError(f"position must be 'front' or 'back', got {position!r}")
+
+    if spec.style != DrawerJoineryStyle.QQQ:
+        return panel
+
+    t_fb = spec.front_back_thickness
+    dx = spec.fb_channel_depth_x
+    tongue_y = spec.fb_channel_depth_y
+    rabbet_dy = t_fb - tongue_y
+
+    rabbet_y_start = tongue_y if position == "front" else 0.0
+
+    left_cut = (
+        cq.Workplane("XY")
+        .transformed(offset=(0, rabbet_y_start, 0))
+        .box(dx, rabbet_dy, box_height, centered=False)
+    )
+    panel = panel.cut(left_cut)
+
+    right_cut = (
+        cq.Workplane("XY")
+        .transformed(offset=(interior_width - dx, rabbet_y_start, 0))
+        .box(dx, rabbet_dy, box_height, centered=False)
+    )
+    panel = panel.cut(right_cut)
+
     return panel
 
 

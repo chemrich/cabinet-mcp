@@ -206,6 +206,8 @@ class TestJointEngagement:
     def test_sub_front_fills_left_side_rabbet(self, cfg):
         if cfg.joinery_style == DrawerJoineryStyle.BUTT:
             pytest.skip("BUTT has no rabbet to fill")
+        if cfg.joinery_style == DrawerJoineryStyle.QQQ:
+            pytest.skip("QQQ uses a shallow Y rabbet — see TestQQQGeometry")
         x0 = cfg.slide.nominal_side_clearance
         t_s = cfg.side_thickness
         t_fb = cfg.front_back_thickness
@@ -235,3 +237,91 @@ class TestJointEngagement:
             f"joint engagement {actual:.1f} mm³ vs expected {expected:.1f} mm³ "
             f"for {cfg.joinery_style.value}"
         )
+
+
+@skipif_no_cq
+class TestQQQGeometry:
+    """QQQ has a tongue-and-tongue interlock: the side's outer-face tongue
+    and the sub-front's outer-face tongue meet at the corner, each filling
+    the other's inside-face dado.  This exercises that geometry directly."""
+
+    @pytest.fixture
+    def qqq_cfg(self, opening):
+        w, h, d = opening
+        return DrawerConfig(
+            opening_width=w, opening_height=h, opening_depth=d,
+            joinery_style=DrawerJoineryStyle.QQQ,
+        )
+
+    @pytest.mark.parametrize("end", ["front", "back"])
+    def test_side_tongue_intact(self, qqq_cfg, end):
+        ls, _, _, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        bd = qqq_cfg.box_depth
+        bdd = qqq_cfg.bottom_dado_depth
+        bt_thk = qqq_cfg.bottom_thickness
+
+        y0 = 0.0 if end == "front" else bd - t_s / 2
+        tongue_env = _envelope(x0, y0, 0, t_s / 2, t_s / 2, bh)
+        actual = _intersect_vol(ls, tongue_env)
+        # The bottom dado on the side runs full Y and spans
+        # panel-local X = t_s - bdd … t_s; only the part of that strip that
+        # intersects the tongue (X = 0 … t_s/2) eats material.  For typical
+        # 15 mm / 6 mm defaults: t_s - bdd = 9, t_s/2 = 7.5 → no overlap.
+        x_overlap = max(0.0, t_s / 2 - (t_s - bdd))
+        dado_in_tongue = x_overlap * (t_s / 2) * bt_thk
+        expected = (t_s / 2) * (t_s / 2) * bh - dado_in_tongue
+        assert actual == pytest.approx(expected, abs=10.0)
+
+    @pytest.mark.parametrize("end", ["front", "back"])
+    def test_side_dado_removed(self, qqq_cfg, end):
+        ls, _, _, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        bd = qqq_cfg.box_depth
+
+        y0 = 0.0 if end == "front" else bd - t_s / 2
+        dado_env = _envelope(x0 + t_s / 2, y0, 0, t_s / 2, t_s / 2, bh)
+        assert _intersect_vol(ls, dado_env) == pytest.approx(0.0, abs=1.0)
+
+    def test_sub_front_inside_rabbet_removed(self, qqq_cfg):
+        _, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        t_fb = qqq_cfg.front_back_thickness
+        bh = qqq_cfg.box_height
+        # Inside-face rabbet on sub-front (left end) at world coords
+        rabbet_env = _envelope(
+            x0 + t_s / 2, t_s / 2, 0,
+            t_s / 2, t_fb - t_s / 2, bh,
+        )
+        assert _intersect_vol(sf, rabbet_env) == pytest.approx(0.0, abs=1.0)
+
+    def test_sub_front_tongue_fills_side_dado(self, qqq_cfg):
+        _, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        # Side's inside-face dado zone (front end of left side, world coords)
+        # is exactly the volume the sub-front's outer-face tongue fills.
+        zone = _envelope(x0 + t_s / 2, 0, 0, t_s / 2, t_s / 2, bh)
+        actual = _intersect_vol(sf, zone)
+        expected = (t_s / 2) * (t_s / 2) * bh
+        assert actual == pytest.approx(expected, abs=10.0)
+
+    def test_corner_fully_filled_outer_half(self, qqq_cfg):
+        """The outer half of the front-left corner (Y = 0…t_s/2 × X = 0…t_s)
+        must be fully solid once side tongue + sub-front tongue are unioned —
+        no exterior void."""
+        ls, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        corner = _envelope(x0, 0, 0, t_s, t_s / 2, bh)
+        union = ls.fuse(sf)
+        actual = _intersect_vol(union, corner)
+        expected = t_s * (t_s / 2) * bh
+        assert actual == pytest.approx(expected, abs=20.0)
