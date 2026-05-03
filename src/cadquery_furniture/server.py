@@ -2471,8 +2471,11 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 drawer_slide=cfg.drawer_slide,
                 drawer_pull=cfg.drawer_pull,
                 door_pull=cfg.door_pull,
+                door_hinge=cfg.door_hinge,
                 door_hinge_side=hinge_side,
                 door_pull_inset_mm=cfg.door_pull_inset_mm,
+                drawer_joinery=cfg.drawer_joinery,
+                carcass_joinery=cfg.carcass_joinery,
                 fixed_shelf_positions=[
                     float(z) for z in col.get("fixed_shelf_positions", [])
                 ],
