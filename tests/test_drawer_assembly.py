@@ -206,6 +206,8 @@ class TestJointEngagement:
     def test_sub_front_fills_left_side_rabbet(self, cfg):
         if cfg.joinery_style == DrawerJoineryStyle.BUTT:
             pytest.skip("BUTT has no rabbet to fill")
+        if cfg.joinery_style == DrawerJoineryStyle.QQQ:
+            pytest.skip("QQQ uses a shallow Y rabbet — see TestQQQGeometry")
         x0 = cfg.slide.nominal_side_clearance
         t_s = cfg.side_thickness
         t_fb = cfg.front_back_thickness
@@ -235,3 +237,117 @@ class TestJointEngagement:
             f"joint engagement {actual:.1f} mm³ vs expected {expected:.1f} mm³ "
             f"for {cfg.joinery_style.value}"
         )
+
+
+@skipif_no_cq
+class TestQQQGeometry:
+    """QQQ has a hidden tongue-in-pocket joint: the side panel keeps a
+    full-thickness lip at each end (Y `0…t_s/2`), and the dado that receives
+    the front piece's inside-face tongue is set in by t_s/2 from the end.
+    From outside the box the side wraps the corner and hides the joint.
+    """
+
+    @pytest.fixture
+    def qqq_cfg(self, opening):
+        w, h, d = opening
+        return DrawerConfig(
+            opening_width=w, opening_height=h, opening_depth=d,
+            joinery_style=DrawerJoineryStyle.QQQ,
+        )
+
+    @pytest.mark.parametrize("end", ["front", "back"])
+    def test_side_lip_intact(self, qqq_cfg, end):
+        """The very-end strip of the side panel (Y `0…t_s/2`) is full
+        thickness — both inner and outer face material survive, forming the
+        lip that wraps the corner from outside.
+        """
+        ls, _, _, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        bd = qqq_cfg.box_depth
+        bdd = qqq_cfg.bottom_dado_depth
+        bt_thk = qqq_cfg.bottom_thickness
+
+        y0 = 0.0 if end == "front" else bd - t_s / 2
+        lip_env = _envelope(x0, y0, 0, t_s, t_s / 2, bh)
+        actual = _intersect_vol(ls, lip_env)
+        # The bottom dado on the side runs full Y and spans panel-local
+        # X = t_s − bdd … t_s.  It intersects the lip envelope across the
+        # full t_s/2 of Y, removing a bdd × t_s/2 × bt_thk slot.
+        dado_in_lip = bdd * (t_s / 2) * bt_thk
+        expected = t_s * (t_s / 2) * bh - dado_in_lip
+        assert actual == pytest.approx(expected, abs=10.0)
+
+    @pytest.mark.parametrize("end", ["front", "back"])
+    def test_side_dado_pocket_removed(self, qqq_cfg, end):
+        """The set-in dado pocket (panel-local X `t_s/2…t_s`, Y `t_s/2…t_s`
+        at the front; Y `bd−t_s…bd−t_s/2` at the back) is fully cut out."""
+        ls, _, _, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        bd = qqq_cfg.box_depth
+
+        y0 = t_s / 2 if end == "front" else bd - t_s
+        dado_env = _envelope(x0 + t_s / 2, y0, 0, t_s / 2, t_s / 2, bh)
+        assert _intersect_vol(ls, dado_env) == pytest.approx(0.0, abs=1.0)
+
+    def test_sub_front_outer_rabbet_removed(self, qqq_cfg):
+        """The outer-face rabbet at each end of the sub-front (panel-local
+        X `0…t_s/2`, Y `0…t_fb − t_s/2`) is fully cut out."""
+        _, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        t_fb = qqq_cfg.front_back_thickness
+        bh = qqq_cfg.box_height
+        # Sub-front placed at world X = x0 + t_s/2; left rabbet zone at
+        # world X `x0 + t_s/2 … x0 + t_s`, Y `0 … t_fb − t_s/2`.
+        rabbet_env = _envelope(
+            x0 + t_s / 2, 0, 0,
+            t_s / 2, t_fb - t_s / 2, bh,
+        )
+        assert _intersect_vol(sf, rabbet_env) == pytest.approx(0.0, abs=1.0)
+
+    def test_sub_front_tongue_fills_side_dado_pocket(self, qqq_cfg):
+        """The sub-front's inside-face tongue at the left end fills the side's
+        set-in dado pocket: zone = world (X `t_s/2…t_s`, Y `t_s/2…t_s`)."""
+        _, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        t_fb = qqq_cfg.front_back_thickness
+        bh = qqq_cfg.box_height
+        bdd = qqq_cfg.bottom_dado_depth
+        bt_thk = qqq_cfg.bottom_thickness
+
+        # For QQQ Phipps' recipe t_fb = t_s; the tongue sits at world Y
+        # `t_fb − t_s/2 … t_fb`.  Build the dado pocket envelope at the
+        # matching world coordinates.
+        zone = _envelope(x0 + t_s / 2, t_s / 2, 0, t_s / 2, t_s / 2, bh)
+        actual = _intersect_vol(sf, zone)
+        # The sub-front's bottom dado at panel-local Y `t_fb − bdd … t_fb`
+        # overlaps the tongue zone (which is at panel-local Y `t_fb − t_s/2 …
+        # t_fb`).  Compute the overlap volume removed from the tongue.
+        y_overlap = min(t_fb, t_fb) - max(t_fb - bdd, t_fb - t_s / 2)
+        y_overlap = max(0.0, y_overlap)
+        dado_in_tongue = (t_s / 2) * y_overlap * bt_thk
+        expected = (t_s / 2) * (t_s / 2) * bh - dado_in_tongue
+        assert actual == pytest.approx(expected, abs=15.0)
+
+    def test_outside_corner_owned_by_side(self, qqq_cfg):
+        """The exterior corner zone (X `0…t_s`, Y `0…t_s/2`) is owned by the
+        side panel alone — the sub-front does not appear at the outside corner
+        because its outer-face rabbet has removed material there."""
+        ls, _, sf, _, _ = _build_placed(qqq_cfg)
+        x0 = qqq_cfg.slide.nominal_side_clearance
+        t_s = qqq_cfg.side_thickness
+        bh = qqq_cfg.box_height
+        corner = _envelope(x0, 0, 0, t_s, t_s / 2, bh)
+        # Sub-front contributes no material to the outside corner.
+        assert _intersect_vol(sf, corner) == pytest.approx(0.0, abs=1.0)
+        # Side fills the corner (less the bottom-dado slot through the lip).
+        bdd = qqq_cfg.bottom_dado_depth
+        bt_thk = qqq_cfg.bottom_thickness
+        dado_in_lip = bdd * (t_s / 2) * bt_thk
+        expected = t_s * (t_s / 2) * bh - dado_in_lip
+        assert _intersect_vol(ls, corner) == pytest.approx(expected, abs=15.0)

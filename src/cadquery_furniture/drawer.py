@@ -251,7 +251,8 @@ def make_drawer_front_back(cfg: DrawerConfig, position: str = "back") -> "cq.Wor
 
     ``position`` is ``"front"`` (sub-front) or ``"back"``; it controls which
     face the bottom dado is cut into so it ends up on the *inside* of the
-    assembled drawer.
+    assembled drawer.  For QQQ the same parameter also routes the inside-face
+    corner rabbets cut by ``apply_drawer_joinery_to_front_back``.
 
     The panel width is ``box_width − 2 × (side_thickness − engagement_x)`` so
     each end overhangs the carcass interior by ``engagement_x`` to seat in the
