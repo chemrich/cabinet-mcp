@@ -971,12 +971,12 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean",
                         "description": (
                             "Controls the center divider in mixed drawer+door columns "
-                            "(e.g. armoire). Default false: divider is clipped to the "
-                            "drawer zone — the upper door/open section stays open with "
-                            "no divider. Set true to extend the divider the full cabinet "
-                            "height, separating the upper bay into independent compartments."
+                            "(e.g. armoire). Default true: divider extends the full "
+                            "cabinet height, separating the upper bay into independent "
+                            "compartments. Set false to clip the divider to the drawer "
+                            "zone so the upper door/open section stays open."
                         ),
-                        "default": False,
+                        "default": True,
                     },
                 },
                 "required": ["width", "height", "depth"],
@@ -2429,7 +2429,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     num_bays      = int(args.pop("num_bays", 1))
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
-    divider_full_height = bool(args.pop("divider_full_height", False))
+    divider_full_height = bool(args.pop("divider_full_height", True))
     cfg = _build_cabinet_config(args)
 
     transition_shelf_zs: list[float] = []
