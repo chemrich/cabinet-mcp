@@ -417,6 +417,8 @@ def build_cabinet(
     suppress_left_side: bool = False,
     suppress_right_side: bool = False,
     suppress_back: bool = False,
+    suppress_top: bool = False,
+    suppress_bottom: bool = False,
 ) -> tuple["cq.Assembly", list[PartInfo]]:
     """Build a complete cabinet assembly from configuration.
 
@@ -428,6 +430,10 @@ def build_cabinet(
                              a dedicated interior divider panel takes its place.
         suppress_back:       When True, omit the back panel.  Used when a
                              single continuous back spans all bays.
+        suppress_top:        When True, omit the top panel.  Used when a
+                             single continuous top spans all bays.
+        suppress_bottom:     When True, omit the bottom panel.  Used when a
+                             single continuous bottom spans all bays.
 
     Returns:
         Tuple of (cq.Assembly, list of PartInfo for BOM/cutlist).
@@ -460,24 +466,26 @@ def build_cabinet(
         ))
 
     # ── Bottom panel ─────────────────────────────────────────────────────
-    bottom = make_bottom_panel(cfg)
-    parts.append(PartInfo(
-        name="bottom",
-        shape=bottom,
-        material_thickness=cfg.bottom_thickness,
-        grain_direction="width",  # grain runs left-to-right
-        edge_band=["front"],
-    ))
+    bottom = make_bottom_panel(cfg) if not suppress_bottom else None
+    if bottom is not None:
+        parts.append(PartInfo(
+            name="bottom",
+            shape=bottom,
+            material_thickness=cfg.bottom_thickness,
+            grain_direction="width",  # grain runs left-to-right
+            edge_band=["front"],
+        ))
 
     # ── Top panel ────────────────────────────────────────────────────────
-    top = make_top_panel(cfg)
-    parts.append(PartInfo(
-        name="top",
-        shape=top,
-        material_thickness=cfg.top_thickness,
-        grain_direction="width",
-        edge_band=["front"],
-    ))
+    top = make_top_panel(cfg) if not suppress_top else None
+    if top is not None:
+        parts.append(PartInfo(
+            name="top",
+            shape=top,
+            material_thickness=cfg.top_thickness,
+            grain_direction="width",
+            edge_band=["front"],
+        ))
 
     # ── Fixed shelves ────────────────────────────────────────────────────
     shelves = []
@@ -519,9 +527,10 @@ def build_cabinet(
 
     # Bottom: sits between sides, in the dados
     # X position: side_thickness - dado_depth (panel extends into dado)
-    bottom_x = cfg.side_thickness - cfg.dado_depth
-    assy.add(bottom, name="bottom", loc=cq.Location((bottom_x, 0, 0)),
-             color=cq.Color(0.87, 0.72, 0.53, 1.0))
+    if bottom is not None:
+        bottom_x = cfg.side_thickness - cfg.dado_depth
+        assy.add(bottom, name="bottom", loc=cq.Location((bottom_x, 0, 0)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
     # Shelves
     for i, (shelf, shelf_z) in enumerate(zip(shelves, cfg.fixed_shelf_positions)):
@@ -530,10 +539,11 @@ def build_cabinet(
                  color=cq.Color(0.80, 0.65, 0.45, 1.0))
 
     # Top panel: sits in dados at the top of both sides
-    top_x = cfg.side_thickness - cfg.dado_depth
-    top_z = cfg.height - cfg.top_thickness
-    assy.add(top, name="top", loc=cq.Location((top_x, 0, top_z)),
-             color=cq.Color(0.87, 0.72, 0.53, 1.0))
+    if top is not None:
+        top_x = cfg.side_thickness - cfg.dado_depth
+        top_z = cfg.height - cfg.top_thickness
+        assy.add(top, name="top", loc=cq.Location((top_x, 0, top_z)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
 
     # Back panel: sits in rabbets (omitted when suppress_back=True)
     if back is not None:
@@ -673,6 +683,14 @@ def build_multi_bay_cabinet(
     face_colour   = cq.Color(0.55, 0.38, 0.22, 1.0)
     foot_colour   = cq.Color(0.25, 0.25, 0.28, 1.0)
 
+    # ── Continuous top/bottom when non-stacked ─────────────────────────────────
+    # When the layout has no transition shelves AND dividers run full height,
+    # the cabinet has a single bottom and a single top spanning all bays
+    # instead of one per bay.  Stacked layouts (armoires with a transition
+    # shelf, or clipped dividers) keep per-bay top/bottom.
+    non_stacked = not transition_shelf_zs and divider_top_z is None
+    suppress_bay_tb = non_stacked
+
     # ── Carcass bays ───────────────────────────────────────────────────────────
     for bay_idx, (cfg, bx) in enumerate(zip(bay_configs, x_offsets)):
         bay_assy, bay_parts = build_cabinet(
@@ -680,6 +698,8 @@ def build_multi_bay_cabinet(
             suppress_left_side=(bay_idx > 0),           # divider provides left wall
             suppress_right_side=(bay_idx < n_bays - 1), # divider provides right wall
             suppress_back=True,                          # single continuous back added below
+            suppress_top=suppress_bay_tb,                # continuous top added below
+            suppress_bottom=suppress_bay_tb,             # continuous bottom added below
         )
         col = carcass_colours[bay_idx % len(carcass_colours)]
         assy.add(bay_assy, name=f"bay_{bay_idx}",
@@ -694,6 +714,58 @@ def build_multi_bay_cabinet(
                 edge_band=list(p.edge_band),
                 notes=p.notes,
             ))
+
+    # ── Continuous bottom + top panels (non-stacked only) ──────────────────────
+    if suppress_bay_tb:
+        cfg0 = bay_configs[0]
+        # Panel spans from the inside-back of the left side panel's bottom dado
+        # to the matching point on the right side panel — i.e. interior width
+        # plus one dado_depth on each side for seating in the outer dados.
+        cont_panel_width = (
+            total_width
+            - 2 * cfg0.side_thickness
+            + 2 * cfg0.dado_depth
+        )
+        cont_panel_x = cfg0.side_thickness - cfg0.dado_depth
+
+        # Continuous bottom — same depth profile as per-bay bottom (stops at
+        # the front face of the back panel so the back can seat against the
+        # side rabbets without conflict).
+        cont_bottom_depth = cfg0.depth - cfg0.back_rabbet_width
+        cont_bottom = (
+            cq.Workplane("XY")
+            .box(cont_panel_width, cont_bottom_depth, cfg0.bottom_thickness, centered=False)
+        )
+        assy.add(cont_bottom, name="bottom",
+                 loc=cq.Location((cont_panel_x, 0, 0)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
+        all_parts.append(PartInfo(
+            name="bottom",
+            shape=cont_bottom,
+            material_thickness=cfg0.bottom_thickness,
+            grain_direction="width",
+            edge_band=["front"],
+            notes="continuous bottom — single panel spanning all bays",
+        ))
+
+        # Continuous top — extends full depth so the top surface is flush with
+        # the back face of the side panels (matches make_top_panel).
+        cont_top = (
+            cq.Workplane("XY")
+            .box(cont_panel_width, cfg0.depth, cfg0.top_thickness, centered=False)
+        )
+        cont_top_z = cfg0.height - cfg0.top_thickness
+        assy.add(cont_top, name="top",
+                 loc=cq.Location((cont_panel_x, 0, cont_top_z)),
+                 color=cq.Color(0.87, 0.72, 0.53, 1.0))
+        all_parts.append(PartInfo(
+            name="top",
+            shape=cont_top,
+            material_thickness=cfg0.top_thickness,
+            grain_direction="width",
+            edge_band=["front"],
+            notes="continuous top — single panel spanning all bays",
+        ))
 
     # ── Interior vertical dividers ─────────────────────────────────────────────
     # One purpose-built divider per bay boundary, placed at x_offsets[1:].
