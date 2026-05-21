@@ -2489,12 +2489,15 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 "columns": len(bay_configs)}
 
         # Detect drawer-to-door transitions per column; use lowest transition z.
+        # A "transition" only exists when at least one drawer sits BELOW the
+        # door — a full-height door column has no internal transition.
         per_bay_transitions = []
         for bc in bay_configs:
             z = bc.bottom_thickness
             for op in bc.openings:
                 if op.opening_type in ("door", "door_pair"):
-                    per_bay_transitions.append(z)
+                    if z > bc.bottom_thickness:
+                        per_bay_transitions.append(z)
                     break
                 z += op.height_mm
         if per_bay_transitions:
