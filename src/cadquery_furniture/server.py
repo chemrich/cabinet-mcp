@@ -3128,18 +3128,16 @@ def _project_from_args(args: dict):
 
 
 def _columns_dict_from_cfg(cfg: CabinetConfig) -> list | None:
-    """Re-derive the ``columns`` list-of-dicts shape that the cutlist and
-    hardware-BOM helpers expect, from a resolved CabinetConfig. Returns None
-    for single-column cabinets."""
+    """Re-derive the ``columns`` list-of-dicts shape from a resolved
+    CabinetConfig, using the canonical ``[height, type]`` list shape for
+    openings so every downstream tool (cutlist, visualize, hardware BOM)
+    accepts the result. Returns None for single-column cabinets."""
     if not cfg.columns:
         return None
     return [
         {
             "width_mm": col.width_mm,
-            "openings": [
-                {"height_mm": op.height_mm, "opening_type": op.opening_type}
-                for op in col.openings
-            ],
+            "openings": [[op.height_mm, op.opening_type] for op in col.openings],
         }
         for col in cfg.columns
     ]
