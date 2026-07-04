@@ -89,7 +89,11 @@ from .cutlist import (
     _OPCUT_AVAILABLE,
     _RECTPACK_AVAILABLE,
 )
-from .cabinet import OpeningConfig
+from .cabinet import (
+    OpeningConfig,
+    build_cabinet_config as _build_cabinet_config,
+    to_opening as _to_opening,
+)
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
@@ -131,23 +135,6 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
     ]
 
 
-def _to_opening(raw) -> OpeningConfig:
-    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
-    if isinstance(raw, OpeningConfig):
-        return raw
-    if isinstance(raw, dict):
-        return OpeningConfig(
-            height_mm=float(raw["height_mm"]),
-            opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
-            hinge_key=raw.get("hinge_key"),
-            hinge_side=raw.get("hinge_side"),
-            pull_key=raw.get("pull_key"),
-            num_doors=raw.get("num_doors"),
-            door_thickness=raw.get("door_thickness"),
-        )
-    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
-
-
 def _sort_drawer_config(dc: list) -> list:
     """Sort drawer openings largest-first (bottom); non-drawer openings stay at the end."""
     if not dc:
@@ -165,51 +152,6 @@ def _sort_drawer_config(dc: list) -> list:
     drawers = sorted([r for r in dc if _type(r) == "drawer"], key=_height, reverse=True)
     others  = [r for r in dc if _type(r) != "drawer"]
     return drawers + others
-
-
-def _build_cabinet_config(args: dict) -> CabinetConfig:
-    """Build a CabinetConfig from a flat dict of keyword arguments.
-
-    Accepts ``drawer_config`` (backward-compat API name) as an alias for
-    ``openings``. Each entry may be a ``[height_mm, opening_type]`` list,
-    a dict, or an ``OpeningConfig`` object — all are normalised by
-    ``_to_opening``.
-    """
-    preset_key = args.pop("pull_preset", None)
-    if preset_key:
-        from .hardware import get_pull_preset
-        preset = get_pull_preset(preset_key)
-        args.setdefault("drawer_pull", preset.drawer_pull)
-        args.setdefault("door_pull", preset.door_pull)
-        args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
-
-    # Accept drawer_config as a backward-compat alias for openings.
-    if "drawer_config" in args and "openings" not in args:
-        args["openings"] = args.pop("drawer_config")
-    else:
-        args.pop("drawer_config", None)
-
-    kwargs: dict[str, Any] = {}
-    for key, value in args.items():
-        if key == "carcass_joinery" and isinstance(value, str):
-            kwargs[key] = CarcassJoinery(value)
-        elif key == "drawer_joinery" and isinstance(value, str):
-            kwargs[key] = DrawerJoineryStyle(value)
-        elif key == "openings" and isinstance(value, list):
-            kwargs[key] = [_to_opening(r) for r in value]
-        elif key == "columns" and isinstance(value, list):
-            kwargs[key] = [
-                ColumnConfig(
-                    width_mm=float(c["width_mm"]),
-                    openings=tuple(
-                        _to_opening(r) for r in c.get("drawer_config", c.get("openings", []))
-                    ),
-                )
-                for c in value
-            ]
-        else:
-            kwargs[key] = value
-    return CabinetConfig(**kwargs)
 
 
 def _build_door_config(args: dict) -> DoorConfig:
@@ -3235,7 +3177,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     hw_lines_all:   list = []
 
     per_cabinet_summary = []
-    for cname, cfg in project.resolved():
+    resolved = project.resolved()
+    for cname, cfg in resolved:
         columns_raw = _columns_dict_from_cfg(cfg)
         c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
         raw_carcass.extend(c)
@@ -3276,27 +3219,38 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
                  "unplaced": opt.unplaced}, opt)
 
-    # Use the first cabinet's side_thickness as the canonical carcass thickness.
-    # (project shared design should keep this consistent across the run.)
-    first_cfg = project.resolved()[0][1] if project.cabinets else None
-    carcass_t = first_cfg.side_thickness if first_cfg else 18.0
     box_t     = DrawerConfig.__dataclass_fields__["side_thickness"].default
     bottom_t  = DrawerConfig.__dataclass_fields__["bottom_thickness"].default
 
-    opt_carcass, opt_carcass_result = _opt_group(carcass_panels, carcass_t)
+    # Carcass panels can span multiple thicknesses when a child cabinet
+    # overrides side_thickness (or top/bottom thickness) — group by panel
+    # thickness so each group is packed onto, and priced as, the correct
+    # sheet stock.
+    carcass_by_t: dict[float, list[CutlistPanel]] = {}
+    for p in carcass_panels:
+        carcass_by_t.setdefault(p.thickness, []).append(p)
+    carcass_ts = sorted(carcass_by_t, reverse=True)
+
+    opt_carcass_by_t = {t: _opt_group(carcass_by_t[t], t) for t in carcass_ts}
     opt_box,     opt_box_result     = _opt_group(box_panels, box_t)
     opt_6mm,     opt_6mm_result     = _opt_group(panels_6mm, bottom_t)
 
+    _imperial = {18: '3/4"', 15: '5/8"', 12: '1/2"', 9: '3/8"', 6: '1/4"'}
+
     sheet_goods = []
-    if carcass_panels:
-        sheets = opt_carcass.get("sheets_used", 0)
-        unit_p = price_for("sheet_baltic_birch_18mm")
-        entry  = {"material": f"Baltic Birch 3/4\" ({carcass_t:.0f} mm)",
-                  "thickness_mm": carcass_t,
-                  "panel_count": sum(p.quantity for p in carcass_panels),
+    for t in carcass_ts:
+        opt_info, _ = opt_carcass_by_t[t]
+        sheets = opt_info.get("sheets_used", 0)
+        unit_p = price_for(f"sheet_baltic_birch_{int(round(t))}mm")
+        frac   = _imperial.get(int(round(t)))
+        label  = (f"Baltic Birch {frac} ({t:.0f} mm)" if frac
+                  else f"Baltic Birch {t:.0f} mm")
+        entry  = {"material": label,
+                  "thickness_mm": t,
+                  "panel_count": sum(p.quantity for p in carcass_by_t[t]),
                   "price_per_sheet_usd": unit_p,
                   "line_total_usd": round(sheets * unit_p, 2)}
-        entry.update(opt_carcass)
+        entry.update(opt_info)
         sheet_goods.append(entry)
     if box_panels:
         sheets = opt_box.get("sheets_used", 0)
@@ -3331,8 +3285,9 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path  = out_dir / f"{project.name}_cutlist.csv"
     json_path = out_dir / f"{project.name}_cutlist.json"
+    carcass_sheets = [_make_sheet(t) for t in carcass_ts] or [_make_sheet(18.0)]
     csv_path.write_text(to_csv(all_panels))
-    json_path.write_text(to_json(all_panels, [_make_sheet(carcass_t)]))
+    json_path.write_text(to_json(all_panels, carcass_sheets))
 
     files: dict[str, str] = {"csv": str(csv_path), "json": str(json_path)}
 
@@ -3342,11 +3297,15 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         files["hardware_bom_json"] = str(hw_json_path)
 
     layout_groups = []
-    if opt_carcass_result and carcass_panels:
-        layout_groups.append((
-            f'18mm Carcass (3/4") — {opt_carcass_result.sheets_used} sheets',
-            carcass_panels, opt_carcass_result,
-        ))
+    for t in carcass_ts:
+        _, opt_res = opt_carcass_by_t[t]
+        if opt_res:
+            frac = _imperial.get(int(round(t)))
+            suffix = f" ({frac})" if frac else ""
+            layout_groups.append((
+                f'{t:.0f}mm Carcass{suffix} — {opt_res.sheets_used} sheets',
+                carcass_by_t[t], opt_res,
+            ))
     if opt_box_result and box_panels:
         layout_groups.append((
             f'15mm Drawer Boxes (5/8") — {opt_box_result.sheets_used} sheets',
@@ -3409,7 +3368,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     }
 
     if fmt in ("json", "both"):
-        result["cutlist_json"] = json.loads(to_json(all_panels, [_make_sheet(carcass_t)]))
+        result["cutlist_json"] = json.loads(to_json(all_panels, carcass_sheets))
     if fmt in ("csv", "both"):
         result["cutlist_csv"] = to_csv(all_panels)
 

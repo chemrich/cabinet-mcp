@@ -205,6 +205,75 @@ class CabinetConfig:
         return self.height - self.top_thickness
 
 
+# ─── Dict → config builders ───────────────────────────────────────────────────
+# These accept the flat JSON-ish shapes used by the MCP tool inputs and the
+# project persistence layer. They live here (not in server.py) so that
+# pure-data modules like project.py can build configs without importing the
+# MCP layer.
+
+
+def to_opening(raw) -> OpeningConfig:
+    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
+    if isinstance(raw, OpeningConfig):
+        return raw
+    if isinstance(raw, dict):
+        return OpeningConfig(
+            height_mm=float(raw["height_mm"]),
+            opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
+            hinge_key=raw.get("hinge_key"),
+            hinge_side=raw.get("hinge_side"),
+            pull_key=raw.get("pull_key"),
+            num_doors=raw.get("num_doors"),
+            door_thickness=raw.get("door_thickness"),
+        )
+    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
+
+
+def build_cabinet_config(args: dict) -> CabinetConfig:
+    """Build a CabinetConfig from a flat dict of keyword arguments.
+
+    Accepts ``drawer_config`` (backward-compat API name) as an alias for
+    ``openings``. Each entry may be a ``[height_mm, opening_type]`` list,
+    a dict, or an ``OpeningConfig`` object — all are normalised by
+    ``to_opening``.
+    """
+    preset_key = args.pop("pull_preset", None)
+    if preset_key:
+        from .hardware import get_pull_preset
+        preset = get_pull_preset(preset_key)
+        args.setdefault("drawer_pull", preset.drawer_pull)
+        args.setdefault("door_pull", preset.door_pull)
+        args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
+
+    # Accept drawer_config as a backward-compat alias for openings.
+    if "drawer_config" in args and "openings" not in args:
+        args["openings"] = args.pop("drawer_config")
+    else:
+        args.pop("drawer_config", None)
+
+    kwargs: dict = {}
+    for key, value in args.items():
+        if key == "carcass_joinery" and isinstance(value, str):
+            kwargs[key] = CarcassJoinery(value)
+        elif key == "drawer_joinery" and isinstance(value, str):
+            kwargs[key] = DrawerJoineryStyle(value)
+        elif key == "openings" and isinstance(value, list):
+            kwargs[key] = [to_opening(r) for r in value]
+        elif key == "columns" and isinstance(value, list):
+            kwargs[key] = [
+                ColumnConfig(
+                    width_mm=float(c["width_mm"]),
+                    openings=tuple(
+                        to_opening(r) for r in c.get("drawer_config", c.get("openings", []))
+                    ),
+                )
+                for c in value
+            ]
+        else:
+            kwargs[key] = value
+    return CabinetConfig(**kwargs)
+
+
 def _require_cq():
     if cq is None:
         raise ImportError(
