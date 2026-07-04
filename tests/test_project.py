@@ -97,6 +97,36 @@ class TestSharedDesignMerge:
         # Should still resolve cleanly; child defaults preserved
         assert len(proj.resolved()) == 3
 
+    def test_child_explicit_pull_wins_over_shared_pull_preset(self):
+        # Regression: shared pull_preset expands into drawer_pull/door_pull
+        # at merge time, which used to clobber a child's explicit pull
+        # because "drawer_pull" never intersected the shared key set.
+        from cadquery_furniture.hardware import get_pull_preset
+        preset = get_pull_preset("contemporary_slab")
+
+        payload = _sample_payload()
+        payload["cabinets"][1]["config"]["drawer_pull"] = "topknobs-hb-128"
+        proj = build_project(payload)
+        resolved = dict(proj.resolved())
+
+        assert resolved["center"].drawer_pull == "topknobs-hb-128"
+        # door_pull wasn't pinned by the child, so it still follows the preset
+        assert resolved["center"].door_pull == preset.door_pull
+        # untouched siblings still get both pulls from the preset
+        assert resolved["left"].drawer_pull == preset.drawer_pull
+
+    def test_child_pull_preset_wins_over_shared_pull_preset(self):
+        from cadquery_furniture.hardware import get_pull_preset
+        child_preset = get_pull_preset("industrial_black")
+
+        payload = _sample_payload()
+        payload["cabinets"][2]["config"]["pull_preset"] = "industrial_black"
+        proj = build_project(payload)
+        resolved = dict(proj.resolved())
+
+        assert resolved["right"].drawer_pull == child_preset.drawer_pull
+        assert resolved["right"].door_pull == child_preset.door_pull
+
 
 # ─── Persistence ──────────────────────────────────────────────────────────────
 
@@ -231,3 +261,26 @@ class TestGenerateProjectCutlistTool:
         # All output files live under the project subdir
         for path in data["files"].values():
             assert "merge_check" in path
+
+    def test_mixed_carcass_thickness_gets_own_sheet_group(self, tmp_path, monkeypatch):
+        # Regression: carcass panels used to be packed (and priced) as a
+        # single group at the first cabinet's side_thickness even when a
+        # child overrode it.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = _sample_payload(name="mixed_t")
+        payload["cabinets"][1]["config"]["side_thickness"] = 12
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+
+        # Both carcass thicknesses appear as separate sheet-goods groups.
+        thicknesses = {g["thickness_mm"] for g in data["sheet_goods"]}
+        assert {18, 12} <= thicknesses, data["sheet_goods"]
+
+        # Side panels no longer consolidate across the thickness split:
+        # 2 cabinets × 2 sides at 18 mm, 1 cabinet × 2 sides at 12 mm.
+        sides = {p["thickness_mm"]: p["qty"]
+                 for p in data["panels_summary"] if p["name"] == "side"}
+        assert sides == {18: 4, 12: 2}, sides

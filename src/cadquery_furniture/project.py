@@ -24,7 +24,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 
-from .cabinet import CabinetConfig, ColumnConfig, OpeningConfig
+from .cabinet import CabinetConfig, ColumnConfig, OpeningConfig, build_cabinet_config
 from .joinery import (
     CarcassJoinery,
     DrawerJoineryStyle,
@@ -138,7 +138,7 @@ def _merge(
 
     # Handle pull_preset first — it expands into drawer_pull + door_pull, but
     # only if those two aren't already pinned by shared or by the child override.
-    if shared.pull_preset is not None:
+    if shared.pull_preset is not None and "pull_preset" not in overrides:
         from .hardware import get_pull_preset
         preset = get_pull_preset(shared.pull_preset)
         if "drawer_pull" not in overrides and shared.drawer_pull is None:
@@ -246,11 +246,9 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
 
 def config_from_dict(d: dict) -> CabinetConfig:
     """Inverse of :func:`_config_to_dict`. Also accepts the lighter shape
-    produced by the ``design_cabinet`` MCP tool input — i.e. anything the
-    server's ``_build_cabinet_config`` would accept."""
-    # Import here to avoid a hard dependency cycle.
-    from .server import _build_cabinet_config  # type: ignore[import-not-found]
-    return _build_cabinet_config(dict(d))
+    produced by the ``design_cabinet`` MCP tool input — i.e. anything
+    :func:`cabinet.build_cabinet_config` would accept."""
+    return build_cabinet_config(dict(d))
 
 
 def _shared_to_dict(shared: SharedDesign) -> dict:
@@ -357,11 +355,21 @@ def build_project(payload: dict) -> CabinetProject:
         k for k in _SHARED_FIELDS + ("pull_preset",)
         if getattr(shared, k) is not None
     }
+    # A shared pull_preset expands into drawer_pull + door_pull at merge
+    # time, so a child that explicitly sets either pull must be able to
+    # register it as an override even though the shared block never names
+    # those keys directly.
+    if shared.pull_preset is not None:
+        shared_keys |= {"drawer_pull", "door_pull"}
 
     for entry in payload.get("cabinets", []):
         child_name = str(entry["name"])
         cfg_dict = dict(entry.get("config", {}))
         explicit_keys = set(cfg_dict.keys())
+        # A child-level pull_preset expands into both pulls inside
+        # config_from_dict, so treat them as explicitly set too.
+        if "pull_preset" in explicit_keys:
+            explicit_keys |= {"drawer_pull", "door_pull"}
         overrides = frozenset(shared_keys & explicit_keys)
         cfg = config_from_dict(cfg_dict)
         cabinets.append(ProjectCabinet(

@@ -319,11 +319,12 @@ BLUM_TANDEM_550H = DrawerSlideSpec(
 # ── Blum Tandem Plus 563H (full extension, 45 kg) ─────────────────────────────
 
 BLUM_TANDEM_PLUS_563H = DrawerSlideSpec(
-    # Full-extension upgrade over 550H. Higher capacity (45 kg / 100 lb).
-    # Uses inch-series lengths (9"–21"). For ½"–⅝" drawer sides.
-    # Source: Blum 563H datasheet © 2016; CabinetParts SKUs 563H4570B (18"),
-    #   563H5330B (21") confirmed. Part numbers derived from pattern for other
-    #   lengths.
+    # Full-extension Blumotion runner for frameless cabinets, ½"–⅝" drawer
+    # sides. Inch-series lengths 9"–21". 90 lb / 41 kg load rating.
+    # Source: Blum 563H datasheet © 2016; Woodworker Express listings
+    #   (slides.html, May 2026 pricing) confirm SKUs 563H2290B10, 563H3050B,
+    #   563H3810B, 563H4570B, 563H5330B at $27.00 / $22.26 / $22.26 / $21.33 /
+    #   $21.99 per pair.
     name="Blum Tandem Plus 563H",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
@@ -334,17 +335,50 @@ BLUM_TANDEM_PLUS_563H = DrawerSlideSpec(
     min_top_clearance=6.0,          # ¼" — slightly tighter than 550H
     min_bottom_clearance=14.0,      # 9/16"
     available_lengths=(229, 305, 381, 457, 533),  # 9", 12", 15", 18", 21"
-    max_load_kg=45,
+    max_load_kg=41,                 # 90 lb (Woodworker Express listing)
     min_drawer_height=68,
     max_drawer_width=0,
     rear_bracket_inset=2.0,
     front_bracket_inset=2.0,
     part_numbers={
-        229: "563H2290B",  # 9"  — pattern-derived
-        305: "563H3050B",  # 12" — pattern-derived
-        381: "563H3810B",  # 15" — pattern-derived
-        457: "563H4570B",  # 18" — confirmed (CabinetParts)
-        533: "563H5330B",  # 21" — confirmed (CabinetParts, woodworkerexpress)
+        229: "563H2290B10",  # 9"  — confirmed (Woodworker Express)
+        305: "563H3050B",    # 12" — confirmed (Woodworker Express)
+        381: "563H3810B",    # 15" — confirmed (Woodworker Express)
+        457: "563H4570B",    # 18" — confirmed (Woodworker Express, CabinetParts)
+        533: "563H5330B",    # 21" — confirmed (Woodworker Express, CabinetParts)
+    },
+)
+
+
+# ── Blum Tandem Plus 563F (face-frame variant of 563H) ────────────────────────
+
+BLUM_TANDEM_PLUS_563F = DrawerSlideSpec(
+    # Face-frame counterpart to the 563H frameless slide. Same load rating
+    # and lengths; bracket geometry differs to clear the face frame.
+    # Source: Woodworker Express listings (slides.html, May 2026 pricing)
+    #   SKUs 563F2290B10, 563F3050B, 563F3810B, 563F4570B, 563F5330B at
+    #   $28.27 / $23.75 / $23.75 / $24.11 / $24.81 per pair.
+    name="Blum Tandem Plus 563F (face-frame)",
+    manufacturer="Blum",
+    slide_type=SlideType.UNDERMOUNT,
+    mount_location=SlideMountLocation.BOTTOM,
+    min_side_clearance=19.5,
+    max_side_clearance=22.5,
+    nominal_side_clearance=21.0,
+    min_top_clearance=6.0,
+    min_bottom_clearance=14.0,
+    available_lengths=(229, 305, 381, 457, 533),
+    max_load_kg=41,
+    min_drawer_height=68,
+    max_drawer_width=0,
+    rear_bracket_inset=2.0,
+    front_bracket_inset=2.0,
+    part_numbers={
+        229: "563F2290B10",
+        305: "563F3050B",
+        381: "563F3810B",
+        457: "563F4570B",
+        533: "563F5330B",
     },
 )
 
@@ -728,6 +762,7 @@ SLIDES: dict[str, DrawerSlideSpec] = {
     # Blum Tandem
     "blum_tandem_550h":       BLUM_TANDEM_550H,
     "blum_tandem_plus_563h":  BLUM_TANDEM_PLUS_563H,
+    "blum_tandem_plus_563f":  BLUM_TANDEM_PLUS_563F,
     # Blum Movento
     "blum_movento_760h":      BLUM_MOVENTO_760H,
     "blum_movento_769":       BLUM_MOVENTO_769,
@@ -882,10 +917,26 @@ HAIRPIN_200MM = LegSpec(
 )
 
 
+HAIRPIN_152MM = LegSpec(
+    name="Hairpin Leg 152mm (6\")",
+    manufacturer="Generic",
+    height_mm=152.4,           # exact 6 in
+    base_diameter_mm=10.0,
+    is_adjustable=False,
+    adjustment_range_mm=0.0,
+    stem_diameter_mm=0.0,
+    load_capacity_kg=30.0,
+    finish="matte_black",
+    part_number="",
+    notes="3-rod steel hairpin leg, 6\". Generic furniture-grade.",
+)
+
+
 LEGS: dict[str, LegSpec] = {
     "richelieu_176138106":       RICHELIEU_176138106,
     "richelieu_17613b106":       RICHELIEU_17613B106,
     "richelieu_adjustable_40mm": RICHELIEU_ADJUSTABLE_40MM,
+    "hairpin_152mm":             HAIRPIN_152MM,
     "hairpin_200mm":             HAIRPIN_200MM,
 }
 
@@ -1109,8 +1160,24 @@ PRICE_LIST: dict[str, float] = {
     "sheet_baltic_birch_6mm":   46.00,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
+    # Length-suffixed keys (model-length-NNNmm) reflect actual distributor
+    # pricing (Woodworker Express, slides.html, May 2026). price_for() falls
+    # back to the bare model key if no length-specific entry is found.
     "blum_tandem_550h":             28.50,
-    "blum_tandem_plus_563h":        48.00,
+    # Blum Tandem Plus 563H — frameless, 1/2"–5/8" sides (slides.html)
+    "blum_tandem_plus_563h":             22.00,  # representative; ~$21–$27 by length
+    "blum_tandem_plus_563h-229mm":       27.00,  # 9"
+    "blum_tandem_plus_563h-305mm":       22.26,  # 12"
+    "blum_tandem_plus_563h-381mm":       22.26,  # 15"
+    "blum_tandem_plus_563h-457mm":       21.33,  # 18"
+    "blum_tandem_plus_563h-533mm":       21.99,  # 21"
+    # Blum Tandem Plus 563F — face-frame variant (slides.html)
+    "blum_tandem_plus_563f":             24.00,  # representative; ~$23–$28 by length
+    "blum_tandem_plus_563f-229mm":       28.27,  # 9"
+    "blum_tandem_plus_563f-305mm":       23.75,  # 12"
+    "blum_tandem_plus_563f-381mm":       23.75,  # 15"
+    "blum_tandem_plus_563f-457mm":       24.11,  # 18"
+    "blum_tandem_plus_563f-533mm":       24.81,  # 21"
     "blum_movento_760h":            36.00,
     "blum_movento_769":             58.00,
     "accuride_3832":                18.00,
@@ -1120,6 +1187,8 @@ PRICE_LIST: dict[str, float] = {
     "salice_progressa_plus_smove":  54.00,
 
     # ── Hinges — each ─────────────────────────────────────────────────────────
+    # Both catalog-key form AND Blum part-number form are listed because the
+    # hardware-BOM helper uses ``hinge_spec.part_number`` as the SKU.
     "blum_clip_top_110_full":             9.50,
     "blum_clip_top_blumotion_110_full":  14.00,
     "blum_clip_top_110_half":             9.50,
@@ -1129,11 +1198,20 @@ PRICE_LIST: dict[str, float] = {
     "blum_clip_top_170_full":            12.00,
     "blum_clip_top_110":                  9.50,
     "blum_clip_top_170":                 12.00,
+    # Blum part-number SKUs (so price_for() works on the cutlist SKU)
+    "71B3550":                            9.50,   # Clip Top 110° full overlay
+    "71B3590":                           14.00,   # Clip Top BLUMOTION 110° full
+    "71H3550":                            9.50,   # Clip Top 110° half overlay
+    "71H3590":                           14.00,   # Clip Top BLUMOTION 110° half
+    "71N3550":                            9.50,   # Clip Top 110° inset
+    "71N3590":                           14.00,   # Clip Top BLUMOTION 110° inset
+    "71T6580":                           12.00,   # Clip Top 170° full overlay
 
     # ── Legs — each ───────────────────────────────────────────────────────────
     "richelieu_176138106":      18.00,
     "richelieu_17613b106":      18.00,
     "richelieu_adjustable_40mm": 8.00,
+    "hairpin_152mm":            22.00,
     "hairpin_200mm":            25.00,
 
     # ── Pulls — each ─────────────────────────────────────────────────────────
@@ -1195,5 +1273,15 @@ PRICE_LIST: dict[str, float] = {
 
 
 def price_for(key: str) -> float:
-    """Return the list price for a hardware/sheet key, or 0.0 if not listed."""
-    return PRICE_LIST.get(key, 0.0)
+    """Return the list price for a hardware/sheet key, or 0.0 if not listed.
+
+    Hardware-line SKUs from the cutlist module are often length-suffixed
+    (``blum_tandem_550h-457mm``). Look up the exact key first; if missing,
+    strip a trailing ``-NNNmm`` segment and try the base model.
+    """
+    if key in PRICE_LIST:
+        return PRICE_LIST[key]
+    # Fall back to the base model (everything before a trailing `-NNNmm`).
+    import re as _re
+    base = _re.sub(r"-\d+mm$", "", key)
+    return PRICE_LIST.get(base, 0.0)

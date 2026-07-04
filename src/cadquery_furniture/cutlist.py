@@ -950,7 +950,8 @@ def pull_lines_for_cabinet_config(
     if columns_raw:
         for col in columns_raw:
             col_w = float(col["width_mm"])
-            _walk_stack(col.get("drawer_config", []), col_w)
+            stack = col.get("openings", col.get("drawer_config", []))
+            _walk_stack(stack, col_w)
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
             _walk_stack(col.openings, col.width_mm)
@@ -966,9 +967,12 @@ def pull_lines_for_cabinet_config(
 def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
     """Return HardwareLines for drawer slides required by the cabinet.
 
-    Each drawer needs one slide pair (left + right = 2 pieces).  Slides are
-    sold individually so pack_quantity=1.  The SKU is keyed by slide key +
-    length so different-length slides on the same model stay separate.
+    Each drawer needs one slide pair (left + right = 2 pieces). Slides in
+    the Blum Tandem family (and most undermount runners) are **sold as
+    pairs**, so ``pack_quantity=2`` and ``packs_to_order`` is the number of
+    pairs to buy. Prices in PRICE_LIST are likewise per-pair. The SKU is
+    keyed by slide key + length so different-length slides on the same
+    model stay separate.
     """
     from .hardware import get_slide
     from .drawer import DrawerConfig
@@ -1004,8 +1008,8 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 name=slide_spec.name,
                 brand=slide_spec.manufacturer,
                 model_number=pn or cab_cfg.drawer_slide,
-                pieces_needed=2,  # one pair per drawer
-                pack_quantity=1,
+                pieces_needed=2,           # one pair (left + right) per drawer
+                pack_quantity=2,           # slides are sold as pairs
                 notes=f"{length} mm",
             ))
         return lines
@@ -1014,7 +1018,8 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     if columns_raw:
         for col in columns_raw:
             col_w = float(col["width_mm"])
-            raw.extend(_slides_from_stack(col.get("drawer_config", []), col_w))
+            stack = col.get("openings", col.get("drawer_config", []))
+            raw.extend(_slides_from_stack(stack, col_w))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
             raw.extend(_slides_from_stack(col.openings, col.width_mm))
@@ -1064,7 +1069,8 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     pieces = 0
     if columns_raw:
         for col in columns_raw:
-            pieces += _hinges_from_stack(col.get("drawer_config", []), float(col["width_mm"]))
+            stack = col.get("openings", col.get("drawer_config", []))
+            pieces += _hinges_from_stack(stack, float(col["width_mm"]))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
             pieces += _hinges_from_stack(col.openings, col.width_mm)
@@ -1239,7 +1245,8 @@ def drawer_front_screw_lines_for_cabinet_config(
 
     if columns_raw:
         for col in columns_raw:
-            n_drawers += _count_drawers(col.get("drawer_config", []))
+            stack = col.get("openings", col.get("drawer_config", []))
+            n_drawers += _count_drawers(stack)
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
             n_drawers += _count_drawers(col.openings)
@@ -1657,6 +1664,7 @@ def generate_sheet_layout_html(
 
     # ── Hardware BOM tab (optional) ────────────────────────────────────────────
     if hardware_lines:
+        from .hardware import price_for
         bom_idx = len(tab_buttons)
         tab_buttons.append(
             f'<button class="tab-btn" onclick="showTab({bom_idx})" id="btn-{bom_idx}">'
@@ -1664,28 +1672,44 @@ def generate_sheet_layout_html(
         )
         cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
         sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
-        rows = "".join(
-            f'<tr>'
-            f'<td>{_esc(h.category.title())}</td>'
-            f'<td>{_esc(h.name)}</td>'
-            f'<td>{_esc(h.brand)}</td>'
-            f'<td>{_esc(h.model_number)}</td>'
-            f'<td style="text-align:center">{h.pieces_needed}</td>'
-            f'<td style="text-align:center">{h.pack_quantity}</td>'
-            f'<td style="text-align:center;font-weight:600">{h.packs_to_order}</td>'
-            f'<td style="text-align:center">{h.leftover if h.leftover else "—"}</td>'
-            f'<td>{_esc(h.notes)}</td>'
+        hw_total = 0.0
+        rows_list = []
+        for h in sorted_hw:
+            unit = price_for(h.sku)
+            line_total = round(h.packs_to_order * unit, 2)
+            hw_total += line_total
+            rows_list.append(
+                f'<tr>'
+                f'<td>{_esc(h.category.title())}</td>'
+                f'<td>{_esc(h.name)}</td>'
+                f'<td>{_esc(h.brand)}</td>'
+                f'<td>{_esc(h.model_number)}</td>'
+                f'<td style="text-align:center">{h.pieces_needed}</td>'
+                f'<td style="text-align:center">{h.pack_quantity}</td>'
+                f'<td style="text-align:center;font-weight:600">{h.packs_to_order}</td>'
+                f'<td style="text-align:right">{("$%.2f" % unit) if unit else "—"}</td>'
+                f'<td style="text-align:right;font-weight:600">{("$%.2f" % line_total) if line_total else "—"}</td>'
+                f'<td style="text-align:center">{h.leftover if h.leftover else "—"}</td>'
+                f'<td>{_esc(h.notes)}</td>'
+                f'</tr>'
+            )
+        rows = "".join(rows_list)
+        total_row = (
+            f'<tr style="border-top:2px solid #888;font-weight:600">'
+            f'<td colspan="8" style="text-align:right">Hardware total (list prices):</td>'
+            f'<td style="text-align:right">${hw_total:.2f}</td>'
+            f'<td colspan="2"></td>'
             f'</tr>'
-            for h in sorted_hw
         )
         bom_table = (
             f'<table class="bom-tbl">'
             f'<thead><tr>'
             f'<th>Category</th><th>Name</th><th>Brand</th><th>Model #</th>'
             f'<th>Needed</th><th>Pack&nbsp;Qty</th><th>Packs&nbsp;to&nbsp;Order</th>'
+            f'<th>Unit&nbsp;Price</th><th>Line&nbsp;Total</th>'
             f'<th>Leftover</th><th>Notes</th>'
             f'</tr></thead>'
-            f'<tbody>{rows}</tbody>'
+            f'<tbody>{rows}{total_row}</tbody>'
             f'</table>'
         )
         tab_panes.append(
@@ -1958,12 +1982,18 @@ def generate_sheet_layout_pdf(
         ))
         story.append(_Spacer(1, 3 * _rl_mm))
 
+        from .hardware import price_for
         cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
         sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
 
         hw_data = [["Category", "Name", "Brand", "Model #",
-                    "Needed", "Pack Qty", "Packs to Order", "Leftover", "Notes"]]
+                    "Needed", "Pack Qty", "Packs", "Unit $", "Line $",
+                    "Leftover", "Notes"]]
+        hw_total = 0.0
         for h in sorted_hw:
+            unit = price_for(h.sku)
+            line_total = round(h.packs_to_order * unit, 2)
+            hw_total += line_total
             hw_data.append([
                 h.category.title(),
                 h.name,
@@ -1972,10 +2002,14 @@ def generate_sheet_layout_pdf(
                 str(h.pieces_needed),
                 str(h.pack_quantity),
                 str(h.packs_to_order),
+                f"${unit:.2f}" if unit else "—",
+                f"${line_total:.2f}" if line_total else "—",
                 str(h.leftover) if h.leftover else "—",
                 h.notes or "—",
             ])
-        hw_col_w = [CW * x for x in (0.09, 0.22, 0.12, 0.13, 0.07, 0.08, 0.12, 0.08, 0.09)]
+        hw_data.append(["", "", "", "", "", "", "", "Total:", f"${hw_total:.2f}", "", ""])
+        hw_col_w = [CW * x for x in
+                    (0.08, 0.18, 0.10, 0.11, 0.06, 0.06, 0.06, 0.07, 0.08, 0.07, 0.13)]
         hw_tbl = _Table(hw_data, colWidths=hw_col_w, repeatRows=1)
         hw_tbl.setStyle(_tbl_style(small=True))
         story.append(hw_tbl)
