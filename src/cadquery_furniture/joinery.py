@@ -591,7 +591,7 @@ class BiscuitSpec:
 
 
 @dataclass(frozen=True)
-class DownelSpec:
+class DowelSpec:
     """Layout spec for round wood dowels.
 
     Dowels are compatible with the 32 mm European cabinet system — the same
@@ -646,8 +646,11 @@ DEFAULT_POCKET_SCREW = PocketScrewSpec()
 #: Default biscuit spec (#10, 100 mm spacing)
 DEFAULT_BISCUIT = BiscuitSpec(size="#10", max_spacing=100.0)
 
+#: Backward-compat alias — the class was originally (mis)spelled DownelSpec.
+DownelSpec = DowelSpec
+
 #: Default dowel spec (8 mm, 96 mm spacing)
-DEFAULT_DOWEL = DownelSpec(diameter=8.0, max_spacing=96.0)
+DEFAULT_DOWEL = DowelSpec(diameter=8.0, max_spacing=96.0)
 
 
 # ─── CadQuery geometry (gated behind _require_cq) ────────────────────────────

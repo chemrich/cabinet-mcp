@@ -40,7 +40,7 @@ from .joinery import (
     DominoSpec,
     PocketScrewSpec,
     BiscuitSpec,
-    DownelSpec,
+    DowelSpec,
 )
 from .pulls import DUAL_PULL_THRESHOLD_MM, pull_fits_face, recommend_pull_count
 

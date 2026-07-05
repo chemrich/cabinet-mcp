@@ -127,6 +127,40 @@ class TestSharedDesignMerge:
         assert resolved["right"].drawer_pull == child_preset.drawer_pull
         assert resolved["right"].door_pull == child_preset.door_pull
 
+    def test_shared_pull_preset_applies_door_pull_inset(self, monkeypatch):
+        # Regression: _merge expanded a shared pull_preset into the two pull
+        # keys but dropped preset.door_pull_inset_mm — latent while every
+        # shipped preset used the 50.0 default, wrong the moment one doesn't.
+        from cadquery_furniture import hardware as hmod
+        real = hmod.get_pull_preset("contemporary_slab")
+        from dataclasses import replace as _dc_replace
+        fake = _dc_replace(real, door_pull_inset_mm=75.0)
+        monkeypatch.setattr(hmod, "get_pull_preset", lambda key: fake)
+
+        proj = build_project(_sample_payload())
+        for _, cfg in proj.resolved():
+            assert cfg.door_pull_inset_mm == 75.0
+
+    def test_design_cabinet_convenience_params_accepted(self):
+        # Regression: num_drawers / drawer_proportion / furniture_top used to
+        # raise TypeError inside CabinetConfig(**kwargs) despite the tool
+        # description promising design_cabinet-shaped child configs.
+        payload = {
+            "name": "conv",
+            "cabinets": [{"name": "a", "config": {
+                "width": 600, "height": 720, "depth": 550,
+                "num_drawers": 3, "furniture_top": True,
+            }}],
+        }
+        proj = build_project(payload)
+        cfg = proj.resolved()[0][1]
+        assert len(cfg.openings) == 3
+        assert all(op.opening_type == "drawer" for op in cfg.openings)
+        # Largest drawer at the bottom, stack fills the interior height
+        heights = [op.height_mm for op in cfg.openings]
+        assert heights == sorted(heights, reverse=True)
+        assert sum(heights) == pytest.approx(720 - 36)
+
 
 # ─── Persistence ──────────────────────────────────────────────────────────────
 
@@ -160,6 +194,80 @@ class TestProjectPersistence:
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         with pytest.raises(FileNotFoundError):
             load_project("does_not_exist")
+
+    def test_shelf_pin_fields_survive_round_trip(self):
+        # Regression: _config_to_dict omitted shelf_pin_* fields, silently
+        # resetting them to defaults on save/load.
+        payload = {
+            "name": "pins",
+            "cabinets": [{"name": "a", "config": {
+                "width": 600, "height": 720, "depth": 550,
+                "adj_shelf_holes": True,
+                "shelf_pin_spacing": 25.0,
+                "shelf_pin_row_inset": 45.0,
+            }}],
+        }
+        proj = build_project(payload)
+        loaded = project_from_dict(project_to_dict(proj))
+        cfg = loaded.resolved()[0][1]
+        assert cfg.shelf_pin_spacing == 25.0
+        assert cfg.shelf_pin_row_inset == 45.0
+
+    def test_joinery_specs_survive_round_trip(self):
+        # Regression: custom domino/pocket-screw/biscuit/dowel specs were
+        # dropped by _config_to_dict and reset to defaults on load.
+        from cadquery_furniture.joinery import DominoSpec
+        payload = {
+            "name": "specs",
+            "cabinets": [{"name": "a", "config": {
+                "width": 600, "height": 720, "depth": 550,
+            }}],
+        }
+        proj = build_project(payload)
+        custom = DominoSpec(size_key="10x50", max_spacing=120.0)
+        pc = proj.cabinets[0]
+        from dataclasses import replace as _dc_replace
+        proj = CabinetProject(
+            name=proj.name,
+            cabinets=(ProjectCabinet(pc.name, _dc_replace(pc.config, domino_spec=custom)),),
+            shared=proj.shared,
+        )
+        loaded = project_from_dict(project_to_dict(proj))
+        cfg = loaded.resolved()[0][1]
+        assert isinstance(cfg.domino_spec, DominoSpec)
+        assert cfg.domino_spec.size_key == "10x50"
+        assert cfg.domino_spec.max_spacing == 120.0
+
+    def test_column_fixed_shelves_survive_round_trip(self):
+        # Regression: ColumnConfig dropped per-column fixed_shelf_positions,
+        # losing shelves from persisted projects permanently.
+        payload = {
+            "name": "colshelf",
+            "cabinets": [{"name": "a", "config": {
+                "width": 1200, "height": 762, "depth": 500,
+                "columns": [
+                    {"width_mm": 570, "openings": [[706, "door"]],
+                     "fixed_shelf_positions": [250, 500]},
+                    {"width_mm": 576, "openings": [[200, "drawer"], [506, "open"]]},
+                ],
+            }}],
+        }
+        proj = build_project(payload)
+        loaded = project_from_dict(project_to_dict(proj))
+        cfg = loaded.resolved()[0][1]
+        assert cfg.columns[0].fixed_shelf_positions == (250.0, 500.0)
+        assert cfg.columns[1].fixed_shelf_positions == ()
+
+    def test_project_names_with_path_separators_rejected(self, tmp_path, monkeypatch):
+        # Regression: raw names were used as filename stems — "kitchen/run"
+        # crashed with FileNotFoundError and "../evil" escaped the projects dir.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
+        for bad in ("kitchen/run", "../evil", ".hidden", ""):
+            with pytest.raises(ValueError):
+                save_project(build_project(_sample_payload(name=bad)))
+            with pytest.raises(ValueError):
+                load_project(bad)
 
 
 # ─── Cross-cabinet checks ─────────────────────────────────────────────────────
@@ -284,3 +392,57 @@ class TestGenerateProjectCutlistTool:
         sides = {p["thickness_mm"]: p["qty"]
                  for p in data["panels_summary"] if p["name"] == "side"}
         assert sides == {18: 4, 12: 2}, sides
+
+    def test_single_column_cabinet_gets_drawer_box_panels(self, tmp_path, monkeypatch):
+        # Regression: single-column cabinets (openings/drawer_config, no
+        # columns) produced slides in the hardware BOM but zero drawer-box
+        # and false-front panels in the combined cutlist.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = {
+            "name": "single_col",
+            "cabinets": [{"name": "a", "config": {
+                "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[200, "drawer"], [200, "drawer"], [250, "drawer"]],
+            }}],
+        }
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+
+        names = {p["name"] for p in data["panels_summary"]}
+        assert {"drawer_box_side", "drawer_box_front", "drawer_box_back",
+                "drawer_box_bottom", "false_front"} <= names, names
+
+        # Panels and hardware must describe the same three drawers.
+        n_false_fronts = sum(p["qty"] for p in data["panels_summary"]
+                             if p["name"] == "false_front")
+        slide_pairs = sum(h["pieces_needed"] // 2 for h in data["hardware_bom"]
+                          if h["category"] == "slide")
+        assert n_false_fronts == slide_pairs == 3
+
+    def test_per_column_fixed_shelves_produce_shelf_panels(self, tmp_path, monkeypatch):
+        # Regression: per-column fixed_shelf_positions vanished in the
+        # project cutlist path (ColumnConfig didn't carry them).
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = {
+            "name": "colshelf_cut",
+            "cabinets": [{"name": "a", "config": {
+                "width": 1200, "height": 762, "depth": 500,
+                "columns": [
+                    {"width_mm": 570, "openings": [[706, "door"]],
+                     "fixed_shelf_positions": [250, 500]},
+                    {"width_mm": 576, "openings": [[200, "drawer"], [506, "open"]]},
+                ],
+            }}],
+        }
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+        shelves = [p for p in data["panels_summary"] if p["name"].startswith("shelf")]
+        assert sum(p["qty"] for p in shelves) == 2, shelves
+        # Shelf panels are cut to the column's interior width
+        assert all(p["length_mm"] == 570.0 for p in shelves), shelves

@@ -20,6 +20,7 @@ mode and can be exercised by the eval harness directly.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
@@ -31,12 +32,8 @@ from .joinery import (
     DominoSpec,
     PocketScrewSpec,
     BiscuitSpec,
-    DownelSpec,
+    DowelSpec,
 )
-
-# joinery.py spells the dowel spec class ``DownelSpec``; expose it under both
-# names internally for clarity but use the canonical spelling externally.
-DowelSpec = DownelSpec
 
 
 # Fields on SharedDesign that map 1:1 to a CabinetConfig attribute.
@@ -136,8 +133,9 @@ def _merge(
     """Apply non-None shared tokens onto cfg, skipping anything in overrides."""
     updates: dict[str, Any] = {}
 
-    # Handle pull_preset first — it expands into drawer_pull + door_pull, but
-    # only if those two aren't already pinned by shared or by the child override.
+    # Handle pull_preset first — it expands into drawer_pull, door_pull, and
+    # door_pull_inset_mm (same three attributes build_cabinet_config applies),
+    # but only where not already pinned by shared or by the child override.
     if shared.pull_preset is not None and "pull_preset" not in overrides:
         from .hardware import get_pull_preset
         preset = get_pull_preset(shared.pull_preset)
@@ -145,6 +143,8 @@ def _merge(
             updates["drawer_pull"] = preset.drawer_pull
         if "door_pull" not in overrides and shared.door_pull is None:
             updates["door_pull"] = preset.door_pull
+        if "door_pull_inset_mm" not in overrides:
+            updates["door_pull_inset_mm"] = preset.door_pull_inset_mm
 
     for name in _SHARED_FIELDS:
         value = getattr(shared, name)
@@ -163,8 +163,23 @@ def project_dir() -> Path:
     return Path.home() / ".cabinet-mcp" / "projects"
 
 
+# Project names become filename stems under ~/.cabinet-mcp/projects/ —
+# restrict them so a name can never contain a path separator or traverse
+# out of the projects directory.
+_PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+
+
 def project_path(name: str) -> Path:
-    """Filesystem path for a project's JSON snapshot."""
+    """Filesystem path for a project's JSON snapshot.
+
+    Raises ValueError for names that are unsafe as a filename stem
+    (path separators, leading dots, ``..`` traversal, empty).
+    """
+    if not _PROJECT_NAME_RE.match(name) or ".." in name:
+        raise ValueError(
+            f"Invalid project name {name!r}: use letters, digits, spaces, "
+            "'.', '_' or '-' (must start with a letter or digit)."
+        )
     return project_dir() / f"{name}.json"
 
 
@@ -205,10 +220,13 @@ def _opening_to_dict(op: OpeningConfig) -> dict:
 
 
 def _column_to_dict(col: ColumnConfig) -> dict:
-    return {
+    out = {
         "width_mm": col.width_mm,
         "openings": [_opening_to_dict(op) for op in col.openings],
     }
+    if col.fixed_shelf_positions:
+        out["fixed_shelf_positions"] = list(col.fixed_shelf_positions)
+    return out
 
 
 def _config_to_dict(cfg: CabinetConfig) -> dict:
@@ -228,6 +246,12 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
         "back_rabbet_depth":  cfg.back_rabbet_depth,
         "fixed_shelf_positions": list(cfg.fixed_shelf_positions),
         "adj_shelf_holes":       cfg.adj_shelf_holes,
+        "shelf_pin_diameter":  cfg.shelf_pin_diameter,
+        "shelf_pin_depth":     cfg.shelf_pin_depth,
+        "shelf_pin_row_inset": cfg.shelf_pin_row_inset,
+        "shelf_pin_start_z":   cfg.shelf_pin_start_z,
+        "shelf_pin_end_z":     cfg.shelf_pin_end_z,
+        "shelf_pin_spacing":   cfg.shelf_pin_spacing,
         "openings": [_opening_to_dict(op) for op in cfg.openings],
         "columns":  [_column_to_dict(col) for col in cfg.columns],
         "drawer_slide": cfg.drawer_slide,
@@ -241,7 +265,18 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
         "leg_inset": cfg.leg_inset,
         "carcass_joinery": cfg.carcass_joinery.value,
         "drawer_joinery":  cfg.drawer_joinery.value,
+        # Per-method joinery specs — serialized as field dicts;
+        # build_cabinet_config reconstructs the spec objects on load.
+        "domino_spec":       _spec_to_dict(cfg.domino_spec),
+        "pocket_screw_spec": _spec_to_dict(cfg.pocket_screw_spec),
+        "biscuit_spec":      _spec_to_dict(cfg.biscuit_spec),
+        "dowel_spec":        _spec_to_dict(cfg.dowel_spec),
     }
+
+
+def _spec_to_dict(spec) -> dict:
+    """Serialize a joinery spec dataclass as its field dict."""
+    return {fk: getattr(spec, fk) for fk in spec.__dataclass_fields__}
 
 
 def config_from_dict(d: dict) -> CabinetConfig:
@@ -355,21 +390,22 @@ def build_project(payload: dict) -> CabinetProject:
         k for k in _SHARED_FIELDS + ("pull_preset",)
         if getattr(shared, k) is not None
     }
-    # A shared pull_preset expands into drawer_pull + door_pull at merge
-    # time, so a child that explicitly sets either pull must be able to
-    # register it as an override even though the shared block never names
-    # those keys directly.
+    # A shared pull_preset expands into drawer_pull, door_pull, and
+    # door_pull_inset_mm at merge time, so a child that explicitly sets any
+    # of those must be able to register it as an override even though the
+    # shared block never names those keys directly.
     if shared.pull_preset is not None:
-        shared_keys |= {"drawer_pull", "door_pull"}
+        shared_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
 
     for entry in payload.get("cabinets", []):
         child_name = str(entry["name"])
         cfg_dict = dict(entry.get("config", {}))
         explicit_keys = set(cfg_dict.keys())
-        # A child-level pull_preset expands into both pulls inside
-        # config_from_dict, so treat them as explicitly set too.
+        # A child-level pull_preset expands into both pulls (and the door
+        # pull inset) inside config_from_dict, so treat them as explicitly
+        # set too.
         if "pull_preset" in explicit_keys:
-            explicit_keys |= {"drawer_pull", "door_pull"}
+            explicit_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
         overrides = frozenset(shared_keys & explicit_keys)
         cfg = config_from_dict(cfg_dict)
         cabinets.append(ProjectCabinet(

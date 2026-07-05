@@ -1187,8 +1187,10 @@ PRICE_LIST: dict[str, float] = {
     "salice_progressa_plus_smove":  54.00,
 
     # ── Hinges — each ─────────────────────────────────────────────────────────
-    # Both catalog-key form AND Blum part-number form are listed because the
-    # hardware-BOM helper uses ``hinge_spec.part_number`` as the SKU.
+    # Catalog-key form only. Part-number SKUs (the form the hardware-BOM
+    # helpers actually emit) are mirrored programmatically below — see the
+    # loop after this dict — so a spec's part_number can never drift out of
+    # sync with a hand-maintained alias.
     "blum_clip_top_110_full":             9.50,
     "blum_clip_top_blumotion_110_full":  14.00,
     "blum_clip_top_110_half":             9.50,
@@ -1198,14 +1200,6 @@ PRICE_LIST: dict[str, float] = {
     "blum_clip_top_170_full":            12.00,
     "blum_clip_top_110":                  9.50,
     "blum_clip_top_170":                 12.00,
-    # Blum part-number SKUs (so price_for() works on the cutlist SKU)
-    "71B3550":                            9.50,   # Clip Top 110° full overlay
-    "71B3590":                           14.00,   # Clip Top BLUMOTION 110° full
-    "71H3550":                            9.50,   # Clip Top 110° half overlay
-    "71H3590":                           14.00,   # Clip Top BLUMOTION 110° half
-    "71N3550":                            9.50,   # Clip Top 110° inset
-    "71N3590":                           14.00,   # Clip Top BLUMOTION 110° inset
-    "71T6580":                           12.00,   # Clip Top 170° full overlay
 
     # ── Legs — each ───────────────────────────────────────────────────────────
     "richelieu_176138106":      18.00,
@@ -1270,6 +1264,18 @@ PRICE_LIST: dict[str, float] = {
     "dowel-8x40-50pk":          6.00,
     "screw-8x32-panhead-100pk": 8.00,   # false-front screws
 }
+
+
+# Mirror catalog-key prices onto manufacturer part numbers. The hardware-BOM
+# helpers use ``spec.part_number`` as the HardwareLine SKU (falling back to
+# the catalog key only when part_number is empty), so price_for() must
+# resolve both forms. Deriving the mapping here — instead of hand-listing
+# part-number aliases — keeps it correct when a spec's part_number changes.
+for _catalog_key, _spec in {**HINGES, **LEGS}.items():
+    _pn = getattr(_spec, "part_number", "")
+    if _pn and _catalog_key in PRICE_LIST:
+        PRICE_LIST.setdefault(_pn, PRICE_LIST[_catalog_key])
+del _catalog_key, _spec, _pn
 
 
 def price_for(key: str) -> float:
