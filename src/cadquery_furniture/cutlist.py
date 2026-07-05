@@ -61,7 +61,7 @@ try:
 except ImportError:
     _REPORTLAB_AVAILABLE = False
 
-from .cabinet import PartInfo
+from .cabinet import PartInfo, stack_from_column
 
 
 # ── Shared colour helpers (used by both HTML and PDF renderers) ───────────────
@@ -950,7 +950,7 @@ def pull_lines_for_cabinet_config(
     if columns_raw:
         for col in columns_raw:
             col_w = float(col["width_mm"])
-            stack = col.get("openings", col.get("drawer_config", []))
+            stack = stack_from_column(col)
             _walk_stack(stack, col_w)
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
@@ -1018,7 +1018,7 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     if columns_raw:
         for col in columns_raw:
             col_w = float(col["width_mm"])
-            stack = col.get("openings", col.get("drawer_config", []))
+            stack = stack_from_column(col)
             raw.extend(_slides_from_stack(stack, col_w))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
@@ -1069,7 +1069,7 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     pieces = 0
     if columns_raw:
         for col in columns_raw:
-            stack = col.get("openings", col.get("drawer_config", []))
+            stack = stack_from_column(col)
             pieces += _hinges_from_stack(stack, float(col["width_mm"]))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
@@ -1140,7 +1140,7 @@ def joinery_lines_for_cabinet_config(
         DominoSpec, DominoSize, get_domino_size,
         PocketScrewSpec, pocket_screw_length,
         BiscuitSpec,
-        DownelSpec,
+        DowelSpec,
     )
 
     joinery = getattr(cab_cfg, "carcass_joinery", CarcassJoinery.DADO_RABBET)
@@ -1209,7 +1209,7 @@ def joinery_lines_for_cabinet_config(
         )])
 
     if joinery == CarcassJoinery.DOWEL:
-        spec = DownelSpec(diameter=8.0, max_spacing=96.0)
+        spec = DowelSpec(diameter=8.0, max_spacing=96.0)
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
         return consolidate_hardware_lines([HardwareLine(
@@ -1245,7 +1245,7 @@ def drawer_front_screw_lines_for_cabinet_config(
 
     if columns_raw:
         for col in columns_raw:
-            stack = col.get("openings", col.get("drawer_config", []))
+            stack = stack_from_column(col)
             n_drawers += _count_drawers(stack)
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:

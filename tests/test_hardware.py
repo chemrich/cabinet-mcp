@@ -177,3 +177,39 @@ class TestLookup:
     def test_get_hinge_invalid(self):
         with pytest.raises(KeyError):
             get_hinge("nonexistent_hinge")
+
+
+class TestPartNumberPricing:
+    """price_for() must resolve the SKU forms the hardware-BOM helpers emit:
+    manufacturer part numbers for hinges/legs, catalog keys as fallback."""
+
+    def test_every_priced_hinge_part_number_is_priced(self):
+        from cadquery_furniture.hardware import HINGES, PRICE_LIST, price_for
+        for key, spec in HINGES.items():
+            if key in PRICE_LIST and spec.part_number:
+                assert price_for(spec.part_number) == PRICE_LIST[key], (
+                    f"{key}: part number {spec.part_number} not priced"
+                )
+
+    def test_170_hinge_part_number_priced(self):
+        # Regression: PRICE_LIST used a dead '71T6580' alias while the spec
+        # carries part_number '71B3750', pricing 170-degree hinges at $0.
+        from cadquery_furniture.hardware import get_hinge, price_for
+        assert price_for(get_hinge("blum_clip_top_170_full").part_number) == 12.00
+
+    def test_every_priced_leg_part_number_is_priced(self):
+        # Regression: leg BOM lines use spec.part_number as the SKU, but
+        # PRICE_LIST only listed catalog keys — all Richelieu legs priced $0.
+        from cadquery_furniture.hardware import LEGS, PRICE_LIST, price_for
+        for key, spec in LEGS.items():
+            if key in PRICE_LIST and spec.part_number:
+                assert price_for(spec.part_number) == PRICE_LIST[key], (
+                    f"{key}: part number {spec.part_number} not priced"
+                )
+
+    def test_leg_bom_line_prices_nonzero(self):
+        from cadquery_furniture.cabinet import CabinetConfig
+        from cadquery_furniture.cutlist import leg_lines_for_cabinet_config
+        from cadquery_furniture.hardware import price_for
+        lines = leg_lines_for_cabinet_config(CabinetConfig())
+        assert lines and price_for(lines[0].sku) == 18.00
