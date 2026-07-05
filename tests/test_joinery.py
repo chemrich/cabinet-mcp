@@ -20,7 +20,7 @@ from cadquery_furniture.joinery import (
     POCKET_SCREW_LENGTH_BY_THICKNESS,
     BiscuitSpec,
     BISCUIT_DIMS,
-    DownelSpec,
+    DowelSpec,
     DEFAULT_DOMINO,
     DEFAULT_POCKET_SCREW,
     DEFAULT_BISCUIT,
@@ -275,9 +275,9 @@ class TestBiscuitSpec:
             assert len(self.spec.positions_for_span(span)) == self.spec.count_for_span(span)
 
 
-# ─── DownelSpec ───────────────────────────────────────────────────────────────
+# ─── DowelSpec ───────────────────────────────────────────────────────────────
 
-class TestDownelSpec:
+class TestDowelSpec:
     spec = DEFAULT_DOWEL  # 8 mm, 96 mm spacing
 
     def test_count_minimum_two(self):

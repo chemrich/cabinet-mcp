@@ -61,6 +61,9 @@ from cadquery_furniture.server import (
     _tool_design_pulls,
     _tool_suggest_proportions,
     _tool_list_pull_presets,
+    _tool_design_project,
+    _tool_evaluate_project,
+    _tool_generate_project_cutlist,
 )
 
 # ─── Tool dispatch ────────────────────────────────────────────────────────────
@@ -84,6 +87,9 @@ TOOL_DISPATCH = {
     "design_pulls":                 _tool_design_pulls,
     "suggest_proportions":          _tool_suggest_proportions,
     "list_pull_presets":            _tool_list_pull_presets,
+    "design_project":               _tool_design_project,
+    "evaluate_project":             _tool_evaluate_project,
+    "generate_project_cutlist":     _tool_generate_project_cutlist,
 }
 
 

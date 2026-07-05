@@ -89,7 +89,12 @@ from .cutlist import (
     _OPCUT_AVAILABLE,
     _RECTPACK_AVAILABLE,
 )
-from .cabinet import OpeningConfig
+from .cabinet import (
+    OpeningConfig,
+    build_cabinet_config as _build_cabinet_config,
+    stack_from_column as _stack_from_column,
+    to_opening as _to_opening,
+)
 from .door import DoorConfig
 from .drawer import DrawerConfig
 from .evaluation import Issue, Severity, evaluate_cabinet
@@ -131,23 +136,6 @@ def _issues_to_dicts(issues: list[Issue]) -> list[dict]:
     ]
 
 
-def _to_opening(raw) -> OpeningConfig:
-    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
-    if isinstance(raw, OpeningConfig):
-        return raw
-    if isinstance(raw, dict):
-        return OpeningConfig(
-            height_mm=float(raw["height_mm"]),
-            opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
-            hinge_key=raw.get("hinge_key"),
-            hinge_side=raw.get("hinge_side"),
-            pull_key=raw.get("pull_key"),
-            num_doors=raw.get("num_doors"),
-            door_thickness=raw.get("door_thickness"),
-        )
-    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
-
-
 def _sort_drawer_config(dc: list) -> list:
     """Sort drawer openings largest-first (bottom); non-drawer openings stay at the end."""
     if not dc:
@@ -165,51 +153,6 @@ def _sort_drawer_config(dc: list) -> list:
     drawers = sorted([r for r in dc if _type(r) == "drawer"], key=_height, reverse=True)
     others  = [r for r in dc if _type(r) != "drawer"]
     return drawers + others
-
-
-def _build_cabinet_config(args: dict) -> CabinetConfig:
-    """Build a CabinetConfig from a flat dict of keyword arguments.
-
-    Accepts ``drawer_config`` (backward-compat API name) as an alias for
-    ``openings``. Each entry may be a ``[height_mm, opening_type]`` list,
-    a dict, or an ``OpeningConfig`` object — all are normalised by
-    ``_to_opening``.
-    """
-    preset_key = args.pop("pull_preset", None)
-    if preset_key:
-        from .hardware import get_pull_preset
-        preset = get_pull_preset(preset_key)
-        args.setdefault("drawer_pull", preset.drawer_pull)
-        args.setdefault("door_pull", preset.door_pull)
-        args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
-
-    # Accept drawer_config as a backward-compat alias for openings.
-    if "drawer_config" in args and "openings" not in args:
-        args["openings"] = args.pop("drawer_config")
-    else:
-        args.pop("drawer_config", None)
-
-    kwargs: dict[str, Any] = {}
-    for key, value in args.items():
-        if key == "carcass_joinery" and isinstance(value, str):
-            kwargs[key] = CarcassJoinery(value)
-        elif key == "drawer_joinery" and isinstance(value, str):
-            kwargs[key] = DrawerJoineryStyle(value)
-        elif key == "openings" and isinstance(value, list):
-            kwargs[key] = [_to_opening(r) for r in value]
-        elif key == "columns" and isinstance(value, list):
-            kwargs[key] = [
-                ColumnConfig(
-                    width_mm=float(c["width_mm"]),
-                    openings=tuple(
-                        _to_opening(r) for r in c.get("drawer_config", c.get("openings", []))
-                    ),
-                )
-                for c in value
-            ]
-        else:
-            kwargs[key] = value
-    return CabinetConfig(**kwargs)
 
 
 def _build_door_config(args: dict) -> DoorConfig:
@@ -1450,6 +1393,118 @@ async def list_tools() -> list[types.Tool]:
             """),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
+        types.Tool(
+            name="design_project",
+            description=textwrap.dedent("""\
+                Build a multi-cabinet project: several cabinets designed to live
+                together (e.g. three matching sideboards, a kitchen run).
+
+                The 'shared' block carries design tokens applied to every child
+                cabinet at construction time — material thicknesses, joinery,
+                hardware brand, pull preset, leg key. A child's 'config' block
+                accepts the same parameters as design_cabinet / design_multi_column_cabinet;
+                any field set there overrides the shared value for that child.
+
+                The resolved project is persisted to
+                ~/.cabinet-mcp/projects/<name>.json so evaluate_project and
+                generate_project_cutlist can be called by project name later.
+
+                Returns per-cabinet resolved configs plus a divergence note for
+                any shared token a child overrode.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Project name; used as the filename stem."},
+                    "notes": {"type": "string", "description": "Optional human-readable notes."},
+                    "shared": {
+                        "type": "object",
+                        "description": "Design tokens to apply to every child cabinet. All fields optional.",
+                        "properties": {
+                            "side_thickness":   {"type": "number"},
+                            "bottom_thickness": {"type": "number"},
+                            "top_thickness":    {"type": "number"},
+                            "shelf_thickness":  {"type": "number"},
+                            "back_thickness":   {"type": "number"},
+                            "carcass_joinery":  {"type": "string"},
+                            "drawer_joinery":   {"type": "string"},
+                            "drawer_slide":     {"type": "string"},
+                            "door_hinge":       {"type": "string"},
+                            "drawer_pull":      {"type": "string"},
+                            "door_pull":        {"type": "string"},
+                            "leg_key":          {"type": "string"},
+                            "pull_preset":      {"type": "string"},
+                        },
+                    },
+                    "cabinets": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "config": {
+                                    "type": "object",
+                                    "description": "Per-cabinet config — same shape as design_cabinet / design_multi_column_cabinet args.",
+                                },
+                            },
+                            "required": ["name", "config"],
+                        },
+                    },
+                },
+                "required": ["name", "cabinets"],
+            },
+        ),
+        types.Tool(
+            name="evaluate_project",
+            description=textwrap.dedent("""\
+                Run evaluate_cabinet against every child cabinet in a project,
+                plus cross-cabinet sanity checks (matching depth, matching
+                exterior height).
+
+                Pass either a 'project_name' to load a previously persisted
+                project, or an inline 'project' payload (same shape as
+                design_project input).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Name of a previously persisted project (see design_project).",
+                    },
+                    "project": {
+                        "type": "object",
+                        "description": "Inline project payload — same shape as design_project input.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="generate_project_cutlist",
+            description=textwrap.dedent("""\
+                Generate a combined cutlist, sheet-layout, and hardware BOM for
+                every cabinet in a project. Identical panels (same material,
+                thickness, dimensions, grain) are merged across cabinets so the
+                sheet optimizer packs everyone together.
+
+                Pass either 'project_name' to load a persisted project or an
+                inline 'project' payload. Output files land in
+                ~/.cabinet-mcp/cutlists/<project_name>/.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_name": {"type": "string"},
+                    "project": {"type": "object"},
+                    "sheet_length": {"type": "number", "default": 2440},
+                    "sheet_width":  {"type": "number", "default": 1220},
+                    "kerf":         {"type": "number", "default": 3.2},
+                    "format":       {"type": "string", "enum": ["json", "csv", "both"], "default": "both"},
+                    "optimizer":    {"type": "string", "enum": ["auto", "opcut", "rectpack", "strip"], "default": "auto"},
+                },
+            },
+        ),
     ]
 
 
@@ -1498,6 +1553,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_suggest_proportions(arguments)
         elif name == "list_pull_presets":
             return await _tool_list_pull_presets(arguments)
+        elif name == "design_project":
+            return await _tool_design_project(arguments)
+        elif name == "evaluate_project":
+            return await _tool_evaluate_project(arguments)
+        elif name == "generate_project_cutlist":
+            return await _tool_generate_project_cutlist(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
@@ -2006,22 +2067,20 @@ def _build_cost_estimate(
 
 # ── generate_cutlist ──────────────────────────────────────────────────────────
 
-async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
-    fmt          = args.pop("format", "both")
-    sheet_length = float(args.pop("sheet_length", 2440))
-    sheet_width  = float(args.pop("sheet_width",  1220))
-    kerf         = float(args.pop("kerf", 3.2))
-    optimizer    = str(args.pop("optimizer", "auto"))
-    name         = str(args.pop("name", "cabinet"))
-    columns_raw  = args.pop("columns", None)
-    args.pop("furniture_top", None)
+def _raw_panels_for_cabinet(
+    cfg: CabinetConfig,
+    columns_raw: list | None,
+) -> tuple[list[CutlistPanel], list[CutlistPanel], list[CutlistPanel], list[CutlistPanel]]:
+    """Build the four raw panel lists (carcass, 6mm, drawer-box, false-front)
+    for a single cabinet config.
 
-    cfg = _build_cabinet_config(args)
-
+    Shared by ``_tool_generate_cutlist`` and ``_tool_generate_project_cutlist``
+    so identical-panel consolidation across a multi-cabinet project works
+    against the same panel-shape definitions used in single-cabinet output.
+    """
     interior_width = cfg.width - 2 * cfg.side_thickness
     interior_depth = cfg.depth - cfg.back_thickness
 
-    # ── Carcass panels (side_thickness / 18 mm) ───────────────────────────
     raw_carcass: list[CutlistPanel] = [
         CutlistPanel(name="side", length=cfg.height, width=cfg.depth,
                      thickness=cfg.side_thickness, quantity=2,
@@ -2043,7 +2102,6 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
             grain_direction="length", material="baltic_birch",
         ))
 
-    # ── Back panel (back_thickness / 6 mm) ────────────────────────────────
     raw_6mm: list[CutlistPanel] = [
         CutlistPanel(name="back", length=cfg.height, width=interior_width,
                      thickness=cfg.back_thickness, quantity=1,
@@ -2051,11 +2109,11 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                      notes="1/4 in plywood"),
     ]
 
-    # ── Multi-column additions ─────────────────────────────────────────────
-    raw_box: list[CutlistPanel] = []   # 5/8 in (15 mm) drawer box parts
+    raw_box: list[CutlistPanel] = []
     raw_false_fronts: list[CutlistPanel] = []
 
     if columns_raw:
+        norm_cols: list[dict] = columns_raw
         num_dividers = len(columns_raw) - 1
         if num_dividers > 0:
             raw_carcass.append(CutlistPanel(
@@ -2067,8 +2125,18 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                 grain_direction="length",
                 material="baltic_birch",
             ))
+    elif cfg.openings:
+        # Single-column cabinet: treat the opening stack as one full-width
+        # column so drawer boxes and false fronts are generated for its
+        # drawers too — the hardware BOM already orders slides for them, so
+        # the panel lists must match. cfg-level fixed shelves were added
+        # above; the synthetic column carries none.
+        norm_cols = [{"width_mm": interior_width, "openings": cfg.openings}]
+    else:
+        norm_cols = []
 
-        for col in columns_raw:
+    if norm_cols:
+        for col in norm_cols:
             col_width = float(col["width_mm"])
             for i, _ in enumerate(col.get("fixed_shelf_positions", [])):
                 raw_carcass.append(CutlistPanel(
@@ -2081,7 +2149,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                     material="baltic_birch",
                     edge_band=["front"],
                 ))
-            col_drawers = col.get("openings", col.get("drawer_config", []))
+            col_drawers = _stack_from_column(col)
             for row in col_drawers:
                 op = _to_opening(row)
                 opening_h, slot_type = op.height_mm, op.opening_type
@@ -2095,7 +2163,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                 bw = round(dcfg.box_width, 1)
                 bh = round(dcfg.box_height, 1)
                 bd = round(dcfg.box_depth, 1)
-                bt = dcfg.side_thickness   # 15 mm (5/8 in)
+                bt = dcfg.side_thickness
                 bottom_w = round(dcfg.bottom_panel_width, 1)
 
                 raw_box += [
@@ -2133,15 +2201,42 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
                     notes="species TBD; full-overlay 3 mm reveal",
                 ))
 
-    # Consolidate each material group
-    carcass_panels  = consolidate_bom(raw_carcass)
-    panels_6mm      = consolidate_bom(raw_6mm)
-    box_panels      = consolidate_bom(raw_box)
-    false_fronts    = consolidate_bom(raw_false_fronts)
+    return raw_carcass, raw_6mm, raw_box, raw_false_fronts
 
+
+_IMPERIAL_SHEET_LABELS = {18: '3/4"', 15: '5/8"', 12: '1/2"', 9: '3/8"', 6: '1/4"'}
+
+
+def _cutlist_pipeline(
+    *,
+    name: str,
+    out_dir: Path,
+    carcass_panels: list[CutlistPanel],
+    box_panels: list[CutlistPanel],
+    panels_6mm: list[CutlistPanel],
+    false_fronts: list[CutlistPanel],
+    hw_lines: list,
+    sheet_length: float,
+    sheet_width: float,
+    kerf: float,
+    optimizer: str,
+    fmt: str,
+) -> dict[str, Any]:
+    """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
+    sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
+    and the common result payload.
+
+    Used by ``_tool_generate_cutlist`` (files land in ``out_dir`` with
+    ``name`` as the stem) and ``_tool_generate_project_cutlist`` (same, with
+    a per-project subdirectory) — one implementation so optimisation,
+    pricing, and layout output can never drift between the two tools.
+
+    Carcass panels are grouped by their actual thickness: each group is
+    packed onto, and priced as, the matching sheet stock
+    (``sheet_baltic_birch_{t}mm``).
+    """
     all_panels = carcass_panels + box_panels + panels_6mm + false_fronts
 
-    # ── Sheet optimisation per thickness group ─────────────────────────────
     def _make_sheet(t: float) -> SheetStock:
         return SheetStock(
             name=f"{int(sheet_length)}x{int(sheet_width)} {t:.0f}mm",
@@ -2157,25 +2252,35 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
                  "unplaced": opt.unplaced}, opt)
 
-    carcass_t   = cfg.side_thickness
-    box_t       = DrawerConfig.__dataclass_fields__["side_thickness"].default
-    bottom_t    = DrawerConfig.__dataclass_fields__["bottom_thickness"].default
+    box_t    = DrawerConfig.__dataclass_fields__["side_thickness"].default
+    bottom_t = DrawerConfig.__dataclass_fields__["bottom_thickness"].default
 
-    opt_carcass, opt_carcass_result = _opt_group(carcass_panels, carcass_t)
-    opt_box, opt_box_result         = _opt_group(box_panels, box_t)
-    opt_6mm, opt_6mm_result         = _opt_group(panels_6mm, bottom_t)
+    # Carcass panels can span multiple thicknesses (side vs top/bottom
+    # overrides, mixed-thickness projects) — group by panel thickness.
+    carcass_by_t: dict[float, list[CutlistPanel]] = {}
+    for p in carcass_panels:
+        carcass_by_t.setdefault(p.thickness, []).append(p)
+    carcass_ts = sorted(carcass_by_t, reverse=True)
+
+    opt_carcass_by_t = {t: _opt_group(carcass_by_t[t], t) for t in carcass_ts}
+    opt_box, opt_box_result = _opt_group(box_panels, box_t)
+    opt_6mm, opt_6mm_result = _opt_group(panels_6mm, bottom_t)
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
-    if carcass_panels:
-        sheets = opt_carcass.get("sheets_used", 0)
-        unit_p = price_for("sheet_baltic_birch_18mm")
-        entry = {"material": f"Baltic Birch 3/4\" ({carcass_t:.0f} mm)",
-                 "thickness_mm": carcass_t,
-                 "panel_count": sum(p.quantity for p in carcass_panels),
-                 "price_per_sheet_usd": unit_p,
-                 "line_total_usd": round(sheets * unit_p, 2)}
-        entry.update(opt_carcass)
+    for t in carcass_ts:
+        opt_info, _ = opt_carcass_by_t[t]
+        sheets = opt_info.get("sheets_used", 0)
+        unit_p = price_for(f"sheet_baltic_birch_{int(round(t))}mm")
+        frac   = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
+        label  = (f"Baltic Birch {frac} ({t:.0f} mm)" if frac
+                  else f"Baltic Birch {t:.0f} mm")
+        entry  = {"material": label,
+                  "thickness_mm": t,
+                  "panel_count": sum(p.quantity for p in carcass_by_t[t]),
+                  "price_per_sheet_usd": unit_p,
+                  "line_total_usd": round(sheets * unit_p, 2)}
+        entry.update(opt_info)
         sheet_goods.append(entry)
     if box_panels:
         sheets = opt_box.get("sheets_used", 0)
@@ -2206,28 +2311,30 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         })
 
     # ── File output ────────────────────────────────────────────────────────
-    out_dir = Path.home() / ".cabinet-mcp" / "cutlists"
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path  = out_dir / f"{name}_cutlist.csv"
     json_path = out_dir / f"{name}_cutlist.json"
+    carcass_sheets = [_make_sheet(t) for t in carcass_ts] or [_make_sheet(18.0)]
     csv_path.write_text(to_csv(all_panels))
-    json_path.write_text(to_json(all_panels, [_make_sheet(carcass_t)]))
+    json_path.write_text(to_json(all_panels, carcass_sheets))
 
     files: dict[str, str] = {"csv": str(csv_path), "json": str(json_path)}
 
-    # ── Hardware BOM ───────────────────────────────────────────────────────
-    hw_lines = hardware_bom_for_cabinet_config(cfg, columns_raw)
     if hw_lines:
         hw_json_path = out_dir / f"{name}_hardware_bom.json"
         hw_json_path.write_text(to_hardware_json(hw_lines))
         files["hardware_bom_json"] = str(hw_json_path)
 
     layout_groups = []
-    if opt_carcass_result and carcass_panels:
-        layout_groups.append((
-            f'18mm Carcass (3/4") — {opt_carcass_result.sheets_used} sheets',
-            carcass_panels, opt_carcass_result,
-        ))
+    for t in carcass_ts:
+        _, opt_res = opt_carcass_by_t[t]
+        if opt_res:
+            frac = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
+            suffix = f" ({frac})" if frac else ""
+            layout_groups.append((
+                f'{t:.0f}mm Carcass{suffix} — {opt_res.sheets_used} sheets',
+                carcass_by_t[t], opt_res,
+            ))
     if opt_box_result and box_panels:
         layout_groups.append((
             f'15mm Drawer Boxes (5/8") — {opt_box_result.sheets_used} sheets',
@@ -2288,14 +2395,18 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     }
 
     if fmt in ("json", "both"):
-        result["cutlist_json"] = json.loads(to_json(all_panels, [_make_sheet(carcass_t)]))
+        result["cutlist_json"] = json.loads(to_json(all_panels, carcass_sheets))
     if fmt in ("csv", "both"):
         result["cutlist_csv"] = to_csv(all_panels)
 
-    if "sheets_used" in opt_carcass:
-        result["sheets_used"]     = opt_carcass["sheets_used"]
-        result["waste_pct"]       = opt_carcass["waste_pct"]
-        result["unplaced_panels"] = opt_carcass["unplaced"]
+    # Aggregate carcass optimisation stats (single group for a uniform-
+    # thickness cabinet — identical to the historical single-group values).
+    carcass_summaries = [s for s, _ in opt_carcass_by_t.values() if s]
+    if carcass_summaries:
+        result["sheets_used"]     = sum(s["sheets_used"] for s in carcass_summaries)
+        result["waste_pct"]       = carcass_summaries[0]["waste_pct"]
+        result["unplaced_panels"] = [u for s in carcass_summaries for u in s["unplaced"]]
+
     if optimizer == "rectpack" or (optimizer == "auto" and not _OPCUT_AVAILABLE and _RECTPACK_AVAILABLE):
         algo = "rectpack GuillotineBssfSas"
     elif optimizer == "strip" or (optimizer == "auto" and not _OPCUT_AVAILABLE and not _RECTPACK_AVAILABLE):
@@ -2308,6 +2419,40 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         "the layout is directly executable at the saw."
     )
 
+    return result
+
+
+async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
+    fmt          = args.pop("format", "both")
+    sheet_length = float(args.pop("sheet_length", 2440))
+    sheet_width  = float(args.pop("sheet_width",  1220))
+    kerf         = float(args.pop("kerf", 3.2))
+    optimizer    = str(args.pop("optimizer", "auto"))
+    name         = str(args.pop("name", "cabinet"))
+    columns_raw  = args.pop("columns", None)
+    args.pop("furniture_top", None)
+
+    cfg = _build_cabinet_config(args)
+
+    raw_carcass, raw_6mm, raw_box, raw_false_fronts = _raw_panels_for_cabinet(cfg, columns_raw)
+
+    # Consolidate each material group
+    carcass_panels  = consolidate_bom(raw_carcass)
+    panels_6mm      = consolidate_bom(raw_6mm)
+    box_panels      = consolidate_bom(raw_box)
+    false_fronts    = consolidate_bom(raw_false_fronts)
+
+    hw_lines = hardware_bom_for_cabinet_config(cfg, columns_raw)
+
+    result = _cutlist_pipeline(
+        name=name,
+        out_dir=Path.home() / ".cabinet-mcp" / "cutlists",
+        carcass_panels=carcass_panels, box_panels=box_panels,
+        panels_6mm=panels_6mm, false_fronts=false_fronts,
+        hw_lines=hw_lines,
+        sheet_length=sheet_length, sheet_width=sheet_width,
+        kerf=kerf, optimizer=optimizer, fmt=fmt,
+    )
     return _ok(result)
 
 
@@ -2442,12 +2587,9 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         side_t = cfg.side_thickness
         # Determine which column indices have door slots, then assign hinge sides:
         # leftmost door column → "left", rightmost → "right" (French-door style).
-        def _col_openings_raw(col: dict) -> list:
-            return col.get("openings", col.get("drawer_config", []))
-
         _has_door = [
             any(_to_opening(r).opening_type in ("door", "door_pair")
-                for r in _col_openings_raw(col))
+                for r in _stack_from_column(col))
             for col in columns_raw
         ]
         _door_col_indices = [i for i, has in enumerate(_has_door) if has]
@@ -2481,7 +2623,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
                 ],
                 openings=[
                     _to_opening(r)
-                    for r in _sort_drawer_config(_col_openings_raw(col))
+                    for r in _sort_drawer_config(_stack_from_column(col))
                 ],
             ))
         total_width = cfg.width
@@ -2974,6 +3116,179 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
             "pieces_needed":  sum(l.pieces_needed for l in bom_lines),
             "packs_to_order": sum(l.packs_to_order for l in bom_lines),
         },
+    }
+    return _ok(result)
+
+
+# ─── Project tools ────────────────────────────────────────────────────────────
+
+
+def _project_from_args(args: dict):
+    """Resolve a CabinetProject from either ``project_name`` (load from disk)
+    or ``project`` (inline payload). Returns the project object.
+    """
+    from .project import build_project, load_project
+
+    inline = args.get("project")
+    name   = args.get("project_name")
+    if inline:
+        return build_project(inline)
+    if name:
+        return load_project(str(name))
+    raise ValueError("Provide either 'project_name' or 'project'.")
+
+
+def _columns_dict_from_cfg(cfg: CabinetConfig) -> list | None:
+    """Re-derive the ``columns`` list-of-dicts shape from a resolved
+    CabinetConfig, using the canonical ``[height, type]`` list shape for
+    openings so every downstream tool (cutlist, visualize, hardware BOM)
+    accepts the result. Returns None for single-column cabinets."""
+    if not cfg.columns:
+        return None
+    out = []
+    for col in cfg.columns:
+        d: dict = {
+            "width_mm": col.width_mm,
+            "openings": [[op.height_mm, op.opening_type] for op in col.openings],
+        }
+        if col.fixed_shelf_positions:
+            d["fixed_shelf_positions"] = list(col.fixed_shelf_positions)
+        out.append(d)
+    return out
+
+
+async def _tool_design_project(args: dict) -> list[types.TextContent]:
+    from .project import build_project, save_project, check_project_consistency
+
+    project = build_project(args)
+    path = save_project(project)
+
+    resolved = project.resolved()
+    per_cabinet = []
+    for (cname, cfg), pc in zip(resolved, project.cabinets):
+        per_cabinet.append({
+            "name": cname,
+            "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
+            "drawer_slide": cfg.drawer_slide,
+            "door_hinge":   cfg.door_hinge,
+            "drawer_pull":  cfg.drawer_pull,
+            "door_pull":    cfg.door_pull,
+            "carcass_joinery": cfg.carcass_joinery.value,
+            "drawer_joinery":  cfg.drawer_joinery.value,
+            "overrides":       sorted(pc.overrides),
+        })
+
+    total_run_mm = sum(cfg.width for _, cfg in resolved)
+    consistency  = check_project_consistency(project)
+
+    return _ok({
+        "name": project.name,
+        "cabinet_count": len(resolved),
+        "total_run_width_mm": round(total_run_mm, 1),
+        "cabinets": per_cabinet,
+        "consistency_issues": consistency,
+        "saved_to": str(path),
+    })
+
+
+async def _tool_evaluate_project(args: dict) -> list[types.TextContent]:
+    from .project import check_project_consistency
+
+    project = _project_from_args(args)
+
+    by_cabinet: dict[str, dict] = {}
+    total_errors = 0
+    total_warnings = 0
+    for cname, cfg in project.resolved():
+        issues = evaluate_cabinet(cab_cfg=cfg)
+        errors   = [i for i in issues if i.severity == Severity.ERROR]
+        warnings = [i for i in issues if i.severity == Severity.WARNING]
+        infos    = [i for i in issues if i.severity == Severity.INFO]
+        total_errors   += len(errors)
+        total_warnings += len(warnings)
+        by_cabinet[cname] = {
+            "summary": {
+                "errors":   len(errors),
+                "warnings": len(warnings),
+                "info":     len(infos),
+                "pass":     len(errors) == 0,
+            },
+            "issues": _issues_to_dicts(issues),
+        }
+
+    project_issues = check_project_consistency(project)
+    total_warnings += len(project_issues)
+
+    return _ok({
+        "project": project.name,
+        "summary": {
+            "cabinet_count":  len(project.cabinets),
+            "error_count":    total_errors,
+            "warning_count":  total_warnings,
+            "pass":           total_errors == 0,
+        },
+        "by_cabinet":     by_cabinet,
+        "project_issues": project_issues,
+    })
+
+
+async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
+    project = _project_from_args(args)
+
+    fmt          = args.get("format", "both")
+    sheet_length = float(args.get("sheet_length", 2440))
+    sheet_width  = float(args.get("sheet_width",  1220))
+    kerf         = float(args.get("kerf", 3.2))
+    optimizer    = str(args.get("optimizer", "auto"))
+
+    # Accumulate raw panels and hardware lines across every child cabinet.
+    raw_carcass:    list[CutlistPanel] = []
+    raw_6mm:        list[CutlistPanel] = []
+    raw_box:        list[CutlistPanel] = []
+    raw_false:      list[CutlistPanel] = []
+    hw_lines_all:   list = []
+
+    per_cabinet_summary = []
+    resolved = project.resolved()
+    for cname, cfg in resolved:
+        columns_raw = _columns_dict_from_cfg(cfg)
+        c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
+        raw_carcass.extend(c)
+        raw_6mm.extend(b)
+        raw_box.extend(x)
+        raw_false.extend(f)
+        hw_lines_all.extend(hardware_bom_for_cabinet_config(cfg, columns_raw))
+
+        per_cabinet_summary.append({
+            "name": cname,
+            "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
+            "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
+        })
+
+    # Consolidate identical panels across all cabinets — this is the merge
+    # behavior the user picked. Six matching sides across three cabinets
+    # become one row with quantity=6.
+    from .cutlist import consolidate_hardware_lines
+    carcass_panels = consolidate_bom(raw_carcass)
+    panels_6mm     = consolidate_bom(raw_6mm)
+    box_panels     = consolidate_bom(raw_box)
+    false_fronts   = consolidate_bom(raw_false)
+    hw_lines       = consolidate_hardware_lines(hw_lines_all)
+
+    result = _cutlist_pipeline(
+        name=project.name,
+        out_dir=Path.home() / ".cabinet-mcp" / "cutlists" / project.name,
+        carcass_panels=carcass_panels, box_panels=box_panels,
+        panels_6mm=panels_6mm, false_fronts=false_fronts,
+        hw_lines=hw_lines,
+        sheet_length=sheet_length, sheet_width=sheet_width,
+        kerf=kerf, optimizer=optimizer, fmt=fmt,
+    )
+    result = {
+        "project": project.name,
+        "cabinet_count": len(project.cabinets),
+        "per_cabinet": per_cabinet_summary,
+        **result,
     }
     return _ok(result)
 

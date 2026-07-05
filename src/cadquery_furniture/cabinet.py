@@ -31,7 +31,7 @@ from .joinery import (
     DominoSpec,
     PocketScrewSpec,
     BiscuitSpec,
-    DownelSpec,
+    DowelSpec,
     DEFAULT_DOMINO,
     DEFAULT_POCKET_SCREW,
     DEFAULT_BISCUIT,
@@ -76,9 +76,13 @@ class ColumnConfig:
     including adjacent divider panel thickness).  The sum of all column
     widths plus ``(n_columns − 1) × side_thickness`` must equal the
     cabinet's ``interior_width``; the evaluator enforces this.
+
+    ``fixed_shelf_positions`` holds heights (from the cabinet's exterior
+    bottom to shelf bottom) for fixed shelves local to this column.
     """
     width_mm: float
     openings: tuple[OpeningConfig, ...]  # stacked bottom-to-top
+    fixed_shelf_positions: tuple[float, ...] = ()
 
 
 @dataclass
@@ -155,7 +159,7 @@ class CabinetConfig:
     domino_spec: DominoSpec = field(default_factory=lambda: DEFAULT_DOMINO)
     pocket_screw_spec: PocketScrewSpec = field(default_factory=lambda: DEFAULT_POCKET_SCREW)
     biscuit_spec: BiscuitSpec = field(default_factory=lambda: DEFAULT_BISCUIT)
-    dowel_spec: DownelSpec = field(default_factory=lambda: DEFAULT_DOWEL)
+    dowel_spec: DowelSpec = field(default_factory=lambda: DEFAULT_DOWEL)
 
     def __post_init__(self) -> None:
         """Normalize openings and column openings to OpeningConfig objects."""
@@ -173,6 +177,7 @@ class CabinetConfig:
                         OpeningConfig(height_mm=float(op[0]), opening_type=str(op[1]))
                         for op in col.openings
                     ),
+                    fixed_shelf_positions=tuple(col.fixed_shelf_positions),
                 ))
             else:
                 normalized_cols.append(col)
@@ -203,6 +208,120 @@ class CabinetConfig:
     def back_panel_height(self) -> float:
         """Back panel height — spans from carcass floor to underside of top panel."""
         return self.height - self.top_thickness
+
+
+# ─── Dict → config builders ───────────────────────────────────────────────────
+# These accept the flat JSON-ish shapes used by the MCP tool inputs and the
+# project persistence layer. They live here (not in server.py) so that
+# pure-data modules like project.py can build configs without importing the
+# MCP layer.
+
+# Joinery-spec fields that may arrive as serialized field dicts (e.g. from a
+# persisted project) and need reconstructing into their dataclass.
+_JOINERY_SPEC_CLASSES = {
+    "domino_spec":       DominoSpec,
+    "pocket_screw_spec": PocketScrewSpec,
+    "biscuit_spec":      BiscuitSpec,
+    "dowel_spec":        DowelSpec,
+}
+
+
+def stack_from_column(col: dict) -> list:
+    """Return the opening stack for a raw column dict.
+
+    Accepts both the canonical ``openings`` key and the backward-compat
+    ``drawer_config`` alias. ``openings`` wins when both are present — the
+    single source of truth for this precedence; every consumer of raw column
+    dicts (cutlist hardware helpers, panel generation, config building) must
+    resolve the stack through here so panels and hardware never disagree.
+    """
+    return col.get("openings", col.get("drawer_config", []))
+
+
+def to_opening(raw) -> OpeningConfig:
+    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
+    if isinstance(raw, OpeningConfig):
+        return raw
+    if isinstance(raw, dict):
+        return OpeningConfig(
+            height_mm=float(raw["height_mm"]),
+            opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
+            hinge_key=raw.get("hinge_key"),
+            hinge_side=raw.get("hinge_side"),
+            pull_key=raw.get("pull_key"),
+            num_doors=raw.get("num_doors"),
+            door_thickness=raw.get("door_thickness"),
+        )
+    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
+
+
+def build_cabinet_config(args: dict) -> CabinetConfig:
+    """Build a CabinetConfig from a flat dict of keyword arguments.
+
+    Accepts ``drawer_config`` (backward-compat API name) as an alias for
+    ``openings``. Each entry may be a ``[height_mm, opening_type]`` list,
+    a dict, or an ``OpeningConfig`` object — all are normalised by
+    ``to_opening``.
+
+    Also accepts the ``design_cabinet`` convenience parameters:
+    ``num_drawers`` (+ optional ``drawer_proportion``) auto-computes a
+    graduated drawer stack when no explicit stack is given, and
+    ``furniture_top`` (a build/visualization flag with no CabinetConfig
+    counterpart) is ignored — so any config shape a design tool accepted
+    can be rebuilt here.
+    """
+    num_drawers       = args.pop("num_drawers", None)
+    drawer_proportion = args.pop("drawer_proportion", None)
+    args.pop("furniture_top", None)
+    if num_drawers and not args.get("drawer_config") and not args.get("openings"):
+        from .proportions import graduated_drawer_heights
+        bottom_t   = float(args.get("bottom_thickness", 18))
+        top_t      = float(args.get("top_thickness",    18))
+        interior_h = float(args["height"]) - bottom_t - top_t
+        heights = graduated_drawer_heights(
+            interior_h, int(num_drawers), drawer_proportion or "classic"
+        )
+        # Largest drawer at the bottom — same order design_cabinet produces.
+        args["drawer_config"] = [[h, "drawer"] for h in sorted(heights, reverse=True)]
+
+    preset_key = args.pop("pull_preset", None)
+    if preset_key:
+        from .hardware import get_pull_preset
+        preset = get_pull_preset(preset_key)
+        args.setdefault("drawer_pull", preset.drawer_pull)
+        args.setdefault("door_pull", preset.door_pull)
+        args.setdefault("door_pull_inset_mm", preset.door_pull_inset_mm)
+
+    # Accept drawer_config as a backward-compat alias for openings.
+    if "drawer_config" in args and "openings" not in args:
+        args["openings"] = args.pop("drawer_config")
+    else:
+        args.pop("drawer_config", None)
+
+    kwargs: dict = {}
+    for key, value in args.items():
+        if key == "carcass_joinery" and isinstance(value, str):
+            kwargs[key] = CarcassJoinery(value)
+        elif key == "drawer_joinery" and isinstance(value, str):
+            kwargs[key] = DrawerJoineryStyle(value)
+        elif key in _JOINERY_SPEC_CLASSES and isinstance(value, dict):
+            kwargs[key] = _JOINERY_SPEC_CLASSES[key](**value)
+        elif key == "openings" and isinstance(value, list):
+            kwargs[key] = [to_opening(r) for r in value]
+        elif key == "columns" and isinstance(value, list):
+            kwargs[key] = [
+                ColumnConfig(
+                    width_mm=float(c["width_mm"]),
+                    openings=tuple(to_opening(r) for r in stack_from_column(c)),
+                    fixed_shelf_positions=tuple(
+                        float(z) for z in c.get("fixed_shelf_positions", [])
+                    ),
+                )
+                for c in value
+            ]
+        else:
+            kwargs[key] = value
+    return CabinetConfig(**kwargs)
 
 
 def _require_cq():
