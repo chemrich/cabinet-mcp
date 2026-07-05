@@ -481,6 +481,9 @@ class TestGenerateCutlist:
         assert data["unplaced_panels"] == []
 
     def test_optimization_note_mentions_guillotine(self):
+        from cadquery_furniture.cutlist import _OPCUT_AVAILABLE, _RECTPACK_AVAILABLE
+        if not (_OPCUT_AVAILABLE or _RECTPACK_AVAILABLE):
+            pytest.skip("no guillotine optimizer installed (lite mode)")
         data = self._cutlist()
         assert "guillotine" in data["optimization_note"].lower()
 
