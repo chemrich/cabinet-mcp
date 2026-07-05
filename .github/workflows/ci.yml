@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Pure-Python paths — what the tests and evals are written against.
+  # No CadQuery/opcut/rectpack, so this stays fast.
+  lite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Install (lite)
+        run: uv sync --no-group full
+      - name: Tests
+        run: uv run --no-group full pytest tests/ -q
+      - name: Evals
+        run: uv run --no-group full python -m evals
+
+  # Full install — exercises the CadQuery-backed geometry tests and the
+  # opcut/rectpack/reportlab cutlist paths.
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install (full)
+        run: uv sync
+      - name: Tests
+        run: uv run pytest tests/ -q
+      - name: Evals
+        run: uv run python -m evals

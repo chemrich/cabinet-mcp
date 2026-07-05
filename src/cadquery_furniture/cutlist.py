@@ -61,7 +61,7 @@ try:
 except ImportError:
     _REPORTLAB_AVAILABLE = False
 
-from .cabinet import PartInfo, stack_from_column
+from .cabinet import PartInfo, stack_from_column, to_opening
 
 
 # ── Shared colour helpers (used by both HTML and PDF renderers) ───────────────
@@ -914,14 +914,12 @@ def pull_lines_for_cabinet_config(
 
     def _walk_stack(stack, interior_width: float) -> None:
         for item in stack:
-            # Accept both OpeningConfig objects and raw [height, type] lists/tuples
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-                pull_key_override = item.pull_key
-                hinge_key_override = item.hinge_key
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
-                pull_key_override = hinge_key_override = None
+            # Normalize OpeningConfig objects, dicts, and raw [height, type]
+            # rows the same way — per-opening overrides survive all shapes.
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
+            pull_key_override = op.pull_key
+            hinge_key_override = op.hinge_key
 
             if slot_type == "drawer":
                 dcfg = DrawerConfig(
@@ -967,12 +965,13 @@ def pull_lines_for_cabinet_config(
 def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
     """Return HardwareLines for drawer slides required by the cabinet.
 
-    Each drawer needs one slide pair (left + right = 2 pieces). Slides in
-    the Blum Tandem family (and most undermount runners) are **sold as
-    pairs**, so ``pack_quantity=2`` and ``packs_to_order`` is the number of
-    pairs to buy. Prices in PRICE_LIST are likewise per-pair. The SKU is
-    keyed by slide key + length so different-length slides on the same
-    model stay separate.
+    Each drawer needs one slide pair (left + right = 2 pieces). Whether the
+    pair is one purchasable unit depends on the model: undermount runners
+    (Blum Tandem/Movento, Salice) are sold as pairs, side-mount slides
+    (Accuride) as singles — ``DrawerSlideSpec.sold_as_pair`` decides, and
+    PRICE_LIST entries use the matching basis (per pair vs per single).
+    The SKU is keyed by slide key + length so different-length slides on
+    the same model stay separate.
     """
     from .hardware import get_slide
     from .drawer import DrawerConfig
@@ -987,10 +986,8 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     def _slides_from_stack(stack, interior_width: float) -> list[HardwareLine]:
         lines: list[HardwareLine] = []
         for item in stack:
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
             if slot_type != "drawer":
                 continue
             dcfg = DrawerConfig(
@@ -1009,7 +1006,7 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 brand=slide_spec.manufacturer,
                 model_number=pn or cab_cfg.drawer_slide,
                 pieces_needed=2,           # one pair (left + right) per drawer
-                pack_quantity=2,           # slides are sold as pairs
+                pack_quantity=2 if slide_spec.sold_as_pair else 1,
                 notes=f"{length} mm",
             ))
         return lines
@@ -1048,15 +1045,12 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     def _hinges_from_stack(stack, interior_width: float) -> int:
         total = 0
         for item in stack:
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-                hinge_key = item.hinge_key or cab_cfg.door_hinge
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
-                hinge_key = cab_cfg.door_hinge
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
+            hinge_key = op.hinge_key or cab_cfg.door_hinge
             if slot_type not in ("door", "door_pair"):
                 continue
-            num_doors = 2 if slot_type == "door_pair" else 1
+            num_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
             dcfg = DoorConfig(
                 opening_width=interior_width,
                 opening_height=opening_h,
@@ -1240,7 +1234,7 @@ def drawer_front_screw_lines_for_cabinet_config(
     def _count_drawers(stack) -> int:
         return sum(
             1 for item in stack
-            if (item.opening_type if hasattr(item, "opening_type") else str(item[1])) == "drawer"
+            if to_opening(item).opening_type == "drawer"
         )
 
     if columns_raw:

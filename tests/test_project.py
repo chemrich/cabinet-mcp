@@ -446,3 +446,97 @@ class TestGenerateProjectCutlistTool:
         assert sum(p["qty"] for p in shelves) == 2, shelves
         # Shelf panels are cut to the column's interior width
         assert all(p["length_mm"] == 570.0 for p in shelves), shelves
+
+
+# ─── Cross-cabinet checks (extended) ──────────────────────────────────────────
+
+
+class TestExtendedConsistencyChecks:
+    def _run_with(self, mutate=None, wall=None):
+        base = {"width": 800, "height": 720, "depth": 550,
+                "drawer_config": [[150, "drawer"], [200, "drawer"], [298, "drawer"]]}
+        payload = {
+            "name": "checks",
+            "cabinets": [
+                {"name": "a", "config": dict(base)},
+                {"name": "b", "config": dict(base)},
+            ],
+        }
+        if wall is not None:
+            payload["wall_width_mm"] = wall
+        if mutate:
+            payload["cabinets"][1]["config"].update(mutate)
+        return check_project_consistency(build_project(payload))
+
+    def test_wall_overflow_is_error(self):
+        issues = self._run_with(wall=1500)   # run is 1600 mm
+        wall = [i for i in issues if i["check"] == "project_wall_fit"]
+        assert wall and wall[0]["severity"] == "error"
+
+    def test_wall_gap_is_info(self):
+        issues = self._run_with(wall=1700)
+        wall = [i for i in issues if i["check"] == "project_wall_fit"]
+        assert wall and wall[0]["severity"] == "info"
+        assert "100.0 mm" in wall[0]["message"]
+
+    def test_exact_wall_fit_is_silent(self):
+        issues = self._run_with(wall=1600)
+        assert not [i for i in issues if i["check"] == "project_wall_fit"]
+
+    def test_hardware_divergence_is_info(self):
+        issues = self._run_with(mutate={"drawer_slide": "accuride_3832"})
+        hits = [i for i in issues if i["check"] == "project_drawer_slide_match"]
+        assert hits and hits[0]["severity"] == "info"
+
+    def test_material_divergence_is_warning(self):
+        issues = self._run_with(mutate={"side_thickness": 15})
+        hits = [i for i in issues if i["check"] == "project_side_thickness_match"]
+        assert hits and hits[0]["severity"] == "warning"
+
+    def test_misaligned_drawer_faces_flagged(self):
+        issues = self._run_with(
+            mutate={"drawer_config": [[250, "drawer"], [250, "drawer"], [148, "drawer"]]})
+        hits = [i for i in issues if i["check"] == "project_drawer_face_alignment"]
+        assert hits and hits[0]["severity"] == "info"
+
+    def test_matched_run_stays_clean(self):
+        assert self._run_with() == []
+
+    def test_wall_width_survives_round_trip(self):
+        payload = _sample_payload(name="wall_rt")
+        payload["wall_width_mm"] = 3700
+        proj = build_project(payload)
+        assert project_from_dict(project_to_dict(proj)).wall_width_mm == 3700
+
+
+class TestPerOpeningDetailInProjectCutlist:
+    def test_pull_and_hinge_overrides_survive(self, tmp_path, monkeypatch):
+        # Regression: _columns_dict_from_cfg used to flatten openings to
+        # [height, type], losing hinge_key/pull_key/num_doors — project
+        # hardware BOMs silently fell back to cabinet defaults.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = {"name": "detail", "cabinets": [{"name": "a", "config": {
+            "width": 1200, "height": 762, "depth": 500,
+            "drawer_pull": "topknobs-bsn-96",
+            "columns": [
+                {"width_mm": 570, "openings": [
+                    {"height_mm": 200, "opening_type": "drawer",
+                     "pull_key": "topknobs-blk-128"},
+                    {"height_mm": 506, "opening_type": "door_pair"},
+                ]},
+                {"width_mm": 576, "openings": [[706, "door"]]},
+            ]}}]}
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+        pull_models = {h["model_number"] for h in data["hardware_bom"]
+                       if h["category"] == "pull"}
+        # TK128BLK is topknobs-blk-128 — the per-opening override; the
+        # cabinet default topknobs-bsn-96 would be TK96BSN.
+        assert "TK128BLK" in pull_models, pull_models
+        # door_pair (2 doors) + single door across a 762 mm face → 6 hinges
+        hinges = sum(h["pieces_needed"] for h in data["hardware_bom"]
+                     if h["category"] == "hinge")
+        assert hinges == 6, hinges

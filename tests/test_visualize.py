@@ -288,3 +288,46 @@ class TestBuildAndVisualize:
         assert f"'{glb_filename}'" not in html_content
         # Instead it must contain base64 data
         assert "GLB_B64" in html_content
+
+
+# ── visualize_project ────────────────────────────────────────────────────────
+
+
+class TestVisualizeProject:
+    def test_project_composed_at_run_offsets(self, tmp_path, monkeypatch):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_project
+
+        payload = {
+            "name": "viz_test",
+            "cabinets": [
+                {"name": "left",  "config": {"width": 600, "height": 720, "depth": 500,
+                                             "drawer_config": [[150, "drawer"], [534, "drawer"]]}},
+                {"name": "right", "config": {"width": 800, "height": 720, "depth": 500,
+                                             "openings": [[684, "door"]]}},
+            ],
+        }
+        out = asyncio.get_event_loop().run_until_complete(
+            _tool_visualize_project({
+                "project": payload,
+                "gap_mm": 3,
+                "open_browser": False,
+                "output_dir": str(tmp_path),
+            }))
+        data = json.loads(out[0].text)
+
+        assert data["cabinet_count"] == 2
+        # left at 0, right at 600 + 3 mm gap
+        offsets = {c["name"]: c["x_offset_mm"] for c in data["per_cabinet"]}
+        assert offsets == {"left": 0.0, "right": 603.0}
+        assert data["total_run_width_mm"] == 600 + 3 + 800
+        assert Path(data["glb"]).exists()
+        assert Path(data["html"]).exists()
+
+    def test_missing_project_args_raises(self):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_project
+        with pytest.raises(ValueError, match="project_name"):
+            asyncio.get_event_loop().run_until_complete(_tool_visualize_project({}))

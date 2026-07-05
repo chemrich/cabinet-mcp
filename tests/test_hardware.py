@@ -213,3 +213,33 @@ class TestPartNumberPricing:
         from cadquery_furniture.hardware import price_for
         lines = leg_lines_for_cabinet_config(CabinetConfig())
         assert lines and price_for(lines[0].sku) == 18.00
+
+
+class TestSoldAsPair:
+    def test_undermount_slides_sold_as_pairs(self):
+        from cadquery_furniture.hardware import get_slide
+        for key in ("blum_tandem_550h", "blum_movento_769", "salice_futura"):
+            assert get_slide(key).sold_as_pair, key
+
+    def test_accuride_side_mount_sold_as_singles(self):
+        from cadquery_furniture.hardware import get_slide
+        assert not get_slide("accuride_3832").sold_as_pair
+
+    def test_pack_quantity_follows_sold_as_pair(self):
+        from cadquery_furniture.cabinet import CabinetConfig
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+
+        blum = CabinetConfig(drawer_slide="blum_tandem_550h", openings=[[200, "drawer"]])
+        line = slide_lines_for_cabinet_config(blum)[0]
+        assert (line.pack_quantity, line.packs_to_order) == (2, 1)  # buy 1 pair
+
+        acc = CabinetConfig(drawer_slide="accuride_3832", openings=[[200, "drawer"]])
+        line = slide_lines_for_cabinet_config(acc)[0]
+        assert (line.pack_quantity, line.packs_to_order) == (1, 2)  # buy 2 singles
+
+
+class TestBuildConfigValidation:
+    def test_unknown_key_raises_value_error_with_valid_keys(self):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        with pytest.raises(ValueError, match="heigth.*Valid parameters"):
+            build_cabinet_config({"width": 600, "heigth": 720})

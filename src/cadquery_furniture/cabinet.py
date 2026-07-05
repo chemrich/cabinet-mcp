@@ -321,6 +321,18 @@ def build_cabinet_config(args: dict) -> CabinetConfig:
             ]
         else:
             kwargs[key] = value
+
+    # Reject unknown keys with an actionable message instead of letting
+    # CabinetConfig(**kwargs) raise a bare "unexpected keyword argument" —
+    # these dicts arrive from MCP clients, where a typo'd parameter name
+    # should read as input validation, not a Python traceback.
+    valid = set(CabinetConfig.__dataclass_fields__)
+    unknown = set(kwargs) - valid
+    if unknown:
+        raise ValueError(
+            f"Unknown cabinet parameter(s): {', '.join(sorted(unknown))}. "
+            f"Valid parameters: {', '.join(sorted(valid | {'drawer_config', 'pull_preset', 'num_drawers', 'drawer_proportion'}))}."
+        )
     return CabinetConfig(**kwargs)
 
 

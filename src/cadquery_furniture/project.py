@@ -116,6 +116,9 @@ class CabinetProject:
     cabinets: tuple[ProjectCabinet, ...]
     shared:   SharedDesign = field(default_factory=SharedDesign)
     notes:    str = ""
+    # Available wall run in mm. When set, consistency checks flag a total
+    # cabinet run wider than the wall (error) and report leftover gap (info).
+    wall_width_mm: Optional[float] = None
 
     def resolved(self) -> tuple[tuple[str, CabinetConfig], ...]:
         """Return ``((name, merged_config), ...)`` with shared tokens applied."""
@@ -325,7 +328,7 @@ def shared_from_dict(d: dict | None) -> SharedDesign:
 
 
 def project_to_dict(project: CabinetProject) -> dict:
-    return {
+    out = {
         "name": project.name,
         "notes": project.notes,
         "shared": _shared_to_dict(project.shared),
@@ -338,6 +341,9 @@ def project_to_dict(project: CabinetProject) -> dict:
             for pc in project.cabinets
         ],
     }
+    if project.wall_width_mm is not None:
+        out["wall_width_mm"] = project.wall_width_mm
+    return out
 
 
 def project_from_dict(d: dict) -> CabinetProject:
@@ -350,11 +356,13 @@ def project_from_dict(d: dict) -> CabinetProject:
         )
         for c in d["cabinets"]
     )
+    wall_raw = d.get("wall_width_mm")
     return CabinetProject(
         name=str(d["name"]),
         cabinets=cabinets,
         shared=shared,
         notes=str(d.get("notes", "")),
+        wall_width_mm=float(wall_raw) if wall_raw is not None else None,
     )
 
 
@@ -384,6 +392,8 @@ def build_project(payload: dict) -> CabinetProject:
     name = str(payload["name"])
     shared = shared_from_dict(payload.get("shared"))
     notes = str(payload.get("notes", ""))
+    wall_raw = payload.get("wall_width_mm")
+    wall_width_mm = float(wall_raw) if wall_raw is not None else None
 
     cabinets: list[ProjectCabinet] = []
     shared_keys = {
@@ -419,21 +429,54 @@ def build_project(payload: dict) -> CabinetProject:
         cabinets=tuple(cabinets),
         shared=shared,
         notes=notes,
+        wall_width_mm=wall_width_mm,
     )
 
 
 # ─── Cross-cabinet checks ─────────────────────────────────────────────────────
 
 
+def _drawer_face_boundaries(cfg: CabinetConfig) -> tuple[float, ...]:
+    """Return the sorted heights (mm from cabinet bottom) of horizontal
+    drawer-face edges — the lines the eye tracks across a run. Collected
+    from every column stack (or the single-column opening stack)."""
+    boundaries: set[float] = set()
+    stacks = [col.openings for col in cfg.columns] if cfg.columns else [cfg.openings]
+    for stack in stacks:
+        z = cfg.bottom_thickness
+        for op in stack:
+            if op.opening_type == "drawer":
+                boundaries.add(round(z, 1))
+                boundaries.add(round(z + op.height_mm, 1))
+            z += op.height_mm
+    return tuple(sorted(boundaries))
+
+
+#: Fields compared across cabinets in a matched run. severity "warning" for
+#: structural/material divergence, "info" for hardware (legal but notable).
+_CONSISTENCY_FIELDS = (
+    ("side_thickness",  "warning", "mm"),
+    ("back_thickness",  "warning", "mm"),
+    ("carcass_joinery", "warning", None),
+    ("drawer_slide",    "info",    None),
+    ("door_hinge",      "info",    None),
+    ("drawer_pull",     "info",    None),
+    ("door_pull",       "info",    None),
+)
+
+
 def check_project_consistency(project: CabinetProject) -> list[dict]:
     """Run cross-cabinet sanity checks. Returns a list of issue dicts.
 
-    Current checks:
-      - depth match: every cabinet in the project shares the same depth
-      - height match: every cabinet shares the same exterior height
+    Checks:
+      - depth / height match (warning) — cabinets in a flush run usually share both
+      - material & joinery match (warning) / hardware match (info)
+      - drawer-face alignment (info) — horizontal face lines across the run
+      - wall fit (error/info) — when ``wall_width_mm`` is set, the summed run
+        width must not exceed it; leftover gap is reported as info
 
-    Both are warnings (not errors) — cabinets *can* legally differ on
-    these axes, but in a matched run they almost always shouldn't.
+    Warnings, not errors (except wall overflow) — cabinets *can* legally
+    differ, but in a matched run they almost always shouldn't.
     """
     issues: list[dict] = []
     resolved = project.resolved()
@@ -441,6 +484,75 @@ def check_project_consistency(project: CabinetProject) -> list[dict]:
         return issues
 
     base_name, base_cfg = resolved[0]
+
+    # ── Wall fit ───────────────────────────────────────────────────────────
+    if project.wall_width_mm:
+        total = sum(cfg.width for _, cfg in resolved)
+        gap = project.wall_width_mm - total
+        if gap < 0:
+            issues.append({
+                "severity": "error",
+                "check": "project_wall_fit",
+                "message": (
+                    f"Total run width ({total:.1f} mm) exceeds the available "
+                    f"wall ({project.wall_width_mm:.1f} mm) by {-gap:.1f} mm."
+                ),
+                "value": total,
+                "limit": project.wall_width_mm,
+            })
+        elif gap > 0:
+            issues.append({
+                "severity": "info",
+                "check": "project_wall_fit",
+                "message": (
+                    f"Total run width ({total:.1f} mm) leaves a {gap:.1f} mm "
+                    f"gap on a {project.wall_width_mm:.1f} mm wall — plan a "
+                    "filler strip or scribe piece."
+                ),
+                "value": total,
+                "limit": project.wall_width_mm,
+            })
+
+    # ── Material / joinery / hardware match ────────────────────────────────
+    for field_name, severity, unit in _CONSISTENCY_FIELDS:
+        base_val = getattr(base_cfg, field_name)
+        for name, cfg in resolved[1:]:
+            val = getattr(cfg, field_name)
+            if val == base_val:
+                continue
+            fmt = (lambda v: f"{v:.1f} {unit}") if unit else (
+                lambda v: getattr(v, "value", v))
+            issues.append({
+                "severity": severity,
+                "check": f"project_{field_name}_match",
+                "message": (
+                    f"Cabinet {name!r} {field_name} ({fmt(val)}) differs from "
+                    f"{base_name!r} ({fmt(base_val)}) — cabinets in a matched "
+                    "run usually share this."
+                ),
+                "part_a": name,
+                "part_b": base_name,
+            })
+
+    # ── Drawer-face alignment ──────────────────────────────────────────────
+    base_faces = _drawer_face_boundaries(base_cfg)
+    if base_faces:
+        for name, cfg in resolved[1:]:
+            faces = _drawer_face_boundaries(cfg)
+            if faces and faces != base_faces:
+                issues.append({
+                    "severity": "info",
+                    "check": "project_drawer_face_alignment",
+                    "message": (
+                        f"Drawer-face lines of {name!r} "
+                        f"({', '.join(f'{z:.0f}' for z in faces)} mm) do not "
+                        f"align with {base_name!r} "
+                        f"({', '.join(f'{z:.0f}' for z in base_faces)} mm) — "
+                        "horizontal face lines usually carry across a run."
+                    ),
+                    "part_a": name,
+                    "part_b": base_name,
+                })
 
     for name, cfg in resolved[1:]:
         if abs(cfg.depth - base_cfg.depth) > 0.5:

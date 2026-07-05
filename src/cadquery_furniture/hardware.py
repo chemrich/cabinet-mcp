@@ -105,6 +105,12 @@ class DrawerSlideSpec:
     # Format follows Blum conventions: 550H4500B = Tandem 550H, 450 mm length.
     part_numbers: dict = field(default_factory=dict)
 
+    # How the slide is sold. Undermount runners (Blum Tandem/Movento, Salice
+    # Futura/Progressa) are sold as left+right pairs and priced per pair;
+    # side-mount ball-bearing slides (Accuride) are commonly sold as singles.
+    # Drives HardwareLine.pack_quantity and must match the PRICE_LIST basis.
+    sold_as_pair: bool = True
+
     def slide_length_for_depth(self, cabinet_depth: float) -> int:
         """Return the longest slide that fits the given cabinet interior depth."""
         usable = cabinet_depth - self.rear_bracket_inset - self.front_bracket_inset
@@ -483,6 +489,7 @@ ACCURIDE_3832 = DrawerSlideSpec(
     rear_bracket_inset=0.0,
     front_bracket_inset=0.0,
     part_numbers={},                # Accuride uses length-coded SKUs; omitted here
+    sold_as_pair=False,             # side-mount slides are sold as singles
 )
 
 
@@ -1180,7 +1187,7 @@ PRICE_LIST: dict[str, float] = {
     "blum_tandem_plus_563f-533mm":       24.81,  # 21"
     "blum_movento_760h":            36.00,
     "blum_movento_769":             58.00,
-    "accuride_3832":                18.00,
+    "accuride_3832":                18.00,  # per single slide (sold_as_pair=False)
     "salice_futura":                32.00,
     "salice_futura_smove":          48.00,
     "salice_progressa_plus":        38.00,
