@@ -61,7 +61,7 @@ try:
 except ImportError:
     _REPORTLAB_AVAILABLE = False
 
-from .cabinet import PartInfo, stack_from_column
+from .cabinet import PartInfo, stack_from_column, to_opening
 
 
 # ── Shared colour helpers (used by both HTML and PDF renderers) ───────────────
@@ -914,14 +914,12 @@ def pull_lines_for_cabinet_config(
 
     def _walk_stack(stack, interior_width: float) -> None:
         for item in stack:
-            # Accept both OpeningConfig objects and raw [height, type] lists/tuples
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-                pull_key_override = item.pull_key
-                hinge_key_override = item.hinge_key
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
-                pull_key_override = hinge_key_override = None
+            # Normalize OpeningConfig objects, dicts, and raw [height, type]
+            # rows the same way — per-opening overrides survive all shapes.
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
+            pull_key_override = op.pull_key
+            hinge_key_override = op.hinge_key
 
             if slot_type == "drawer":
                 dcfg = DrawerConfig(
@@ -967,12 +965,13 @@ def pull_lines_for_cabinet_config(
 def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
     """Return HardwareLines for drawer slides required by the cabinet.
 
-    Each drawer needs one slide pair (left + right = 2 pieces). Slides in
-    the Blum Tandem family (and most undermount runners) are **sold as
-    pairs**, so ``pack_quantity=2`` and ``packs_to_order`` is the number of
-    pairs to buy. Prices in PRICE_LIST are likewise per-pair. The SKU is
-    keyed by slide key + length so different-length slides on the same
-    model stay separate.
+    Each drawer needs one slide pair (left + right = 2 pieces). Whether the
+    pair is one purchasable unit depends on the model: undermount runners
+    (Blum Tandem/Movento, Salice) are sold as pairs, side-mount slides
+    (Accuride) as singles — ``DrawerSlideSpec.sold_as_pair`` decides, and
+    PRICE_LIST entries use the matching basis (per pair vs per single).
+    The SKU is keyed by slide key + length so different-length slides on
+    the same model stay separate.
     """
     from .hardware import get_slide
     from .drawer import DrawerConfig
@@ -987,10 +986,8 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     def _slides_from_stack(stack, interior_width: float) -> list[HardwareLine]:
         lines: list[HardwareLine] = []
         for item in stack:
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
             if slot_type != "drawer":
                 continue
             dcfg = DrawerConfig(
@@ -1009,7 +1006,7 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 brand=slide_spec.manufacturer,
                 model_number=pn or cab_cfg.drawer_slide,
                 pieces_needed=2,           # one pair (left + right) per drawer
-                pack_quantity=2,           # slides are sold as pairs
+                pack_quantity=2 if slide_spec.sold_as_pair else 1,
                 notes=f"{length} mm",
             ))
         return lines
@@ -1048,15 +1045,12 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     def _hinges_from_stack(stack, interior_width: float) -> int:
         total = 0
         for item in stack:
-            if hasattr(item, "opening_type"):
-                opening_h, slot_type = item.height_mm, item.opening_type
-                hinge_key = item.hinge_key or cab_cfg.door_hinge
-            else:
-                opening_h, slot_type = float(item[0]), str(item[1])
-                hinge_key = cab_cfg.door_hinge
+            op = to_opening(item)
+            opening_h, slot_type = op.height_mm, op.opening_type
+            hinge_key = op.hinge_key or cab_cfg.door_hinge
             if slot_type not in ("door", "door_pair"):
                 continue
-            num_doors = 2 if slot_type == "door_pair" else 1
+            num_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
             dcfg = DoorConfig(
                 opening_width=interior_width,
                 opening_height=opening_h,
@@ -1240,7 +1234,7 @@ def drawer_front_screw_lines_for_cabinet_config(
     def _count_drawers(stack) -> int:
         return sum(
             1 for item in stack
-            if (item.opening_type if hasattr(item, "opening_type") else str(item[1])) == "drawer"
+            if to_opening(item).opening_type == "drawer"
         )
 
     if columns_raw:
@@ -2018,160 +2012,164 @@ def generate_sheet_layout_pdf(
     return buf.getvalue()
 
 
-class _SheetDrawingFlowable(_Flowable):
-    """Platypus Flowable that renders a single sheet layout using the canvas."""
+if _REPORTLAB_AVAILABLE:
+    # Defined only when reportlab is importable — _Flowable does not
+    # exist in lite mode, and this class is only reachable from
+    # generate_sheet_layout_pdf (which raises ImportError without it).
+    class _SheetDrawingFlowable(_Flowable):
+        """Platypus Flowable that renders a single sheet layout using the canvas."""
 
-    def __init__(
-        self,
-        placements: list["Placement"],
-        stock: "SheetStock",
-        kerf: float,
-        avail_w: float,
-        avail_h: float,
-    ) -> None:
-        super().__init__()
-        self._pl = placements
-        self._stock = stock
-        self._kerf = kerf
-        self.width = avail_w
-        self.height = avail_h
+        def __init__(
+            self,
+            placements: list["Placement"],
+            stock: "SheetStock",
+            kerf: float,
+            avail_w: float,
+            avail_h: float,
+        ) -> None:
+            super().__init__()
+            self._pl = placements
+            self._stock = stock
+            self._kerf = kerf
+            self.width = avail_w
+            self.height = avail_h
 
-    def draw(self) -> None:
-        canvas = self.canv
-        sl, sw = self._stock.length, self._stock.width
+        def draw(self) -> None:
+            canvas = self.canv
+            sl, sw = self._stock.length, self._stock.width
 
-        scale = min(self.width / sl, self.height / sw)
-        drawn_w = sl * scale
-        drawn_h = sw * scale
-        x_off = (self.width - drawn_w) / 2
-        y_off = (self.height - drawn_h) / 2
+            scale = min(self.width / sl, self.height / sw)
+            drawn_w = sl * scale
+            drawn_h = sw * scale
+            x_off = (self.width - drawn_w) / 2
+            y_off = (self.height - drawn_h) / 2
 
-        def sx(x_mm: float) -> float:
-            return x_off + x_mm * scale
+            def sx(x_mm: float) -> float:
+                return x_off + x_mm * scale
 
-        def sy(y_mm: float, h_mm: float = 0.0) -> float:
-            # SVG y-down → RL y-up
-            return y_off + (sw - y_mm - h_mm) * scale
+            def sy(y_mm: float, h_mm: float = 0.0) -> float:
+                # SVG y-down → RL y-up
+                return y_off + (sw - y_mm - h_mm) * scale
 
-        # Sheet background
-        canvas.setFillColor(_HexColor("#F5EED8"))
-        canvas.setStrokeColor(_HexColor("#888888"))
-        canvas.setLineWidth(0.5)
-        canvas.rect(sx(0), sy(0, sw), drawn_w, drawn_h, fill=1, stroke=1)
+            # Sheet background
+            canvas.setFillColor(_HexColor("#F5EED8"))
+            canvas.setStrokeColor(_HexColor("#888888"))
+            canvas.setLineWidth(0.5)
+            canvas.rect(sx(0), sy(0, sw), drawn_w, drawn_h, fill=1, stroke=1)
 
-        # Panels
-        for p in self._pl:
-            fc = _panel_colour(p.panel_name)
-            sc = _panel_colour_dark(fc)
-            canvas.setFillColor(_HexColor(fc))
-            canvas.setStrokeColor(_HexColor(sc))
-            canvas.setLineWidth(0.4)
+            # Panels
+            for p in self._pl:
+                fc = _panel_colour(p.panel_name)
+                sc = _panel_colour_dark(fc)
+                canvas.setFillColor(_HexColor(fc))
+                canvas.setStrokeColor(_HexColor(sc))
+                canvas.setLineWidth(0.4)
 
-            px_pt = sx(p.x)
-            py_pt = sy(p.y, p.placed_width)
-            pw_pt = p.placed_length * scale
-            ph_pt = p.placed_width * scale
-            corner_pt = max(1.0, min(pw_pt, ph_pt) * 0.03)
-            canvas.roundRect(px_pt, py_pt, pw_pt, ph_pt, corner_pt, fill=1, stroke=1)
+                px_pt = sx(p.x)
+                py_pt = sy(p.y, p.placed_width)
+                pw_pt = p.placed_length * scale
+                ph_pt = p.placed_width * scale
+                corner_pt = max(1.0, min(pw_pt, ph_pt) * 0.03)
+                canvas.roundRect(px_pt, py_pt, pw_pt, ph_pt, corner_pt, fill=1, stroke=1)
 
-            label = p.panel_name[:20] + ("…" if len(p.panel_name) > 20 else "")
-            if p.rotated:
-                label += " ↺"
-            dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f}mm"
+                label = p.panel_name[:20] + ("…" if len(p.panel_name) > 20 else "")
+                if p.rotated:
+                    label += " ↺"
+                dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f}mm"
 
-            min_dim_pt = min(pw_pt, ph_pt)
-            font_pt = max(5.0, min(min_dim_pt * 0.12, 9.0))
-            dim_pt  = max(4.0, min(min_dim_pt * 0.09, 7.0))
+                min_dim_pt = min(pw_pt, ph_pt)
+                font_pt = max(5.0, min(min_dim_pt * 0.12, 9.0))
+                dim_pt  = max(4.0, min(min_dim_pt * 0.09, 7.0))
 
-            cx_pt = px_pt + pw_pt / 2
-            cy_pt = py_pt + ph_pt / 2
-            tall  = p.placed_width > p.placed_length
+                cx_pt = px_pt + pw_pt / 2
+                cy_pt = py_pt + ph_pt / 2
+                tall  = p.placed_width > p.placed_length
 
-            canvas.saveState()
-            canvas.translate(cx_pt, cy_pt)
-            if tall:
-                canvas.rotate(90)
-            canvas.setFillColor(_HexColor(sc))
-            canvas.setFont("Helvetica", font_pt)
-            canvas.drawCentredString(0, font_pt * 0.25, label)
-            canvas.setFont("Helvetica", dim_pt)
-            canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
-            canvas.restoreState()
-
-        # Guillotine cut lines
-        raw_cuts: list = []
-        _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0, out=raw_cuts)
-        raw_cuts.sort(key=lambda e: e[0])
-
-        label_r_pt = max(4.0, sl * 0.016 * scale)
-        seq = 0
-
-        for entry in raw_cuts:
-            depth, pos, orient, x0, y0, x1, y1, is_breakdown, dim_a, dim_b = entry
-
-            if is_breakdown:
-                seq += 1
-                lc = _HexColor("#c0392b")
-                lw = max(0.6, sl * 0.004 * scale)
-                dash = max(3.0, sl * 0.015 * scale)
-            else:
-                lc = _HexColor("#aaaaaa")
-                lw = 0.3
-                dash = max(2.0, sl * 0.010 * scale)
-
-            canvas.setStrokeColor(lc)
-            canvas.setLineWidth(lw)
-            canvas.setDash(dash, dash * 0.6)
-            canvas.line(sx(x0), sy(y0), sx(x1), sy(y1))
-            canvas.setDash()
-
-            if is_breakdown:
-                if orient == "h":
-                    bx = (sx(x0) + sx(x1)) / 2
-                    by = sy(y0)
-                else:
-                    bx = sx(x0)
-                    by = (sy(y0) + sy(y1)) / 2
-
-                canvas.setFillColor(lc)
-                canvas.circle(bx, by, label_r_pt, fill=1, stroke=0)
-                canvas.setFillColor(_HexColor("#ffffff"))
-                canvas.setFont("Helvetica-Bold", max(4.0, label_r_pt * 1.1))
-                canvas.drawCentredString(bx, by - label_r_pt * 0.38, str(seq))
-
-                # Dimension label on the shorter side of the cut
-                short_dim = min(dim_a, dim_b)
-                dim_label = f"{short_dim:.0f}mm"
-                dim_font_pt = max(4.0, label_r_pt * 0.85)
-                pad_pt = label_r_pt * 1.8
-
-                canvas.setFillColor(lc)
-                canvas.setFont("Helvetica", dim_font_pt)
-                if orient == "h":
-                    tx = bx + label_r_pt * 1.5
-                    ty = by + (pad_pt if dim_a > dim_b else -pad_pt)
-                    canvas.drawString(tx, ty, dim_label)
-                else:
-                    tx = bx
-                    ty = by + pad_pt
-                    canvas.saveState()
-                    canvas.translate(tx, ty)
+                canvas.saveState()
+                canvas.translate(cx_pt, cy_pt)
+                if tall:
                     canvas.rotate(90)
-                    canvas.drawCentredString(0, 0, dim_label)
-                    canvas.restoreState()
+                canvas.setFillColor(_HexColor(sc))
+                canvas.setFont("Helvetica", font_pt)
+                canvas.drawCentredString(0, font_pt * 0.25, label)
+                canvas.setFont("Helvetica", dim_pt)
+                canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
+                canvas.restoreState()
 
-        # Bottom ruler
-        canvas.setStrokeColor(_HexColor("#888888"))
-        canvas.setLineWidth(0.4)
-        ruler_y = sy(0, sw) - 1.0
-        tick_font = max(4.0, min(sl * 0.014 * scale, 6.0))
-        for tick_mm in range(0, int(sl) + 1, 200):
-            tx = sx(tick_mm)
-            canvas.line(tx, ruler_y, tx, ruler_y - 3.0)
-            if tick_mm % 400 == 0:
-                canvas.setFillColor(_HexColor("#666666"))
-                canvas.setFont("Helvetica", tick_font)
-                canvas.drawCentredString(tx, ruler_y - 3.0 - tick_font, str(tick_mm))
+            # Guillotine cut lines
+            raw_cuts: list = []
+            _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0, out=raw_cuts)
+            raw_cuts.sort(key=lambda e: e[0])
+
+            label_r_pt = max(4.0, sl * 0.016 * scale)
+            seq = 0
+
+            for entry in raw_cuts:
+                depth, pos, orient, x0, y0, x1, y1, is_breakdown, dim_a, dim_b = entry
+
+                if is_breakdown:
+                    seq += 1
+                    lc = _HexColor("#c0392b")
+                    lw = max(0.6, sl * 0.004 * scale)
+                    dash = max(3.0, sl * 0.015 * scale)
+                else:
+                    lc = _HexColor("#aaaaaa")
+                    lw = 0.3
+                    dash = max(2.0, sl * 0.010 * scale)
+
+                canvas.setStrokeColor(lc)
+                canvas.setLineWidth(lw)
+                canvas.setDash(dash, dash * 0.6)
+                canvas.line(sx(x0), sy(y0), sx(x1), sy(y1))
+                canvas.setDash()
+
+                if is_breakdown:
+                    if orient == "h":
+                        bx = (sx(x0) + sx(x1)) / 2
+                        by = sy(y0)
+                    else:
+                        bx = sx(x0)
+                        by = (sy(y0) + sy(y1)) / 2
+
+                    canvas.setFillColor(lc)
+                    canvas.circle(bx, by, label_r_pt, fill=1, stroke=0)
+                    canvas.setFillColor(_HexColor("#ffffff"))
+                    canvas.setFont("Helvetica-Bold", max(4.0, label_r_pt * 1.1))
+                    canvas.drawCentredString(bx, by - label_r_pt * 0.38, str(seq))
+
+                    # Dimension label on the shorter side of the cut
+                    short_dim = min(dim_a, dim_b)
+                    dim_label = f"{short_dim:.0f}mm"
+                    dim_font_pt = max(4.0, label_r_pt * 0.85)
+                    pad_pt = label_r_pt * 1.8
+
+                    canvas.setFillColor(lc)
+                    canvas.setFont("Helvetica", dim_font_pt)
+                    if orient == "h":
+                        tx = bx + label_r_pt * 1.5
+                        ty = by + (pad_pt if dim_a > dim_b else -pad_pt)
+                        canvas.drawString(tx, ty, dim_label)
+                    else:
+                        tx = bx
+                        ty = by + pad_pt
+                        canvas.saveState()
+                        canvas.translate(tx, ty)
+                        canvas.rotate(90)
+                        canvas.drawCentredString(0, 0, dim_label)
+                        canvas.restoreState()
+
+            # Bottom ruler
+            canvas.setStrokeColor(_HexColor("#888888"))
+            canvas.setLineWidth(0.4)
+            ruler_y = sy(0, sw) - 1.0
+            tick_font = max(4.0, min(sl * 0.014 * scale, 6.0))
+            for tick_mm in range(0, int(sl) + 1, 200):
+                tx = sx(tick_mm)
+                canvas.line(tx, ruler_y, tx, ruler_y - 3.0)
+                if tick_mm % 400 == 0:
+                    canvas.setFillColor(_HexColor("#666666"))
+                    canvas.setFont("Helvetica", tick_font)
+                    canvas.drawCentredString(tx, ruler_y - 3.0 - tick_font, str(tick_mm))
 
 
 def print_hardware_bom(lines: list[HardwareLine]) -> None:

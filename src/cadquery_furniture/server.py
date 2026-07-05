@@ -1417,6 +1417,10 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "name": {"type": "string", "description": "Project name; used as the filename stem."},
                     "notes": {"type": "string", "description": "Optional human-readable notes."},
+                    "wall_width_mm": {
+                        "type": "number",
+                        "description": "Available wall run in mm. When set, consistency checks flag a run wider than the wall (error) and report leftover gap (info).",
+                    },
                     "shared": {
                         "type": "object",
                         "description": "Design tokens to apply to every child cabinet. All fields optional.",
@@ -1505,6 +1509,33 @@ async def list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="visualize_project",
+            description=textwrap.dedent("""\
+                Render every cabinet in a project as one 3D scene: cabinets are
+                placed left-to-right at their run offsets (optionally separated
+                by 'gap_mm'), exported to GLB, and wrapped in a self-contained
+                HTML viewer.
+
+                Pass either 'project_name' to load a persisted project or an
+                inline 'project' payload (same shape as design_project input).
+                Requires the full install (CadQuery).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_name": {"type": "string"},
+                    "project": {"type": "object"},
+                    "gap_mm": {
+                        "type": "number", "default": 0,
+                        "description": "Gap between adjacent cabinets in mm (0 = butted).",
+                    },
+                    "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
+                    "open_browser": {"type": "boolean", "default": True},
+                    "tolerance":    {"type": "number", "default": 0.1},
+                },
+            },
+        ),
     ]
 
 
@@ -1559,6 +1590,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_evaluate_project(arguments)
         elif name == "generate_project_cutlist":
             return await _tool_generate_project_cutlist(arguments)
+        elif name == "visualize_project":
+            return await _tool_visualize_project(arguments)
         else:
             return _err(f"Unknown tool: {name}")
     except Exception as exc:
@@ -2566,17 +2599,20 @@ async def _tool_suggest_proportions(args: dict) -> list[types.TextContent]:
 
 # ── visualize_cabinet ─────────────────────────────────────────────────────────
 
-async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
-    name          = str(args.pop("name", "cabinet"))
-    output_dir    = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
-    open_browser  = bool(args.pop("open_browser", True))
-    tolerance     = float(args.pop("tolerance", 0.1))
-    num_bays      = int(args.pop("num_bays", 1))
-    columns_raw        = args.pop("columns", None)
-    furniture_top      = bool(args.pop("furniture_top", False))
-    divider_full_height = bool(args.pop("divider_full_height", True))
-    cfg = _build_cabinet_config(args)
+def _cabinet_assembly(
+    cfg: CabinetConfig,
+    columns_raw: list | None,
+    *,
+    num_bays: int = 1,
+    furniture_top: bool = False,
+    divider_full_height: bool = True,
+):
+    """Build the CadQuery assembly for one cabinet config (column-aware).
 
+    Shared by ``visualize_cabinet`` (single cabinet) and
+    ``visualize_project`` (one assembly per project cabinet, composed at
+    run offsets). Returns ``(assembly, parts, info)``.
+    """
     transition_shelf_zs: list[float] = []
     divider_top_z: float | None = None
 
@@ -2665,6 +2701,26 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         face_top_overhang=face_top_overhang,
         transition_shelf_zs=transition_shelf_zs or None,
         divider_top_z=divider_top_z,
+    )
+    return assy, parts, info
+
+
+async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
+    name          = str(args.pop("name", "cabinet"))
+    output_dir    = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
+    open_browser  = bool(args.pop("open_browser", True))
+    tolerance     = float(args.pop("tolerance", 0.1))
+    num_bays      = int(args.pop("num_bays", 1))
+    columns_raw        = args.pop("columns", None)
+    furniture_top      = bool(args.pop("furniture_top", False))
+    divider_full_height = bool(args.pop("divider_full_height", True))
+    cfg = _build_cabinet_config(args)
+
+    assy, parts, info = _cabinet_assembly(
+        cfg, columns_raw,
+        num_bays=num_bays,
+        furniture_top=furniture_top,
+        divider_full_height=divider_full_height,
     )
     result = _visualize_assembly(
         assy,
@@ -3140,16 +3196,19 @@ def _project_from_args(args: dict):
 
 def _columns_dict_from_cfg(cfg: CabinetConfig) -> list | None:
     """Re-derive the ``columns`` list-of-dicts shape from a resolved
-    CabinetConfig, using the canonical ``[height, type]`` list shape for
-    openings so every downstream tool (cutlist, visualize, hardware BOM)
-    accepts the result. Returns None for single-column cabinets."""
+    CabinetConfig, using the dict form for openings so per-opening overrides
+    (hinge_key, pull_key, num_doors, hinge_side, door_thickness) survive —
+    every downstream consumer normalizes rows via ``to_opening``, which
+    accepts dicts. Returns None for single-column cabinets."""
+    from .project import _opening_to_dict
+
     if not cfg.columns:
         return None
     out = []
     for col in cfg.columns:
         d: dict = {
             "width_mm": col.width_mm,
-            "openings": [[op.height_mm, op.opening_type] for op in col.openings],
+            "openings": [_opening_to_dict(op) for op in col.openings],
         }
         if col.fixed_shelf_positions:
             d["fixed_shelf_positions"] = list(col.fixed_shelf_positions)
@@ -3217,7 +3276,8 @@ async def _tool_evaluate_project(args: dict) -> list[types.TextContent]:
         }
 
     project_issues = check_project_consistency(project)
-    total_warnings += len(project_issues)
+    total_errors   += sum(1 for i in project_issues if i["severity"] == "error")
+    total_warnings += sum(1 for i in project_issues if i["severity"] == "warning")
 
     return _ok({
         "project": project.name,
@@ -3291,6 +3351,67 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         **result,
     }
     return _ok(result)
+
+
+async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
+    import cadquery as cq  # raises in lite mode; call_tool wraps into an error
+
+    project = _project_from_args(args)
+    output_dir   = str(args.get("output_dir", "~/.cabinet-mcp/visualizations"))
+    open_browser = bool(args.get("open_browser", True))
+    tolerance    = float(args.get("tolerance", 0.1))
+    gap_mm       = float(args.get("gap_mm", 0.0))
+
+    run_assy = cq.Assembly(name=project.name)
+    all_parts: list = []
+    per_cabinet = []
+    x_off = 0.0
+    for cname, cfg in project.resolved():
+        columns_raw = _columns_dict_from_cfg(cfg)
+        assy, parts, _info = _cabinet_assembly(cfg, columns_raw)
+        run_assy.add(assy, name=cname, loc=cq.Location(cq.Vector(x_off, 0, 0)))
+        all_parts.extend(parts)
+        per_cabinet.append({
+            "name": cname,
+            "x_offset_mm": round(x_off, 1),
+            "width_mm": cfg.width,
+        })
+        x_off += cfg.width + gap_mm
+
+    run_width = x_off - gap_mm if project.cabinets else 0.0
+    info = {
+        "cabinets":     len(project.cabinets),
+        "run_width":    round(run_width, 1),
+        "parts":        len(all_parts),
+    }
+    if project.wall_width_mm:
+        info["wall_width"] = project.wall_width_mm
+
+    result = _visualize_assembly(
+        run_assy,
+        all_parts,
+        output_dir=output_dir,
+        name=project.name,
+        open_browser=open_browser,
+        tolerance=tolerance,
+        info=info,
+    )
+
+    return _ok({
+        "project":      project.name,
+        "cabinet_count": len(project.cabinets),
+        "total_run_width_mm": round(run_width, 1),
+        "per_cabinet":  per_cabinet,
+        "html":         result["html"],
+        "glb":          result["glb"],
+        "parts":        result["parts"],
+        "glb_size_kb":  result["glb_size_kb"],
+        "note": (
+            "HTML viewer written — cabinets are placed left-to-right at their "
+            "run offsets. Viewer drawer/door animation shortcuts act per "
+            "cabinet node and may not respond in the composed project view."
+        ),
+    })
 
 
 # ─── Port management ──────────────────────────────────────────────────────────

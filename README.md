@@ -53,7 +53,7 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Evaluation** — clearances, deflection, geometry, joinery adequacy, pull fit/style; typed `Issue` objects with severity and measured values
 - **Cutlist** — consolidated BOM with guillotine sheet optimisation (sheets used, waste %, physically executable layouts), JSON and CSV export; hardware BOM with pack-quantity / leftover math
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
-- **MCP server** — twenty tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
+- **MCP server** — twenty-one tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
 - **Eval harness** — 251 scenarios / 847 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).

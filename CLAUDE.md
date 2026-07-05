@@ -65,14 +65,14 @@ evaluation.py   ← returns typed Issue objects (no CadQuery required)
 cutlist.py      ← BOM, guillotine optimiser, JSON/CSV export (no CadQuery required)
         │
         ▼
-server.py       ← MCP server (20 tools, stdio or HTTP/SSE)
+server.py       ← MCP server (21 tools, stdio or HTTP/SSE)
 ```
 
 `evals/` (harness + scenarios) imports server handler functions directly — no MCP transport involved — so the full eval suite runs in under 1 second.
 
 ### Key design patterns
 
-- **Frozen dataclasses everywhere.** `CabinetConfig`, `DrawerConfig`, `DoorConfig`, hardware specs, and joinery specs are all `@dataclass(frozen=True)`. Computed properties (e.g. `interior_width`, `box_height`) are `@property`.
+- **Dataclasses everywhere; specs are frozen, configs are not.** `OpeningConfig`, `ColumnConfig`, hardware specs, joinery specs, and the project dataclasses are `@dataclass(frozen=True)`. The three user-facing configs (`CabinetConfig`, `DrawerConfig`, `DoorConfig`) are plain `@dataclass` — `CabinetConfig.__post_init__` normalizes `openings`/`columns` in place. Computed properties (e.g. `interior_width`, `box_height`) are `@property`.
 - **CadQuery is optional.** The `try: import cadquery` pattern is used throughout. `evaluation.py` and `cutlist.py` have CadQuery-backed and pure-Python code paths. The pure-Python paths run in all environments and are what the tests and evals exercise.
 - **MCP tool handlers are plain async functions** (e.g. `_tool_design_cabinet`) that return `list[types.TextContent]`. The evals harness calls these directly via `TOOL_DISPATCH`, bypassing the MCP transport layer entirely.
 - **opcut item IDs must be globally unique.** opcut 0.1.3 uses item IDs as a set for placement tracking; duplicate IDs cause `Exception('result is done')` mid-solve. `_optimize_with_opcut` assigns IDs via a global counter (`name__0`, `name__1`, …) to avoid collisions when multiple `CutlistPanel` objects share the same name.
@@ -89,13 +89,13 @@ server.py       ← MCP server (20 tools, stdio or HTTP/SSE)
 | `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `check_project_consistency()` cross-cabinet warnings |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
 | `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `generate_sheet_layout_pdf()` produces an A4-landscape PDF with sheet drawings, parts list, and guillotine cut sequence tables; `to_json()`, `to_csv()` |
-| `server.py` | Twenty MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
+| `server.py` | Twenty-one MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
 
 ### Eval harness
 
 Scenarios live in `evals/scenarios.py`. Each `Scenario` has a natural-language `prompt`, a list of `ToolCall`s with `Assertion`s, and tags/difficulty for filtering. Available assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
 
-Baseline: 278 scenarios / 912 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
+Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
 
 ## Known issues
 
@@ -161,4 +161,4 @@ The `visualize_cabinet` MCP tool exposes `furniture_top` as a boolean parameter.
 
 ## Planned enhancements
 
-- **Cutlist PDF hardware BOM** — the PDF currently shows sheet layouts and cut parts; add a hardware BOM page (slides, hinges, pulls with quantities).
+- ~~**Cutlist PDF hardware BOM**~~ — shipped: both the layout HTML and the PDF include a hardware BOM (slides, hinges, pulls, legs) with per-line unit prices and totals.

@@ -64,6 +64,7 @@ from cadquery_furniture.server import (
     _tool_design_project,
     _tool_evaluate_project,
     _tool_generate_project_cutlist,
+    _tool_visualize_project,
 )
 
 # ─── Tool dispatch ────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ TOOL_DISPATCH = {
     "design_project":               _tool_design_project,
     "evaluate_project":             _tool_evaluate_project,
     "generate_project_cutlist":     _tool_generate_project_cutlist,
+    "visualize_project":            _tool_visualize_project,
 }
 
 

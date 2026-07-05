@@ -7847,6 +7847,162 @@ SCENARIOS.append(Scenario(
     ],
 ))
 
+# ── Multi-cabinet projects ────────────────────────────────────────────────────
+
+_PROJECT_TRIO = {
+    "name": "eval_trio",
+    "shared": {
+        "side_thickness": 18,
+        "drawer_slide": "blum_tandem_550h",
+        "pull_preset": "contemporary_slab",
+    },
+    "cabinets": [
+        {"name": n, "config": {"width": 1219, "height": 762, "depth": 500,
+                               "openings": [[150, "drawer"], [570, "door_pair"]]}}
+        for n in ("left", "center", "right")
+    ],
+}
+
+SCENARIOS.append(Scenario(
+    name="project_three_matching_sideboards",
+    prompt="Design three matching 48-inch sideboards that share materials and hardware.",
+    tags=["project", "workflow"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args=dict(_PROJECT_TRIO),
+            assertions=[
+                Assertion("cabinet_count", Op.EQ, 3),
+                Assertion("total_run_width_mm", Op.APPROX, 3657),
+                Assertion("cabinets.0.drawer_pull", Op.EQ, "topknobs-bsn-96",
+                          "shared pull_preset expands into every child"),
+                Assertion("cabinets.2.drawer_slide", Op.EQ, "blum_tandem_550h"),
+                Assertion("consistency_issues", Op.LEN_EQ, 0,
+                          "identical cabinets raise no cross-cabinet issues"),
+                Assertion("saved_to", Op.CONTAINS, "eval_trio"),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_project",
+            args={"project_name": "eval_trio"},
+            label="reload persisted project by name",
+            assertions=[
+                Assertion("summary.cabinet_count", Op.EQ, 3),
+                Assertion("summary.error_count", Op.EQ, 0),
+                Assertion("summary.pass", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="project_wall_fit_overflow_is_error",
+    prompt="Will three 1219 mm sideboards fit on my 3.6 m wall?",
+    tags=["project", "evaluation"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_project",
+            args={"project": {**_PROJECT_TRIO, "name": "eval_wall",
+                              "wall_width_mm": 3600}},
+            assertions=[
+                Assertion("summary.pass", Op.IS_FALSE,
+                          "3657 mm run cannot pass on a 3600 mm wall"),
+                Assertion("project_issues.0.check", Op.EQ, "project_wall_fit"),
+                Assertion("project_issues.0.severity", Op.EQ, "error"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="project_depth_mismatch_warns",
+    prompt="Evaluate a project where the middle cabinet is deeper than its neighbours.",
+    tags=["project", "evaluation"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_project",
+            args={"project": {
+                "name": "eval_depth",
+                "cabinets": [
+                    {"name": "a", "config": {"width": 800, "height": 720, "depth": 500,
+                                             "openings": [[684, "door"]]}},
+                    {"name": "b", "config": {"width": 800, "height": 720, "depth": 550,
+                                             "openings": [[684, "door"]]}},
+                ],
+            }},
+            assertions=[
+                Assertion("project_issues.0.check", Op.EQ, "project_depth_match"),
+                Assertion("project_issues.0.severity", Op.EQ, "warning"),
+                Assertion("summary.pass", Op.IS_TRUE,
+                          "depth mismatch is a warning, not an error"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="project_cutlist_single_column_includes_drawer_boxes",
+    prompt="Generate a combined cutlist for a project with one three-drawer cabinet.",
+    tags=["project", "cutlist"],
+    difficulty="standard",
+    description="Regression: single-column cabinets must contribute drawer-box "
+                "and false-front panels, not just carcass parts.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project": {
+                "name": "eval_single_col",
+                "cabinets": [{"name": "a", "config": {
+                    "width": 600, "height": 720, "depth": 550, "num_drawers": 3}}],
+            }},
+            assertions=[
+                Assertion("panel_count", Op.EQ, 17,
+                          "carcass 3 + 3x(box side/front/back) + back + bottoms + 3 false fronts"),
+                Assertion("panels_summary.3.name", Op.EQ, "drawer_box_side"),
+                Assertion("panels_summary.14.name", Op.EQ, "false_front"),
+                Assertion("hardware_bom", Op.LEN_GTE, 3,
+                          "slides + pulls-or-legs + screws all present"),
+                Assertion("files", Op.HAS_KEY, "csv"),
+                Assertion("files", Op.HAS_KEY, "hardware_bom_json"),
+                Assertion("cost_estimate", Op.HAS_KEY, "grand_total_usd"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="project_cutlist_merges_identical_panels",
+    prompt="One combined cutlist for two identical wardrobes, please.",
+    tags=["project", "cutlist"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project": {
+                "name": "eval_merge",
+                "cabinets": [
+                    {"name": n, "config": {"width": 900, "height": 720, "depth": 500,
+                                           "openings": [[684, "door"]]}}
+                    for n in ("left", "right")
+                ],
+            }},
+            assertions=[
+                Assertion("cabinet_count", Op.EQ, 2),
+                Assertion("panels_summary.0.name", Op.EQ, "side"),
+                Assertion("panels_summary.0.qty", Op.EQ, 4,
+                          "2 cabinets x 2 sides merge into one row"),
+                Assertion("panels_summary.3.name", Op.EQ, "back"),
+                Assertion("panels_summary.3.qty", Op.EQ, 2),
+                Assertion("sheet_goods.0.thickness_mm", Op.EQ, 18),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

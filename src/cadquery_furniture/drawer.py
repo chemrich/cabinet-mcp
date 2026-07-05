@@ -221,10 +221,12 @@ def make_drawer_side(cfg: DrawerConfig, side: str = "left") -> "cq.Workplane":
     dado and corner joinery are cut into so they end up on the *inside* face
     once the panel is placed in the assembly.
     """
-    _require_cq()
-
+    # Validate args before requiring CadQuery — a bad argument is the
+    # caller's bug regardless of which extras are installed.
     if side not in ("left", "right"):
         raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+
+    _require_cq()
 
     panel = (
         cq.Workplane("XY")
@@ -259,10 +261,10 @@ def make_drawer_front_back(cfg: DrawerConfig, position: str = "back") -> "cq.Wor
     side panel's rabbet (zero overhang for BUTT, ``side_dado_depth_x`` for
     QQQ / HALF_LAP / DRAWER_LOCK).
     """
-    _require_cq()
-
     if position not in ("front", "back"):
         raise ValueError(f"position must be 'front' or 'back', got {position!r}")
+
+    _require_cq()
 
     engagement_x = cfg.joinery.engagement_x
     interior_width = cfg.box_width - 2 * (cfg.side_thickness - engagement_x)
