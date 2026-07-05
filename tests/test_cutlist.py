@@ -133,3 +133,18 @@ class TestExtractBomParametric:
         result = extract_bom_parametric(parts)
         assert result[0].length == 0
         assert result[0].width == 0
+
+
+class TestLiteModeImport:
+    def test_cutlist_imports_without_reportlab(self):
+        # Regression (caught by CI's first-ever run): _SheetDrawingFlowable
+        # subclassed _Flowable at module level, so importing cutlist.py
+        # crashed with NameError in a true lite install (no reportlab).
+        import subprocess, sys
+        code = (
+            "import sys; sys.modules['reportlab'] = None; "
+            "import cadquery_furniture.cutlist as cl; "
+            "assert not cl._REPORTLAB_AVAILABLE; "
+            "assert not hasattr(cl, '_SheetDrawingFlowable')"
+        )
+        subprocess.run([sys.executable, "-c", code], check=True)
