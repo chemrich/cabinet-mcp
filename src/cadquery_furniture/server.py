@@ -74,7 +74,11 @@ from .proportions import (
 from .describe import describe_design as _describe_design
 from .presets import PRESETS, get_preset, list_presets as _list_presets
 from .furniture_refs import identify_furniture, get_furniture, SYNONYM_TO_PRESETS
-from .visualize import build_and_visualize as _build_and_visualize, visualize_assembly as _visualize_assembly
+from .visualize import (
+    WOOD_FINISHES as _WOOD_FINISHES,
+    build_and_visualize as _build_and_visualize,
+    visualize_assembly as _visualize_assembly,
+)
 from .cutlist import (
     CutlistPanel,
     SheetStock,
@@ -887,6 +891,15 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Mesh tessellation tolerance in mm. Lower = finer mesh, bigger file. Default: 0.1",
                         "default": 0.1,
                     },
+                    "finish": {
+                        "type": "string",
+                        "enum": sorted(_WOOD_FINISHES),
+                        "description": (
+                            "Wood finish rendered in the viewer as a procedural "
+                            "grain texture (pull hardware keeps its metal look). "
+                            "Omit for flat panel colors."
+                        ),
+                    },
                     "drawer_joinery": {
                         "type": "string",
                         "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
@@ -1533,6 +1546,15 @@ async def list_tools() -> list[types.Tool]:
                     "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
                     "open_browser": {"type": "boolean", "default": True},
                     "tolerance":    {"type": "number", "default": 0.1},
+                    "finish": {
+                        "type": "string",
+                        "enum": sorted(_WOOD_FINISHES),
+                        "description": (
+                            "Wood finish rendered in the viewer as a procedural "
+                            "grain texture (pull hardware keeps its metal look). "
+                            "Omit for flat panel colors."
+                        ),
+                    },
                 },
             },
         ),
@@ -2711,6 +2733,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     open_browser  = bool(args.pop("open_browser", True))
     tolerance     = float(args.pop("tolerance", 0.1))
     num_bays      = int(args.pop("num_bays", 1))
+    finish        = args.pop("finish", None)
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
     divider_full_height = bool(args.pop("divider_full_height", True))
@@ -2730,6 +2753,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         open_browser=open_browser,
         tolerance=tolerance,
         info=info,
+        finish=finish,
     )
 
     return _ok({
@@ -3361,6 +3385,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     open_browser = bool(args.get("open_browser", True))
     tolerance    = float(args.get("tolerance", 0.1))
     gap_mm       = float(args.get("gap_mm", 0.0))
+    finish       = args.get("finish")
 
     run_assy = cq.Assembly(name=project.name)
     all_parts: list = []
@@ -3395,6 +3420,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         open_browser=open_browser,
         tolerance=tolerance,
         info=info,
+        finish=finish,
     )
 
     return _ok({
