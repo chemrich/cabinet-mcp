@@ -1290,6 +1290,7 @@ const YELLOW = new THREE.Color(1.00, 0.85, 0.10);
 const GREEN  = new THREE.Color(0.10, 0.82, 0.40);
 const BLUE   = new THREE.Color(0.25, 0.55, 1.00);
 const ORANGE = new THREE.Color(1.00, 0.60, 0.15);
+const PURPLE = new THREE.Color(0.62, 0.35, 1.00);
 
 // Drawer box panels (inside bay{{i}}_drawer{{j}} groups)
 const DRAWER_DIAG_COLS = {{
@@ -1297,7 +1298,10 @@ const DRAWER_DIAG_COLS = {{
   sub_front: YELLOW, back: YELLOW,
   bottom: GREEN,
 }};
-// Carcass panels (inside bay_{{i}} groups)
+// Carcass panels.  The top/bottom/back panels are siblings of the bay_{{i}}
+// group (children of the cabinet node), so panels are matched by name alone
+// with no group requirement; drawer-box members are claimed by the drawer
+// branch first, which is what keeps the two 'bottom'/'back' names apart.
 const CARCASS_DIAG_COLS = {{
   left_side: BLUE, right_side: BLUE,
   top: ORANGE, bottom: ORANGE,
@@ -1317,36 +1321,38 @@ function _diagAncestorColor(obj, table) {{
   return null;
 }}
 
-function isInDrawerGroup(obj) {{
+// Both regexes tolerate the GLTFLoader dedup suffix (bay0_drawer0_1, …) that
+// second-and-later cabinets carry in composed project scenes.
+function _hasDiagAncestor(obj, re) {{
   let cur = obj.parent;
   for (let i = 0; i < 7; i++) {{
     if (!cur) return false;
-    if (/^bay\\d+_drawer\\d+$/.test(cur.name)) return true;
+    if (re.test(cur.name || '')) return true;
     cur = cur.parent;
   }}
   return false;
 }}
-
-function isInCarcassGroup(obj) {{
-  let cur = obj.parent;
-  for (let i = 0; i < 7; i++) {{
-    if (!cur) return false;
-    if (/^bay_\\d+$/.test(cur.name)) return true;
-    cur = cur.parent;
-  }}
-  return false;
-}}
+const DIAG_DRAWER_RE = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
+const DIAG_FACE_RE   = /^bay\\d+_(face|door)\\d+/;   // faces + door leaves; 'doorpull' cannot match
 
 function initDiagColors() {{
   (cabinetRoot || scene).traverse(obj => {{
     if (!obj.isMesh || !obj.material) return;
     let diagCol = null;
-    if (isInDrawerGroup(obj))  diagCol = _diagAncestorColor(obj, DRAWER_DIAG_COLS);
-    else if (isInCarcassGroup(obj)) diagCol = _diagAncestorColor(obj, CARCASS_DIAG_COLS);
+    if (_hasDiagAncestor(obj, DIAG_DRAWER_RE)) {{
+      diagCol = _diagAncestorColor(obj, DRAWER_DIAG_COLS);
+    }} else if (_hasDiagAncestor(obj, DIAG_FACE_RE)) {{
+      diagCol = PURPLE;   // drawer faces + doors
+    }} else {{
+      diagCol = _diagAncestorColor(obj, CARCASS_DIAG_COLS);
+    }}
     if (diagCol) {{
       const diagMat = obj.material.clone();
       diagMat.color.copy(diagCol);
+      diagMat.map = null;            // flat vivid color even over a wood finish
+      diagMat.vertexColors = false;
       diagMat.roughness = 0.45;
+      diagMat.needsUpdate = true;
       diagMeshes.push({{ mesh: obj, origMat: obj.material, diagMat }});
     }}
   }});
