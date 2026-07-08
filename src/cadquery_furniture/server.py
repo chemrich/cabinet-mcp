@@ -2800,6 +2800,10 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         finish=finish,
         drawer_box_finish=drawer_box_finish,
         grain_direction=grain_direction,
+        cutlist_prompt=(
+            f"Generate the cutlist for cabinet '{name}' "
+            "(generate_cutlist with the same design parameters)."
+        ),
     )
 
     return _ok({
@@ -2809,7 +2813,10 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         "glb_size_kb": result["glb_size_kb"],
         "note": (
             "HTML viewer written. Open the 'html' path in a browser to inspect "
-            "the 3D model (orbit with left-drag, pan with right-drag, scroll to zoom)."
+            "the 3D model (orbit with left-drag, pan with right-drag, scroll to "
+            "zoom). The side panel has a live finish dropdown, a grain-direction "
+            "toggle, and a Generate-cutlist button that copies a request to "
+            "paste back to the assistant."
         ),
     })
 
@@ -3471,6 +3478,10 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         finish=finish,
         drawer_box_finish=drawer_box_finish,
         grain_direction=grain_direction,
+        cutlist_prompt=(
+            f"Generate the project cutlist for '{project.name}' "
+            "(generate_project_cutlist)."
+        ),
     )
 
     return _ok({
@@ -3485,7 +3496,10 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         "note": (
             "HTML viewer written — cabinets are placed left-to-right at their "
             "run offsets. Viewer shortcuts (X-ray, open drawers, clip plane) "
-            "work across all cabinets in the composed view."
+            "work across all cabinets in the composed view. The side panel has "
+            "a live finish dropdown, a grain-direction toggle, and a "
+            "Generate-cutlist button that copies a request to paste back to "
+            "the assistant."
         ),
     })
 
