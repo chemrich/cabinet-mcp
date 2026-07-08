@@ -35,3 +35,6 @@ pytest-cache-files-*
 *.swp
 *.swo
 .coverage*
+
+# Claude Code personal settings — never commit
+.claude/settings.local.json

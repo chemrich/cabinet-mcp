@@ -1,6 +1,6 @@
 # Presets
 
-`presets.py` ships fifteen named, pre-validated `CabinetConfig` instances. Each one has its opening-stack heights pre-calculated to fill `interior_height` exactly, so it passes `evaluate_cabinet` with zero issues. They're exposed via the `list_presets` and `apply_preset` MCP tools, and directly via `get_preset(name)` in Python.
+`presets.py` ships twenty-six named, pre-validated `CabinetConfig` instances. Each one has its opening-stack heights pre-calculated to fill `interior_height` exactly, so it passes `evaluate_cabinet` with zero issues. They're exposed via the `list_presets` and `apply_preset` MCP tools, and directly via `get_preset(name)` in Python.
 
 | Name | Category | Dimensions (W×H×D) | Notes |
 |------|----------|--------------------|-------|
@@ -12,17 +12,28 @@
 | `workshop_wall_cabinet` | workshop | 600 × 720 × 300 | Door pair + adjustable shelves, shallow depth |
 | `bedroom_dresser` | bedroom | 900 × 1100 × 550 | 6-drawer, Tandem+ full-extension |
 | `armoire_2col` | bedroom | 1118 × 1703 × 533 | Multi-column: 2×3 drawers + full-width door section; see below |
+| `bedroom_armoire` | bedroom | 1100 × 1900 × 580 | Door-pair wardrobe compartment above two base drawers |
+| `bedroom_tall_chest` | bedroom | 600 × 1400 × 550 | Eight graduated drawers, deep at the bottom |
+| `bedroom_chiffoniere` | bedroom | 500 × 1350 × 450 | Small top door over six shallow drawers |
+| `bedroom_lingerie_chest` | bedroom | 500 × 1350 × 450 | Seven equal shallow drawers |
+| `bedroom_gentleman_chest` | bedroom | 1400 × 1200 × 550 | Multi-column: wardrobe door column + 5-drawer column; see below |
+| `bedroom_nightstand` | bedroom | 550 × 650 × 400 | Shallow top drawer over a door compartment |
 | `bathroom_vanity` | bathroom | 600 × 850 × 480 | Door + 2 drawers, BLUMOTION soft-close |
+| `bathroom_linen_tower` | bathroom | 400 × 1900 × 350 | Tall door compartment with adjustable shelves, two drawers on top |
 | `storage_wall_cabinet` | storage | 600 × 720 × 300 | Door pair + adjustable shelves |
 | `foyer_console_2_drawer` | living_room | 1200 × 800 × 350 | Open shelf + 2 drawers, shallow |
 | `foyer_console_narrow` | living_room | 900 × 850 × 300 | Single drawer + open shelf |
 | `living_room_credenza` | living_room | 1600 × 800 × 450 | Door pair + 2 frieze drawers, Tandem+ / BLUMOTION |
 | `living_room_sideboard` | living_room | 1800 × 900 × 500 | Door pair + 2 drawers, wider/taller than credenza |
 | `media_console` | living_room | 1800 × 600 × 450 | Low-profile: door pair + open display shelf |
+| `living_room_bar_cabinet` | living_room | 900 × 1000 × 450 | Door pair below, two drawers above, adjustable shelves |
+| `office_filing_cabinet` | office | 460 × 1300 × 600 | Four deep file drawers; 600 mm depth fits hanging file frames |
+| `entryway_entry_cabinet` | entryway | 900 × 900 × 350 | Door pair + slim key/mail drawer, hall-friendly depth |
+| `entryway_hall_tree` | entryway | 900 × 1900 × 380 | Shoe doors + two drawers + tall open coat compartment |
 
 ## Multi-column presets
 
-Some presets (e.g. `armoire_2col`) use a `columns` array instead of a flat `drawer_config`. Each column entry has a `width_mm` and its own `drawer_config` stack. The total of all `width_mm` values plus shared divider panels must equal the cabinet's outer width.
+Some presets (e.g. `armoire_2col`, `bedroom_gentleman_chest`) use a `columns` array instead of a flat `drawer_config`. Each column entry has a `width_mm` and its own `drawer_config` stack. The total of all `width_mm` values plus shared divider panels must equal the cabinet's outer width.
 
 ### `armoire_2col`
 
