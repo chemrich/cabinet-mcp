@@ -1,6 +1,6 @@
 # cabinet-mcp
 
-Design kitchen and furniture cabinets conversationally. Talk to Claude, get back validated configurations, optimised cutlists, and 3D geometry — with real Blum/Accuride/Salice hardware specs, five carcass joinery methods, and proportions rooted in traditional cabinet-making.
+Design kitchen and furniture cabinets conversationally. Talk to Claude, get back validated configurations, optimised cutlists, and interactive 3D previews — with real Blum/Accuride/Salice hardware specs, five carcass joinery methods, eight procedural wood finishes, and proportions rooted in traditional cabinet-making.
 
 ## Get started in two commands
 
@@ -52,9 +52,10 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Presets** — fourteen pre-validated starting points for kitchen, workshop, bedroom, bathroom, and living-room furniture — [docs/presets.md](docs/presets.md)
 - **Evaluation** — clearances, deflection, geometry, joinery adequacy, pull fit/style; typed `Issue` objects with severity and measured values
 - **Cutlist** — consolidated BOM with guillotine sheet optimisation (sheets used, waste %, physically executable layouts), JSON and CSV export; hardware BOM with pack-quantity / leftover math
+- **3D viewer** — self-contained HTML orbit viewer (single cabinets or whole multi-cabinet projects) with X-ray, drawer-open animation, clip plane, and diagnostic-color shortcuts; eight procedural wood finishes (rift-sawn and flat-sawn white oak, maple, European and black walnut, bamboo, Baltic birch, cherry) with a live finish dropdown, a grain-direction toggle, and a one-click cutlist request — drawer boxes always render as Baltic birch, the way they're actually built
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
-- **MCP server** — twenty-one tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
-- **Eval harness** — 251 scenarios / 847 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
+- **MCP server** — twenty-three tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
+- **Eval harness** — 283 scenarios / 940 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).
 
