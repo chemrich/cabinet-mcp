@@ -1,8 +1,9 @@
 """GLTF export and browser-based 3D viewer for cabinet assemblies.
 
 Exports a CadQuery Assembly to GLB (binary GLTF) format and generates a
-self-contained HTML file with a Three.js orbit viewer.  No server or internet
-connection required at view-time — just open the HTML in any modern browser.
+self-contained HTML file with a Three.js orbit viewer.  No local server
+required — the model is embedded in the file — but Three.js itself loads
+from the jsDelivr CDN, so an internet connection is needed at view time.
 
 Requires CadQuery ≥ 2.4 for GLB export (``pip install cadquery``).
 
@@ -498,8 +499,8 @@ def generate_viewer_html(
     """Generate a self-contained Three.js HTML viewer with the GLB embedded.
 
     The binary GLB data is base64-encoded and inlined as a JavaScript string,
-    so the resulting HTML file is completely standalone — no server, no network
-    access needed when opening it.
+    so no local server is needed to open the file.  Three.js loads from the
+    jsDelivr CDN, so viewing does require an internet connection.
 
     Args:
         glb_path: Path to the source ``.glb`` file.

@@ -29,13 +29,13 @@ For Claude Desktop, Gemini CLI, or HTTP/SSE mode, see [docs/mcp.md](docs/mcp.md)
 
 A design session ends in things you can actually build from:
 
-1. **A validated design.** Every configuration runs through clearance, deflection, geometry, joinery, and hardware-fit checks that return typed issues with measured values — not just "invalid".
-2. **An interactive 3D preview.** A self-contained HTML viewer (no server, no network) for single cabinets or whole multi-cabinet projects. Keyboard shortcuts x-ray the fronts, slide the drawers open, cut a clip plane through the carcass, and color-code panels for inspection. A dropdown re-textures the show surfaces in any of eight procedural wood finishes — rift-sawn and flat-sawn white oak, maple, European and black walnut, bamboo, Baltic birch, cherry — with a grain-direction toggle. Drawer boxes always render as Baltic birch, the way they're actually built.
-3. **A cutlist you can hand to the saw.** Consolidated BOM, guillotine sheet optimisation with numbered breakdown cuts, per-thickness sheet tabs, hardware BOM with pack-quantity math, and JSON/CSV/HTML/PDF export.
+1. **A validated design.** Every configuration runs through clearance, deflection, geometry, joinery, hardware-fit, and pull fit/style checks that return typed issues — graded by severity, with measured values — not just "invalid".
+2. **An interactive 3D preview.** A single HTML file with the model embedded — no install, no local server; Three.js loads from a CDN, so a browser and an internet connection are all you need. Works for single cabinets or whole multi-cabinet projects. Keyboard shortcuts x-ray the fronts, slide the drawers open, cut a clip plane through the carcass, and color-code panels for inspection. A dropdown re-textures the show surfaces live — rift-sawn white oak to walnut, bamboo, or cherry — with a grain-direction toggle and a one-click cutlist request that captures your selections. Drawer boxes always render as Baltic birch, the way they're actually built.
+3. **A cutlist you can hand to the saw.** Consolidated BOM, guillotine sheet optimisation with numbered breakdown cuts, per-thickness sheet tabs, hardware BOM with pack-quantity and leftover math, and JSON/CSV/HTML/PDF export.
 
 ![Cut sheet layout with numbered guillotine cuts](docs/images/cutlist-sheets.png)
 
-*The sheet-layout output: per-thickness tabs, physically executable numbered cuts, waste percentage, and a hardware BOM.*
+*One 2440 × 1220 sheet of the desk's 18 mm carcass panels — the dashed red line is guillotine cut #1, and the tabs switch between the three sheet thicknesses.*
 
 ## Install options
 
@@ -65,7 +65,7 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Pulls and knobs** — 45 catalog entries (Top Knobs, Rockler, Richelieu, Hafele, IKEA) with placement policy, fit checks, and pack-quantity BOM math — [docs/pulls.md](docs/pulls.md)
 - **Joinery** — four drawer corner joints and five carcass methods, all parametric — [docs/joinery.md](docs/joinery.md)
 - **Proportions** — graduated drawers and asymmetric column widths via named ratios — [docs/proportions.md](docs/proportions.md)
-- **Presets** — fourteen pre-validated starting points for kitchen, workshop, bedroom, bathroom, and living-room furniture — [docs/presets.md](docs/presets.md)
+- **Presets** — twenty-six pre-validated starting points for kitchen, workshop, bedroom, bathroom, office, entryway, and living-room furniture — [docs/presets.md](docs/presets.md)
 - **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, merged project cutlists
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
 - **MCP server** — twenty-three tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
