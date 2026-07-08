@@ -54,3 +54,24 @@ class TestPairingRegexes:
 
     def test_pull_groups_deduplicated(self):
         assert "if (!pair.pulls.includes(grp)) pair.pulls.push(grp);" in _js()
+
+
+class TestDiagColorClassifiers:
+    def test_drawer_regex_tolerates_dedup_suffix(self):
+        js = _js()
+        assert r"const DIAG_DRAWER_RE = /^bay\d+_drawer\d+(?:_\d+)?$/;" in js
+
+    def test_faces_and_doors_get_diag_color(self):
+        js = _js()
+        assert r"const DIAG_FACE_RE   = /^bay\d+_(face|door)\d+/;" in js
+        assert "const PURPLE" in js
+
+    def test_carcass_group_gate_removed(self):
+        # top/bottom are siblings of bay_0, so the old ^bay_\d+$ gate
+        # structurally excluded them — it must stay gone.
+        assert r"/^bay_\d+$/" not in _js()
+
+    def test_diag_material_is_flat_over_finishes(self):
+        js = _js()
+        assert "diagMat.map = null;" in js
+        assert "diagMat.vertexColors = false;" in js

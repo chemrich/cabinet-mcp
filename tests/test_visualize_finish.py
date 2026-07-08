@@ -77,11 +77,11 @@ class TestGrainDirection:
         with pytest.raises(ValueError, match="Unknown grain_direction"):
             _grain_direction("diagonal")
 
-    def test_direction_embedded_in_finish_params(self):
+    def test_direction_embedded_as_initial_grain(self):
         html = _build_html(
             "t", GLB_B64, {}, finish="maple", grain_direction="horizontal"
         )
-        assert f"const FINISH = {_embedded('maple', 'horizontal')};" in html
+        assert 'const INITIAL_GRAIN = "horizontal";' in html
 
     def test_drawer_boxes_always_horizontal(self):
         for direction in ("vertical", "horizontal"):
@@ -93,42 +93,31 @@ class TestGrainDirection:
 
 
 class TestBuildHtml:
-    def test_default_embeds_null_finish(self):
+    def test_default_embeds_null_initial_finish(self):
         html = _build_html("t", GLB_B64, {})
-        assert "const FINISH = null;" in html
-        # No main finish → no implicit baltic birch on the boxes either.
-        assert "const BOX_FINISH = null;" in html
-        # The applicator ships regardless but is a no-op on null.
-        assert "function applyWoodFinish(root)" in html
-        assert "applyWoodFinish(model);" in html
+        assert "const INITIAL_FINISH = null;" in html
+        # The full catalogue ships regardless so the dropdown works, and the
+        # boxes carry baltic birch for when a finish is picked live.
+        assert f"const FINISHES = {json.dumps(WOOD_FINISHES)};" in html
+        box = _embedded(DEFAULT_DRAWER_BOX_FINISH, "horizontal")
+        assert f"const BOX_FINISH = {box};" in html
+        assert "function setShowFinish(key)" in html
+        assert "classifyWood(model);" in html
 
-    def test_finish_embeds_params(self):
+    def test_finish_sets_initial_selection(self):
         for key in WOOD_FINISHES:
             html = _build_html("t", GLB_B64, {}, finish=key)
-            assert f"const FINISH = {_embedded(key)};" in html, key
+            assert f'const INITIAL_FINISH = "{key}";' in html, key
 
     def test_unknown_finish_raises(self):
         with pytest.raises(ValueError, match="Unknown finish"):
             _build_html("t", GLB_B64, {}, finish="chrome")
-
-    def test_finish_defaults_drawer_boxes_to_baltic_birch(self):
-        html = _build_html("t", GLB_B64, {}, finish="rift_white_oak")
-        box = _embedded(DEFAULT_DRAWER_BOX_FINISH, "horizontal")
-        assert f"const BOX_FINISH = {box};" in html
 
     def test_explicit_drawer_box_finish_overrides_default(self):
         html = _build_html(
             "t", GLB_B64, {}, finish="rift_white_oak", drawer_box_finish="walnut"
         )
         assert f"const BOX_FINISH = {_embedded('walnut', 'horizontal')};" in html
-
-    def test_uniform_look_via_matching_keys(self):
-        html = _build_html(
-            "t", GLB_B64, {}, finish="cherry", drawer_box_finish="cherry"
-        )
-        # Same preset both places; directions differ (show vertical, box horizontal).
-        assert f"const FINISH = {_embedded('cherry')};" in html
-        assert f"const BOX_FINISH = {_embedded('cherry', 'horizontal')};" in html
 
     def test_unknown_drawer_box_finish_raises(self):
         with pytest.raises(ValueError, match="Unknown finish"):
@@ -142,6 +131,33 @@ class TestBuildHtml:
         assert "geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));" in html
         assert "if (/pull/i.test(nm)) { isHardware = true; break; }" in html
         assert r"/^bay\d+_drawer\d+(?:_\d+)?$/" in html  # drawer-box ancestry regex
+
+
+class TestViewerControls:
+    def test_ui_elements_present(self):
+        html = _build_html("t", GLB_B64, {})
+        assert 'id="finish-sel"' in html
+        assert 'id="grain-btn"' in html
+        assert 'id="cutlist-btn"' in html
+        assert 'id="cutlist-modal"' in html
+        assert "initFinishUI();" in html
+
+    def test_cutlist_prompt_embedded(self):
+        html = _build_html(
+            "t", GLB_B64, {}, cutlist_prompt="Generate the project cutlist for 'x'."
+        )
+        assert (
+            "const CUTLIST_PROMPT = \"Generate the project cutlist for 'x'.\";"
+            in html
+        )
+
+    def test_cutlist_prompt_defaults_generic(self):
+        html = _build_html("t", GLB_B64, {})
+        assert 'const CUTLIST_PROMPT = "Generate the cutlist for this design.";' in html
+
+    def test_keyboard_shortcuts_guard_form_controls(self):
+        html = _build_html("t", GLB_B64, {})
+        assert "/^(SELECT|INPUT|TEXTAREA|BUTTON)$/.test(e.target.tagName)" in html
 
 
 class TestVisualizeCabinetHandler:
@@ -166,4 +182,6 @@ class TestVisualizeCabinetHandler:
         # Drawer boxes default to baltic birch and show in the info panel.
         assert "Baltic Birch (WB urethane)" in html
         assert "Drawer boxes" in html
+        # The cutlist button carries a cabinet-specific request.
+        assert "Generate the cutlist for cabinet 'finish_test'" in html
         assert result["parts"] > 0

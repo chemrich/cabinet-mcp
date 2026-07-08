@@ -117,6 +117,7 @@ Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite af
   1. **Wrong traversal depth for `pair.box`**: Three.js r165 GLTFLoader wraps multi-primitive GLTF meshes in an extra Group node, making the ancestry `leaf_mesh → _part_N Group → panel_part Group → panel_name Group → bay{i}_drawer{j} Group`. The old code only searched 3 levels (depths 0–2); `bay{i}_drawer{j}` sits at depth 3. Fixed by adding `p3 = p2?.parent` and extending `searchNames`/`searchNodes` to 4 entries.
   2. **Unanchored face/drawer regex set `pair.face` to a leaf mesh**: The match regex `/^bay(\d+)_(face|drawer)(\d+)/` had no `$` anchor, so leaf mesh names like `bay0_face0_part_0` matched at `si=0`, storing the individual mesh primitive as `pair.face` instead of the `bay0_face0` group node. Only the last-processed primitive was moved on open/close. Fixed by adding `$` to the regex: `/^bay(\d+)_(face|drawer)(\d+)$/`.
 - ~~**Pulls don't hide in X-ray mode**~~ — fixed: added `pullMeshes` array; pull mesh objects are pushed there during traversal alongside `pair.pulls`; `toggleXray` now iterates `[...drawerFronts, ...pullMeshes]`.
+- ~~**V-key diag colors: left unit only, no drawer faces, no carcass top/bottom**~~ — fixed. Three causes: (1) the drawer/carcass group regexes lacked the GLTFLoader dedup-suffix tolerance (`bay0_drawer0_1`), so second-and-later cabinets were skipped; (2) carcass `top`/`bottom` are *siblings* of `bay_0` (children of the cabinet node), so the `^bay_\d+$` group gate structurally excluded them — carcass panels are now matched by name with no group requirement (drawer-box members are claimed by the drawer branch first, keeping the duplicate `bottom`/`back` names apart); (3) faces had no diag entry — drawer faces and doors are now purple. Diag materials also null their texture `map` so V shows flat vivid colors even over a wood finish.
 - ~~**`visualize_project`: only the leftmost cabinet's drawers open (O key)**~~ — fixed. Two root causes: (1) every cabinet reuses the same node names (`bay0_face0`, `bay0_drawer0`, …), and Three.js GLTFLoader dedupes the repeats to `bay0_face0_1` etc., which failed the `$`-anchored match regexes — all bay/pull/door regexes now accept an optional `_\d+` dedup suffix; (2) pair keys were `"{bay}_{slot}"` and collided across cabinets — keys are now prefixed with the matched group's `parent.uuid` (face, box, and pull groups are siblings under the same cabinet node, so they share a prefix). The pull regex is additionally `$`-anchored to the group node so its parent uuid matches the face's; `pair.pulls` stores the group (deduped) while `pullMeshes` keeps leaf meshes for the X-ray toggle.
 
 ### Viewer keyboard shortcuts
@@ -126,9 +127,19 @@ Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite af
 | `X` | X-ray drawer and door fronts (transparent overlay) |
 | `O` | Open / close all drawers (slides box + face + pulls together) |
 | `C` | Toggle clip plane (axis buttons + slider + mm readout) |
-| `V` | Toggle diagnostic colors: drawer sides → pink, drawer front/back → yellow, drawer bottom → green, carcass sides → blue, carcass top/bottom → orange |
+| `V` | Toggle diagnostic colors: drawer sides → pink, drawer front/back → yellow, drawer bottom → green, carcass sides → blue, carcass top/bottom → orange, drawer faces / doors → purple |
 
 ### Viewer wood finishes
+
+The viewer side panel has live controls: a finish dropdown ("Flat colors" + all
+presets — the full `WOOD_FINISHES` catalogue is embedded in the HTML), a
+grain-direction toggle, and a "Generate cutlist" button that opens a modal with
+a copyable request (seeded via the `cutlist_prompt` parameter; the viewer is a
+standalone file and cannot invoke MCP tools itself). The `finish` /
+`grain_direction` tool parameters set the *initial* dropdown/toggle state only.
+Switching finishes force-disables the X-ray and diag-color toggles and
+refreshes their material caches; keyboard shortcuts ignore events from form
+controls.
 
 `visualize_cabinet` and `visualize_project` accept an optional `finish` parameter
 (`rift_white_oak`, `flat_sawn_white_oak`, `maple`, `walnut` (European),

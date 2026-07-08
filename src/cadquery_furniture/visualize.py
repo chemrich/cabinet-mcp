@@ -323,47 +323,136 @@ function boxUV(geo, P) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
 }
 
-function applyWoodFinish(root) {
-  if (!FINISH && !BOX_FINISH) return;
+// ── Interactive finish state ──────────────────────────────────────────────────
+// classifyWood() buckets every wood mesh once at load; setShowFinish() can
+// then re-texture the show surfaces live from the finish dropdown / grain
+// toggle.  Drawer boxes take BOX_FINISH (Baltic birch by default) whenever
+// any show finish is active; 'Flat colors' restores the original materials.
+const woodShow = [];   // {mesh, orig} — carcass, drawer faces, doors
+const woodBox  = [];   // {mesh, orig} — drawer-box panels
+const texCache = {};
+let currentFinishKey = INITIAL_FINISH;
+let currentGrain     = INITIAL_GRAIN;
+let boxesTextured    = false;
+let boxTexture       = null;
+
+const BOX_RE = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
+function classifyWood(root) {
+  root.traverse(obj => {
+    if (!obj.isMesh) return;
+    // Pull hardware keeps its metal material; drawer-box meshes live under
+    // a bay{i}_drawer{j} group (GLTFLoader dedup suffix tolerated).
+    let isHardware = false, isBox = false;
+    for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
+      const nm = n.name || '';
+      if (/pull/i.test(nm)) { isHardware = true; break; }
+      if (BOX_RE.test(nm))  { isBox = true; break; }
+    }
+    if (isHardware) return;
+    (isBox ? woodBox : woodShow).push({ mesh: obj, orig: obj.material });
+  });
+}
+
+// Clone per mesh: box and carcass panels can share GLTF material instances,
+// and mutating a shared material would leak one finish into the other.
+function texturizeMesh(mesh, P, tex) {
+  boxUV(mesh.geometry, P);
+  const mk = (m) => {
+    const c = m.clone();
+    c.map = tex; c.color = new THREE.Color(0xffffff);
+    c.vertexColors = false; c.roughness = P.roughness; c.metalness = 0.0;
+    c.needsUpdate = true;
+    return c;
+  };
+  mesh.material = Array.isArray(mesh.material)
+    ? mesh.material.map(m => m ? mk(m) : m)
+    : mk(mesh.material);
+}
+
+function texFor(key) {
+  if (!texCache[key]) texCache[key] = makeGrainTexture(FINISHES[key]);
+  return texCache[key];
+}
+
+function setShowFinish(key) {
   try {
-    const mainTex = FINISH ? makeGrainTexture(FINISH) : null;
-    const sameAsMain = JSON.stringify(BOX_FINISH) === JSON.stringify(FINISH);
-    const boxTex = BOX_FINISH ? (sameAsMain ? mainTex : makeGrainTexture(BOX_FINISH)) : null;
-    const BOX_RE = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
-    root.traverse(obj => {
-      if (!obj.isMesh) return;
-      // Pull hardware keeps its metal material; drawer-box meshes live under
-      // a bay{i}_drawer{j} group and take BOX_FINISH, everything else
-      // (carcass, drawer faces, doors) takes FINISH.
-      let isHardware = false, isBox = false;
-      for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
-        const nm = n.name || '';
-        if (/pull/i.test(nm)) { isHardware = true; break; }
-        if (BOX_RE.test(nm))  { isBox = true; break; }
+    // Drop toggle state that caches materials — it would restore stale ones.
+    if (xrayOn) toggleXray();
+    if (diagOn) toggleDiagColors();
+    for (const { mesh } of woodShow) xrayCache.delete(mesh);
+    for (const { mesh } of woodBox)  xrayCache.delete(mesh);
+    currentFinishKey = key || null;
+    if (currentFinishKey) {
+      if (!boxesTextured && BOX_FINISH) {
+        boxTexture = boxTexture || makeGrainTexture(BOX_FINISH);
+        for (const { mesh } of woodBox) texturizeMesh(mesh, BOX_FINISH, boxTexture);
+        boxesTextured = true;
       }
-      if (isHardware) return;
-      const P   = isBox ? BOX_FINISH : FINISH;
-      const tex = isBox ? boxTex     : mainTex;
-      if (!P || !tex) return;
-      boxUV(obj.geometry, P);
-      // Clone per mesh: box and carcass panels can share GLTF material
-      // instances, and mutating a shared material would leak one finish
-      // into the other.
-      const texturize = (m) => {
-        const c = m.clone();
-        c.map = tex; c.color = new THREE.Color(0xffffff);
-        c.vertexColors = false; c.roughness = P.roughness; c.metalness = 0.0;
-        c.needsUpdate = true;
-        return c;
-      };
-      obj.material = Array.isArray(obj.material)
-        ? obj.material.map(m => m ? texturize(m) : m)
-        : texturize(obj.material);
-    });
+      const P = Object.assign({}, FINISHES[currentFinishKey],
+                              { grain_direction: currentGrain });
+      const tex = texFor(currentFinishKey);
+      for (const { mesh } of woodShow) texturizeMesh(mesh, P, tex);
+    } else {
+      for (const { mesh, orig } of woodShow) mesh.material = orig;
+      for (const { mesh, orig } of woodBox)  mesh.material = orig;
+      boxesTextured = false;
+    }
+    // Diag colors (V) must restore to what is on screen now.
+    for (const e of diagMeshes) e.origMat = e.mesh.material;
+    const sel = document.getElementById('finish-sel');
+    if (sel && sel.value !== (currentFinishKey || '')) sel.value = currentFinishKey || '';
   } catch (e) {
-    console.error('wood finish failed:', e);
+    console.error('finish apply failed:', e);
   }
-}"""
+}
+
+// ── Finish / grain / cutlist UI ───────────────────────────────────────────────
+function cutlistRequestText() {
+  const fin = currentFinishKey ? FINISHES[currentFinishKey].label : 'not selected';
+  return CUTLIST_PROMPT + ' Exterior finish: ' + fin + ', grain direction: ' +
+         currentGrain + '. Drawer boxes: Baltic birch ply, water-based urethane.';
+}
+
+function fallbackCopy(txt, done) {
+  const ta = document.createElement('textarea');
+  ta.value = txt; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) {}
+  ta.remove();
+}
+
+function initFinishUI() {
+  const sel = document.getElementById('finish-sel');
+  const grainBtn = document.getElementById('grain-btn');
+  if (!sel || !grainBtn) return;
+  sel.add(new Option('Flat colors (none)', ''));
+  for (const [k, p] of Object.entries(FINISHES)) sel.add(new Option(p.label, k));
+  sel.value = INITIAL_FINISH || '';
+  sel.onchange = () => setShowFinish(sel.value || null);
+  grainBtn.textContent = 'Grain: ' + currentGrain;
+  grainBtn.onclick = () => {
+    currentGrain = currentGrain === 'vertical' ? 'horizontal' : 'vertical';
+    grainBtn.textContent = 'Grain: ' + currentGrain;
+    if (currentFinishKey) setShowFinish(currentFinishKey);
+  };
+  const modal = document.getElementById('cutlist-modal');
+  document.getElementById('cutlist-btn').onclick = () => {
+    document.getElementById('cutlist-text').textContent = cutlistRequestText();
+    modal.classList.add('active');
+  };
+  document.getElementById('cutlist-close').onclick = () => modal.classList.remove('active');
+  const copyBtn = document.getElementById('cutlist-copy');
+  copyBtn.onclick = () => {
+    const txt = document.getElementById('cutlist-text').textContent;
+    const done = () => {
+      copyBtn.textContent = 'Copied ✓';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, () => fallbackCopy(txt, done));
+    } else fallbackCopy(txt, done);
+  };
+}
+initFinishUI();"""
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -404,6 +493,7 @@ def generate_viewer_html(
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
     grain_direction: str = "vertical",
+    cutlist_prompt: Optional[str] = None,
 ) -> Path:
     """Generate a self-contained Three.js HTML viewer with the GLB embedded.
 
@@ -426,6 +516,8 @@ def generate_viewer_html(
             as ``finish`` for a uniform look.
         grain_direction: 'vertical' (default) or 'horizontal' — orients the
             show-surface grain; drawer boxes are always horizontal.
+        cutlist_prompt: Request text behind the viewer's "Generate cutlist"
+            button (the finish/grain selection is appended live).
 
     Returns:
         Resolved ``Path`` to the written HTML file.
@@ -438,7 +530,7 @@ def generate_viewer_html(
     html = _build_html(
         title, glb_b64, cabinet_info or {},
         finish=finish, drawer_box_finish=drawer_box_finish,
-        grain_direction=grain_direction,
+        grain_direction=grain_direction, cutlist_prompt=cutlist_prompt,
     )
     output_html.write_text(html, encoding="utf-8")
     return output_html
@@ -456,6 +548,7 @@ def visualize_assembly(
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
     grain_direction: str = "vertical",
+    cutlist_prompt: Optional[str] = None,
 ) -> dict:
     """Export a pre-built CadQuery Assembly to GLB and generate an HTML viewer.
 
@@ -514,6 +607,7 @@ def visualize_assembly(
         finish=finish,
         drawer_box_finish=drawer_box_finish,
         grain_direction=grain_direction,
+        cutlist_prompt=cutlist_prompt,
     )
 
     if open_browser:
@@ -606,6 +700,7 @@ def build_and_visualize(
         finish=finish,
         drawer_box_finish=drawer_box_finish,
         grain_direction=grain_direction,
+        cutlist_prompt=f"Generate the cutlist for cabinet '{name}'.",
     )
 
     if open_browser:
@@ -628,29 +723,33 @@ def _build_html(
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
     grain_direction: str = "vertical",
+    cutlist_prompt: Optional[str] = None,
 ) -> str:
     """Construct the self-contained HTML viewer string.
 
     Uses Three.js r165 via importmap from the jsDelivr CDN.  The GLB data
-    is embedded verbatim as a base64 string constant.  When ``finish`` names
-    a ``WOOD_FINISHES`` key its parameters are embedded as the FINISH const
-    and the procedural grain is applied at load time.  ``finish`` covers the
-    carcass, drawer faces, and doors; drawer-box meshes take
-    ``drawer_box_finish``, which defaults to ``baltic_birch`` whenever a main
-    finish is set (pass the same key as ``finish`` for a uniform look).
-    ``grain_direction`` orients the show-surface grain; drawer boxes are
-    always horizontal — box sides are cut with the grain along their length.
+    is embedded verbatim as a base64 string constant.  The full
+    ``WOOD_FINISHES`` catalogue is embedded so the viewer's dropdown can
+    re-texture the show surfaces (carcass, drawer faces, doors) live;
+    ``finish`` and ``grain_direction`` only set the initial selection.
+    Drawer-box meshes take ``drawer_box_finish`` (default ``baltic_birch``,
+    always horizontal grain) whenever any show finish is active.
+    ``cutlist_prompt`` seeds the "Generate cutlist" button's copyable
+    request text.
     """
     grain_direction = _grain_direction(grain_direction)
-    if finish and drawer_box_finish is None:
+    params = _finish_params(finish)  # validates the initial key
+    if drawer_box_finish is None:
         drawer_box_finish = DEFAULT_DRAWER_BOX_FINISH
-    params = _finish_params(finish)
     box_params = _finish_params(drawer_box_finish)
-    finish_json = json.dumps(
-        {**params, "grain_direction": grain_direction} if params else None
-    )
+    finishes_json = json.dumps(WOOD_FINISHES)
+    initial_finish_json = json.dumps(finish if params else None)
+    initial_grain_json = json.dumps(grain_direction)
     box_finish_json = json.dumps(
         {**box_params, "grain_direction": "horizontal"} if box_params else None
+    )
+    cutlist_prompt_json = json.dumps(
+        cutlist_prompt or "Generate the cutlist for this design."
     )
     finish_js = _FINISH_JS
 
@@ -737,6 +836,45 @@ def _build_html(
     #clip-range {{
       width: 260px; accent-color: #f0c060;
     }}
+
+    #finish-ui {{
+      margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
+      border-top: 1px solid rgba(255,255,255,0.09); padding-top: 10px;
+    }}
+    #finish-ui select, #finish-ui button {{
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+      color: #ccc; border-radius: 5px; padding: 4px 8px; font-size: 11px; cursor: pointer;
+      font-family: inherit;
+    }}
+    #finish-ui select option {{ background: #1c1c30; }}
+    #cutlist-btn {{
+      background: rgba(240,192,96,0.22) !important;
+      border-color: rgba(240,192,96,0.55) !important;
+      color: #f0c060 !important;
+    }}
+
+    #cutlist-modal {{
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.5); z-index: 10;
+    }}
+    #cutlist-modal.active {{ display: flex; }}
+    #cutlist-card {{
+      background: #1c1c30; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 10px; padding: 18px 20px; max-width: 480px;
+      color: #ccc; font-size: 13px; line-height: 1.5;
+    }}
+    #cutlist-card pre {{
+      white-space: pre-wrap; background: rgba(255,255,255,0.05);
+      padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 12px;
+      font-family: inherit;
+    }}
+    #cutlist-card .actions {{ display: flex; gap: 8px; justify-content: flex-end; }}
+    #cutlist-card button {{
+      background: rgba(240,192,96,0.22); border: 1px solid rgba(240,192,96,0.55);
+      color: #f0c060; border-radius: 5px; padding: 4px 12px; cursor: pointer;
+      font-size: 12px; font-family: inherit;
+    }}
   </style>
 </head>
 <body>
@@ -745,6 +883,26 @@ def _build_html(
   <div id="panel">
     <h2>{title}</h2>
     {info_html}
+    <div id="finish-ui">
+      <select id="finish-sel" title="Exterior finish (drawer boxes stay Baltic birch)"></select>
+      <button id="grain-btn" title="Toggle show-surface grain orientation">Grain: vertical</button>
+      <button id="cutlist-btn" title="Copy a cutlist request for your assistant">Generate cutlist &rarr;</button>
+    </div>
+  </div>
+
+  <div id="cutlist-modal">
+    <div id="cutlist-card">
+      <b>Generate cutlist</b>
+      <div style="margin-top:6px; color:#999;">
+        This viewer is a standalone file, so it can't run the tool itself.
+        Copy this request and paste it to your assistant / MCP client:
+      </div>
+      <pre id="cutlist-text"></pre>
+      <div class="actions">
+        <button id="cutlist-copy">Copy</button>
+        <button id="cutlist-close">Close</button>
+      </div>
+    </div>
   </div>
 
   <div id="help">
@@ -793,9 +951,12 @@ function b64ToBuffer(b64) {{
   return buf.buffer;
 }}
 
-// ── Wood finish (optional; see WOOD_FINISHES in visualize.py) ─────────────────
-const FINISH = {finish_json};
+// ── Wood finishes (see WOOD_FINISHES in visualize.py) ─────────────────────────
+const FINISHES = {finishes_json};
+const INITIAL_FINISH = {initial_finish_json};
+const INITIAL_GRAIN = {initial_grain_json};
 const BOX_FINISH = {box_finish_json};
+const CUTLIST_PROMPT = {cutlist_prompt_json};
 {finish_js}
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
@@ -968,7 +1129,8 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     pair.pullVec = dir.multiplyScalar(depth * 0.70);
   }}
 
-  applyWoodFinish(model);
+  classifyWood(model);
+  if (INITIAL_FINISH) setShowFinish(INITIAL_FINISH);
   scene.add(model);
 
   // Sit model on grid and centre camera
@@ -1109,8 +1271,10 @@ window.setClipAxis  = setClipAxis;
 window.updateClipPlane = updateClipPlane;
 
 window.addEventListener('keydown', (e) => {{
-  // Ignore when modifier keys are held so we don't clash with browser shortcuts.
+  // Ignore when modifier keys are held so we don't clash with browser shortcuts,
+  // and when a form control (finish dropdown, buttons) has focus.
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target && /^(SELECT|INPUT|TEXTAREA|BUTTON)$/.test(e.target.tagName)) return;
   if (e.key === 'x' || e.key === 'X') {{ toggleXray();        e.preventDefault(); }}
   if (e.key === 'o' || e.key === 'O') {{ toggleOpenDrawers(); e.preventDefault(); }}
   if (e.key === 'c' || e.key === 'C') {{ toggleClip();        e.preventDefault(); }}
@@ -1126,6 +1290,7 @@ const YELLOW = new THREE.Color(1.00, 0.85, 0.10);
 const GREEN  = new THREE.Color(0.10, 0.82, 0.40);
 const BLUE   = new THREE.Color(0.25, 0.55, 1.00);
 const ORANGE = new THREE.Color(1.00, 0.60, 0.15);
+const PURPLE = new THREE.Color(0.62, 0.35, 1.00);
 
 // Drawer box panels (inside bay{{i}}_drawer{{j}} groups)
 const DRAWER_DIAG_COLS = {{
@@ -1133,7 +1298,10 @@ const DRAWER_DIAG_COLS = {{
   sub_front: YELLOW, back: YELLOW,
   bottom: GREEN,
 }};
-// Carcass panels (inside bay_{{i}} groups)
+// Carcass panels.  The top/bottom/back panels are siblings of the bay_{{i}}
+// group (children of the cabinet node), so panels are matched by name alone
+// with no group requirement; drawer-box members are claimed by the drawer
+// branch first, which is what keeps the two 'bottom'/'back' names apart.
 const CARCASS_DIAG_COLS = {{
   left_side: BLUE, right_side: BLUE,
   top: ORANGE, bottom: ORANGE,
@@ -1153,36 +1321,38 @@ function _diagAncestorColor(obj, table) {{
   return null;
 }}
 
-function isInDrawerGroup(obj) {{
+// Both regexes tolerate the GLTFLoader dedup suffix (bay0_drawer0_1, …) that
+// second-and-later cabinets carry in composed project scenes.
+function _hasDiagAncestor(obj, re) {{
   let cur = obj.parent;
   for (let i = 0; i < 7; i++) {{
     if (!cur) return false;
-    if (/^bay\\d+_drawer\\d+$/.test(cur.name)) return true;
+    if (re.test(cur.name || '')) return true;
     cur = cur.parent;
   }}
   return false;
 }}
-
-function isInCarcassGroup(obj) {{
-  let cur = obj.parent;
-  for (let i = 0; i < 7; i++) {{
-    if (!cur) return false;
-    if (/^bay_\\d+$/.test(cur.name)) return true;
-    cur = cur.parent;
-  }}
-  return false;
-}}
+const DIAG_DRAWER_RE = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
+const DIAG_FACE_RE   = /^bay\\d+_(face|door)\\d+/;   // faces + door leaves; 'doorpull' cannot match
 
 function initDiagColors() {{
   (cabinetRoot || scene).traverse(obj => {{
     if (!obj.isMesh || !obj.material) return;
     let diagCol = null;
-    if (isInDrawerGroup(obj))  diagCol = _diagAncestorColor(obj, DRAWER_DIAG_COLS);
-    else if (isInCarcassGroup(obj)) diagCol = _diagAncestorColor(obj, CARCASS_DIAG_COLS);
+    if (_hasDiagAncestor(obj, DIAG_DRAWER_RE)) {{
+      diagCol = _diagAncestorColor(obj, DRAWER_DIAG_COLS);
+    }} else if (_hasDiagAncestor(obj, DIAG_FACE_RE)) {{
+      diagCol = PURPLE;   // drawer faces + doors
+    }} else {{
+      diagCol = _diagAncestorColor(obj, CARCASS_DIAG_COLS);
+    }}
     if (diagCol) {{
       const diagMat = obj.material.clone();
       diagMat.color.copy(diagCol);
+      diagMat.map = null;            // flat vivid color even over a wood finish
+      diagMat.vertexColors = false;
       diagMat.roughness = 0.45;
+      diagMat.needsUpdate = true;
       diagMeshes.push({{ mesh: obj, origMat: obj.material, diagMat }});
     }}
   }});
