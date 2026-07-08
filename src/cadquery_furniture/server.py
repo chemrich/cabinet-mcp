@@ -3434,8 +3434,8 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         "glb_size_kb":  result["glb_size_kb"],
         "note": (
             "HTML viewer written — cabinets are placed left-to-right at their "
-            "run offsets. Viewer drawer/door animation shortcuts act per "
-            "cabinet node and may not respond in the composed project view."
+            "run offsets. Viewer shortcuts (X-ray, open drawers, clip plane) "
+            "work across all cabinets in the composed view."
         ),
     })
 
