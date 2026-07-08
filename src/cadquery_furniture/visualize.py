@@ -55,6 +55,13 @@ def _require_cq() -> None:
 #   line_width  — [min, range] px stroke width
 #   waviness    — [min, range] px lateral drift (low = rift-sawn straightness)
 #   fleck_count / fleck_rgba — pore flecks: count and [r, g, b, a_min, a_range]
+#   fleck_size  — optional [w_min, w_range, h_min, h_range] px; default
+#                 [0.8, 1.2, 3, 10] (thin along-grain dashes).  Bamboo uses
+#                 wide short dashes for its node knuckles.
+#   pattern     — optional "cathedral" adds flat-sawn arch figures on top of
+#                 the straight-line background; requires arch_gap [min, range]
+#                 px between stacked apexes and arch_spread [min, range]
+#                 (parabola width factor: x = spread · √(y − apex))
 #   roughness   — PBR roughness applied with the texture
 #   scale_u/v   — mm of wood covered by one texture tile (across / along grain)
 
@@ -74,7 +81,40 @@ WOOD_FINISHES: dict[str, dict] = {
         "scale_u": 250,
         "scale_v": 1000,
     },
+    "flat_sawn_white_oak": {
+        "label": "Flat-Sawn White Oak",
+        "base": ["#e4d5b6", "#dbcba8", "#e0d1b2"],
+        "grain_lo": [116, 98, 65],
+        "grain_hi": [166, 141, 98],
+        "grain_alpha": [0.14, 0.22],
+        "line_gap": [6, 18],
+        "line_width": [0.7, 1.8],
+        "waviness": [2.5, 4.0],
+        "fleck_count": 700,
+        "fleck_rgba": [120, 95, 60, 0.04, 0.07],
+        "pattern": "cathedral",
+        "arch_gap": [40, 90],
+        "arch_spread": [5, 6],
+        "roughness": 0.62,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
     "walnut": {
+        "label": "European Walnut",
+        "base": ["#8a6f52", "#7e6448", "#856a4e"],
+        "grain_lo": [74, 56, 40],
+        "grain_hi": [128, 104, 78],
+        "grain_alpha": [0.16, 0.24],
+        "line_gap": [3, 12],
+        "line_width": [0.7, 1.8],
+        "waviness": [2.0, 3.0],
+        "fleck_count": 450,
+        "fleck_rgba": [60, 45, 32, 0.04, 0.07],
+        "roughness": 0.58,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+    "black_walnut": {
         "label": "Black Walnut",
         "base": ["#6b543f", "#5f4936", "#66503b"],
         "grain_lo": [40, 30, 22],
@@ -86,6 +126,22 @@ WOOD_FINISHES: dict[str, dict] = {
         "fleck_count": 500,
         "fleck_rgba": [32, 24, 17, 0.05, 0.08],
         "roughness": 0.55,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+    "bamboo": {
+        "label": "Natural Bamboo",
+        "base": ["#e3cf9e", "#ddc794", "#e0cb99"],
+        "grain_lo": [170, 145, 95],
+        "grain_hi": [195, 170, 120],
+        "grain_alpha": [0.18, 0.15],
+        "line_gap": [14, 4],
+        "line_width": [0.8, 0.8],
+        "waviness": [0.2, 0.4],
+        "fleck_count": 350,
+        "fleck_rgba": [150, 120, 70, 0.10, 0.12],
+        "fleck_size": [8, 14, 2, 3],
+        "roughness": 0.50,
         "scale_u": 250,
         "scale_v": 1000,
     },
@@ -155,6 +211,17 @@ def _finish_params(finish: Optional[str]) -> Optional[dict]:
     return WOOD_FINISHES[finish]
 
 
+def _grain_direction(value: Optional[str]) -> str:
+    """Normalise/validate a grain direction ('vertical' when unset)."""
+    if not value:
+        return "vertical"
+    if value not in ("vertical", "horizontal"):
+        raise ValueError(
+            f"Unknown grain_direction {value!r}. Use 'vertical' or 'horizontal'."
+        )
+    return value
+
+
 # JavaScript for the procedural wood-grain finish.  Kept as a plain string
 # (NOT part of the _build_html f-string) so its braces need no doubling; it is
 # interpolated into the template as an opaque value.  Reads the FINISH const
@@ -193,10 +260,39 @@ function makeGrainTexture(P) {
     }
     ctx.stroke();
   }
+  // Flat-sawn cathedral figure: stacked parabolas opening down-canvas from
+  // apexes spaced along a jittered centre line, over the straight background.
+  if (P.pattern === 'cathedral') {
+    const cx0 = 200 + rnd() * 112;
+    let apex = -150;
+    while (apex < 2048) {
+      apex += P.arch_gap[0] + rnd() * P.arch_gap[1];
+      const cx = cx0 + (rnd() - 0.5) * 50;
+      const spread = P.arch_spread[0] + rnd() * P.arch_spread[1];
+      const t = rnd();
+      const r = Math.round(lerp(P.grain_lo[0], P.grain_hi[0], t));
+      const g = Math.round(lerp(P.grain_lo[1], P.grain_hi[1], t));
+      const b = Math.round(lerp(P.grain_lo[2], P.grain_hi[2], t));
+      const a = P.grain_alpha[0] + rnd() * P.grain_alpha[1];
+      ctx.strokeStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+      ctx.lineWidth = P.line_width[0] + rnd() * P.line_width[1];
+      ctx.beginPath();
+      let started = false;
+      for (let y = 2068; y >= apex; y -= 24) {
+        const x = cx - spread * Math.sqrt(y - apex);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      for (let y = apex; y <= 2068; y += 24) {
+        ctx.lineTo(cx + spread * Math.sqrt(y - apex), y);
+      }
+      ctx.stroke();
+    }
+  }
   const [fr, fg, fb, fa0, fa1] = P.fleck_rgba;
+  const FS = P.fleck_size || [0.8, 1.2, 3, 10];
   for (let i = 0; i < P.fleck_count; i++) {
     ctx.fillStyle = `rgba(${fr},${fg},${fb},${(fa0 + rnd() * fa1).toFixed(3)})`;
-    ctx.fillRect(rnd() * 512, rnd() * 2048, 0.8 + rnd() * 1.2, 3 + rnd() * 10);
+    ctx.fillRect(rnd() * 512, rnd() * 2048, FS[0] + rnd() * FS[1], FS[2] + rnd() * FS[3]);
   }
   const tex = new THREE.CanvasTexture(cvs);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -207,19 +303,21 @@ function makeGrainTexture(P) {
 
 // The GLB meshes carry no UVs, so box-project them in the CadQuery local
 // frame (X=width, Y=depth, Z=up — the root node's -90° X rotation maps
-// this to GLTF Y-up).  v = along-grain: vertical on fronts and sides,
-// across the width on tops/bottoms.
+// this to GLTF Y-up).  v = along-grain.  P.grain_direction 'vertical'
+// (default): grain runs up fronts and sides, across the width on tops.
+// 'horizontal': grain runs across fronts, along the depth on sides and tops.
 function boxUV(geo, P) {
   if (!geo.attributes.normal) geo.computeVertexNormals();
   const pos = geo.attributes.position, nrm = geo.attributes.normal;
   const uv = new Float32Array(pos.count * 2);
+  const horiz = P.grain_direction === 'horizontal';
   for (let i = 0; i < pos.count; i++) {
     const nx = Math.abs(nrm.getX(i)), ny = Math.abs(nrm.getY(i)), nz = Math.abs(nrm.getZ(i));
     const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
     let u, v;
-    if (ny >= nx && ny >= nz)      { u = px; v = pz; }
-    else if (nx >= nz)             { u = py; v = pz; }
-    else                           { u = py; v = px; }
+    if (ny >= nx && ny >= nz)      { u = horiz ? pz : px; v = horiz ? px : pz; }
+    else if (nx >= nz)             { u = horiz ? pz : py; v = horiz ? py : pz; }
+    else                           { u = horiz ? px : py; v = horiz ? py : px; }
     uv[i * 2] = u / P.scale_u; uv[i * 2 + 1] = v / P.scale_v;
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -305,6 +403,7 @@ def generate_viewer_html(
     cabinet_info: Optional[dict] = None,
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
+    grain_direction: str = "vertical",
 ) -> Path:
     """Generate a self-contained Three.js HTML viewer with the GLB embedded.
 
@@ -325,6 +424,8 @@ def generate_viewer_html(
         drawer_box_finish: Finish for drawer-box meshes.  Defaults to
             ``baltic_birch`` whenever ``finish`` is set; pass the same key
             as ``finish`` for a uniform look.
+        grain_direction: 'vertical' (default) or 'horizontal' — orients the
+            show-surface grain; drawer boxes are always horizontal.
 
     Returns:
         Resolved ``Path`` to the written HTML file.
@@ -337,6 +438,7 @@ def generate_viewer_html(
     html = _build_html(
         title, glb_b64, cabinet_info or {},
         finish=finish, drawer_box_finish=drawer_box_finish,
+        grain_direction=grain_direction,
     )
     output_html.write_text(html, encoding="utf-8")
     return output_html
@@ -353,6 +455,7 @@ def visualize_assembly(
     info: Optional[dict] = None,
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
+    grain_direction: str = "vertical",
 ) -> dict:
     """Export a pre-built CadQuery Assembly to GLB and generate an HTML viewer.
 
@@ -372,13 +475,16 @@ def visualize_assembly(
             carcass, drawer faces, and doors.
         drawer_box_finish: Finish for drawer-box meshes; defaults to
             ``baltic_birch`` whenever ``finish`` is set.
+        grain_direction: 'vertical' (default) or 'horizontal' for the
+            show-surface grain; drawer boxes are always horizontal.
 
     Returns:
         Dict with keys ``glb``, ``html``, ``parts``, ``glb_size_kb``.
     """
     _require_cq()
-    # Validate both keys before the slow export.
+    # Validate everything before the slow export.
     finish_params = _finish_params(finish)
+    grain_direction = _grain_direction(grain_direction)
     if finish and drawer_box_finish is None:
         drawer_box_finish = DEFAULT_DRAWER_BOX_FINISH
     box_params = _finish_params(drawer_box_finish)
@@ -397,6 +503,8 @@ def visualize_assembly(
         panel_info.setdefault("finish", finish_params["label"])
     if box_params and box_params is not finish_params:
         panel_info.setdefault("drawer_boxes", box_params["label"])
+    if finish_params and grain_direction != "vertical":
+        panel_info.setdefault("grain", grain_direction)
 
     generate_viewer_html(
         glb_path,
@@ -405,6 +513,7 @@ def visualize_assembly(
         cabinet_info=panel_info,
         finish=finish,
         drawer_box_finish=drawer_box_finish,
+        grain_direction=grain_direction,
     )
 
     if open_browser:
@@ -427,6 +536,7 @@ def build_and_visualize(
     angular_tolerance: float = 0.1,
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
+    grain_direction: str = "vertical",
 ) -> dict:
     """Build a full cabinet assembly, export GLB, and generate the HTML viewer.
 
@@ -443,6 +553,8 @@ def build_and_visualize(
             carcass, drawer faces, and doors.
         drawer_box_finish: Finish for drawer-box meshes; defaults to
             ``baltic_birch`` whenever ``finish`` is set.
+        grain_direction: 'vertical' (default) or 'horizontal' for the
+            show-surface grain; drawer boxes are always horizontal.
 
     Returns:
         Dict with keys:
@@ -454,8 +566,9 @@ def build_and_visualize(
     _require_cq()
     from .cabinet import build_cabinet
 
-    # Validate both keys before the slow build.
+    # Validate everything before the slow build.
     finish_params = _finish_params(finish)
+    grain_direction = _grain_direction(grain_direction)
     if finish and drawer_box_finish is None:
         drawer_box_finish = DEFAULT_DRAWER_BOX_FINISH
     box_params = _finish_params(drawer_box_finish)
@@ -482,6 +595,8 @@ def build_and_visualize(
         cabinet_info["finish"] = finish_params["label"]
     if box_params and box_params is not finish_params:
         cabinet_info["drawer_boxes"] = box_params["label"]
+    if finish_params and grain_direction != "vertical":
+        cabinet_info["grain"] = grain_direction
 
     generate_viewer_html(
         glb_path,
@@ -490,6 +605,7 @@ def build_and_visualize(
         cabinet_info=cabinet_info,
         finish=finish,
         drawer_box_finish=drawer_box_finish,
+        grain_direction=grain_direction,
     )
 
     if open_browser:
@@ -511,6 +627,7 @@ def _build_html(
     info: dict,
     finish: Optional[str] = None,
     drawer_box_finish: Optional[str] = None,
+    grain_direction: str = "vertical",
 ) -> str:
     """Construct the self-contained HTML viewer string.
 
@@ -521,11 +638,20 @@ def _build_html(
     carcass, drawer faces, and doors; drawer-box meshes take
     ``drawer_box_finish``, which defaults to ``baltic_birch`` whenever a main
     finish is set (pass the same key as ``finish`` for a uniform look).
+    ``grain_direction`` orients the show-surface grain; drawer boxes are
+    always horizontal — box sides are cut with the grain along their length.
     """
+    grain_direction = _grain_direction(grain_direction)
     if finish and drawer_box_finish is None:
         drawer_box_finish = DEFAULT_DRAWER_BOX_FINISH
-    finish_json = json.dumps(_finish_params(finish))  # "null" when no finish
-    box_finish_json = json.dumps(_finish_params(drawer_box_finish))
+    params = _finish_params(finish)
+    box_params = _finish_params(drawer_box_finish)
+    finish_json = json.dumps(
+        {**params, "grain_direction": grain_direction} if params else None
+    )
+    box_finish_json = json.dumps(
+        {**box_params, "grain_direction": "horizontal"} if box_params else None
+    )
     finish_js = _FINISH_JS
 
     # Build info panel rows

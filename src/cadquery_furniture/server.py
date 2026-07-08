@@ -910,6 +910,17 @@ async def list_tools() -> list[types.Tool]:
                             "same key as 'finish' for a uniform look."
                         ),
                     },
+                    "grain_direction": {
+                        "type": "string",
+                        "enum": ["vertical", "horizontal"],
+                        "default": "vertical",
+                        "description": (
+                            "Grain orientation on show surfaces (carcass, "
+                            "drawer faces, doors). Drawer boxes are always "
+                            "horizontal — box sides are cut with the grain "
+                            "along their length."
+                        ),
+                    },
                     "drawer_joinery": {
                         "type": "string",
                         "enum": ["butt", "qqq", "half_lap", "drawer_lock"],
@@ -1573,6 +1584,17 @@ async def list_tools() -> list[types.Tool]:
                             "Finish for drawer-box meshes. Defaults to "
                             "baltic_birch whenever 'finish' is set; pass the "
                             "same key as 'finish' for a uniform look."
+                        ),
+                    },
+                    "grain_direction": {
+                        "type": "string",
+                        "enum": ["vertical", "horizontal"],
+                        "default": "vertical",
+                        "description": (
+                            "Grain orientation on show surfaces (carcass, "
+                            "drawer faces, doors). Drawer boxes are always "
+                            "horizontal — box sides are cut with the grain "
+                            "along their length."
                         ),
                     },
                 },
@@ -2755,6 +2777,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     num_bays      = int(args.pop("num_bays", 1))
     finish        = args.pop("finish", None)
     drawer_box_finish = args.pop("drawer_box_finish", None)
+    grain_direction   = str(args.pop("grain_direction", "vertical"))
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
     divider_full_height = bool(args.pop("divider_full_height", True))
@@ -2776,6 +2799,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         info=info,
         finish=finish,
         drawer_box_finish=drawer_box_finish,
+        grain_direction=grain_direction,
     )
 
     return _ok({
@@ -3409,6 +3433,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     gap_mm       = float(args.get("gap_mm", 0.0))
     finish       = args.get("finish")
     drawer_box_finish = args.get("drawer_box_finish")
+    grain_direction   = str(args.get("grain_direction", "vertical"))
 
     run_assy = cq.Assembly(name=project.name)
     all_parts: list = []
@@ -3445,6 +3470,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         info=info,
         finish=finish,
         drawer_box_finish=drawer_box_finish,
+        grain_direction=grain_direction,
     )
 
     return _ok({
