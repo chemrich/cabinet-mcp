@@ -9,6 +9,7 @@ import json
 import pytest
 
 from cadquery_furniture.visualize import (
+    DEFAULT_DRAWER_BOX_FINISH,
     WOOD_FINISHES,
     _build_html,
     _finish_params,
@@ -50,6 +51,8 @@ class TestBuildHtml:
     def test_default_embeds_null_finish(self):
         html = _build_html("t", GLB_B64, {})
         assert "const FINISH = null;" in html
+        # No main finish → no implicit baltic birch on the boxes either.
+        assert "const BOX_FINISH = null;" in html
         # The applicator ships regardless but is a no-op on null.
         assert "function applyWoodFinish(root)" in html
         assert "applyWoodFinish(model);" in html
@@ -63,13 +66,35 @@ class TestBuildHtml:
         with pytest.raises(ValueError, match="Unknown finish"):
             _build_html("t", GLB_B64, {}, finish="chrome")
 
+    def test_finish_defaults_drawer_boxes_to_baltic_birch(self):
+        html = _build_html("t", GLB_B64, {}, finish="rift_white_oak")
+        box = json.dumps(WOOD_FINISHES[DEFAULT_DRAWER_BOX_FINISH])
+        assert f"const BOX_FINISH = {box};" in html
+
+    def test_explicit_drawer_box_finish_overrides_default(self):
+        html = _build_html(
+            "t", GLB_B64, {}, finish="rift_white_oak", drawer_box_finish="walnut"
+        )
+        assert f"const BOX_FINISH = {json.dumps(WOOD_FINISHES['walnut'])};" in html
+
+    def test_uniform_look_via_matching_keys(self):
+        html = _build_html(
+            "t", GLB_B64, {}, finish="cherry", drawer_box_finish="cherry"
+        )
+        assert html.count(json.dumps(WOOD_FINISHES["cherry"])) == 2
+
+    def test_unknown_drawer_box_finish_raises(self):
+        with pytest.raises(ValueError, match="Unknown finish"):
+            _build_html("t", GLB_B64, {}, finish="cherry", drawer_box_finish="chrome")
+
     def test_finish_js_braces_survive_templating(self):
         # The JS block is interpolated into an f-string template; a stray
         # doubled brace would corrupt it.  Spot-check literal JS fragments.
         html = _build_html("t", GLB_B64, {}, finish="rift_white_oak")
         assert "tex.wrapS = tex.wrapT = THREE.RepeatWrapping;" in html
         assert "geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));" in html
-        assert "if (/pull/i.test(n.name || ''))" in html
+        assert "if (/pull/i.test(nm)) { isHardware = true; break; }" in html
+        assert r"/^bay\d+_drawer\d+(?:_\d+)?$/" in html  # drawer-box ancestry regex
 
 
 class TestVisualizeCabinetHandler:
@@ -91,4 +116,7 @@ class TestVisualizeCabinetHandler:
         html = (tmp_path / "finish_test_viewer.html").read_text()
         assert "Rift-Sawn White Oak" in html
         assert '"scale_u": 250'.replace(" ", "") in html.replace(" ", "")
+        # Drawer boxes default to baltic birch and show in the info panel.
+        assert "Baltic Birch (WB urethane)" in html
+        assert "Drawer boxes" in html
         assert result["parts"] > 0

@@ -131,14 +131,21 @@ Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite af
 ### Viewer wood finishes
 
 `visualize_cabinet` and `visualize_project` accept an optional `finish` parameter
-(`rift_white_oak`, `walnut`, `maple`, `cherry`). Preset parameters live in
+(`rift_white_oak`, `walnut`, `maple`, `cherry`, `baltic_birch`) applied to the
+carcass, drawer faces, and doors. Drawer-box meshes (any node under a
+`bay{i}_drawer{j}` ancestor) take the separate `drawer_box_finish` parameter,
+which **defaults to `baltic_birch`** whenever `finish` is set (drawer boxes are
+almost always Baltic birch ply regardless of show wood; pass the same key as
+`finish` for a uniform look). Preset parameters live in
 `visualize.WOOD_FINISHES`; the viewer generates a deterministic procedural grain
 texture on a canvas at load time and box-projects UVs per panel (the GLB meshes
 carry none), so grain runs vertically on fronts/sides and across the width on
 tops. Pull hardware (any node matching `/pull/i` in its ancestry) keeps its metal
-material. Omitting `finish` keeps the original flat vertex-colour rendering. The
-grain JS lives in `visualize._FINISH_JS` as a plain (non-f-string) constant so
-its braces need no doubling.
+material. Materials are **cloned per mesh** before texturing — box and carcass
+panels can share GLTF material instances, and mutating a shared one would leak
+one finish into the other. Omitting `finish` keeps the original flat
+vertex-colour rendering. The grain JS lives in `visualize._FINISH_JS` as a plain
+(non-f-string) constant so its braces need no doubling.
 
 ### Viewer GLTF node hierarchy (Three.js r165)
 

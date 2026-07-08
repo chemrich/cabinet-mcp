@@ -896,8 +896,18 @@ async def list_tools() -> list[types.Tool]:
                         "enum": sorted(_WOOD_FINISHES),
                         "description": (
                             "Wood finish rendered in the viewer as a procedural "
-                            "grain texture (pull hardware keeps its metal look). "
+                            "grain texture on the carcass, drawer faces, and "
+                            "doors (pull hardware keeps its metal look). "
                             "Omit for flat panel colors."
+                        ),
+                    },
+                    "drawer_box_finish": {
+                        "type": "string",
+                        "enum": sorted(_WOOD_FINISHES),
+                        "description": (
+                            "Finish for drawer-box meshes. Defaults to "
+                            "baltic_birch whenever 'finish' is set; pass the "
+                            "same key as 'finish' for a uniform look."
                         ),
                     },
                     "drawer_joinery": {
@@ -1551,8 +1561,18 @@ async def list_tools() -> list[types.Tool]:
                         "enum": sorted(_WOOD_FINISHES),
                         "description": (
                             "Wood finish rendered in the viewer as a procedural "
-                            "grain texture (pull hardware keeps its metal look). "
+                            "grain texture on the carcass, drawer faces, and "
+                            "doors (pull hardware keeps its metal look). "
                             "Omit for flat panel colors."
+                        ),
+                    },
+                    "drawer_box_finish": {
+                        "type": "string",
+                        "enum": sorted(_WOOD_FINISHES),
+                        "description": (
+                            "Finish for drawer-box meshes. Defaults to "
+                            "baltic_birch whenever 'finish' is set; pass the "
+                            "same key as 'finish' for a uniform look."
                         ),
                     },
                 },
@@ -2734,6 +2754,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     tolerance     = float(args.pop("tolerance", 0.1))
     num_bays      = int(args.pop("num_bays", 1))
     finish        = args.pop("finish", None)
+    drawer_box_finish = args.pop("drawer_box_finish", None)
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
     divider_full_height = bool(args.pop("divider_full_height", True))
@@ -2754,6 +2775,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         tolerance=tolerance,
         info=info,
         finish=finish,
+        drawer_box_finish=drawer_box_finish,
     )
 
     return _ok({
@@ -3386,6 +3408,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     tolerance    = float(args.get("tolerance", 0.1))
     gap_mm       = float(args.get("gap_mm", 0.0))
     finish       = args.get("finish")
+    drawer_box_finish = args.get("drawer_box_finish")
 
     run_assy = cq.Assembly(name=project.name)
     all_parts: list = []
@@ -3421,6 +3444,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         tolerance=tolerance,
         info=info,
         finish=finish,
+        drawer_box_finish=drawer_box_finish,
     )
 
     return _ok({
