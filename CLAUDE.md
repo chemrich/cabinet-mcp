@@ -127,6 +127,18 @@ Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite af
 | `C` | Toggle clip plane (axis buttons + slider + mm readout) |
 | `V` | Toggle diagnostic colors: drawer sides → pink, drawer front/back → yellow, drawer bottom → green, carcass sides → blue, carcass top/bottom → orange |
 
+### Viewer wood finishes
+
+`visualize_cabinet` and `visualize_project` accept an optional `finish` parameter
+(`rift_white_oak`, `walnut`, `maple`, `cherry`). Preset parameters live in
+`visualize.WOOD_FINISHES`; the viewer generates a deterministic procedural grain
+texture on a canvas at load time and box-projects UVs per panel (the GLB meshes
+carry none), so grain runs vertically on fronts/sides and across the width on
+tops. Pull hardware (any node matching `/pull/i` in its ancestry) keeps its metal
+material. Omitting `finish` keeps the original flat vertex-colour rendering. The
+grain JS lives in `visualize._FINISH_JS` as a plain (non-f-string) constant so
+its braces need no doubling.
+
 ### Viewer GLTF node hierarchy (Three.js r165)
 
 Three.js GLTFLoader wraps each multi-primitive GLTF mesh in an extra `Group`, adding one level beyond the GLTF JSON hierarchy. Confirmed ancestry (depth 0 = leaf `THREE.Mesh`):

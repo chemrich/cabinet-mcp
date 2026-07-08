@@ -21,6 +21,7 @@ Typical usage
 from __future__ import annotations
 
 import base64
+import json
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -38,6 +39,191 @@ def _require_cq() -> None:
             "cadquery is required for 3D export. "
             "Install with: pip install cadquery"
         )
+
+
+# ── Wood finishes ─────────────────────────────────────────────────────────────
+#
+# Parameter sets for the viewer's procedural grain generator (see
+# _FINISH_JS below).  All colour panels in the scene get the texture; pull
+# hardware keeps its metal material.  Keys are exposed as the `finish`
+# parameter on visualize_cabinet / visualize_project.
+#
+#   base        — three hex colours for the horizontal background gradient
+#   grain_lo/hi — RGB endpoints; each grain line lerps between them
+#   grain_alpha — [min, range] stroke opacity
+#   line_gap    — [min, range] px between grain lines (512 px ≈ scale_u mm)
+#   line_width  — [min, range] px stroke width
+#   waviness    — [min, range] px lateral drift (low = rift-sawn straightness)
+#   fleck_count / fleck_rgba — pore flecks: count and [r, g, b, a_min, a_range]
+#   roughness   — PBR roughness applied with the texture
+#   scale_u/v   — mm of wood covered by one texture tile (across / along grain)
+
+WOOD_FINISHES: dict[str, dict] = {
+    "rift_white_oak": {
+        "label": "Rift-Sawn White Oak",
+        "base": ["#e6d9bd", "#ddcfae", "#e2d4b6"],
+        "grain_lo": [116, 98, 65],
+        "grain_hi": [166, 141, 98],
+        "grain_alpha": [0.16, 0.24],
+        "line_gap": [2, 9],
+        "line_width": [0.6, 1.6],
+        "waviness": [1.2, 1.8],
+        "fleck_count": 900,
+        "fleck_rgba": [120, 95, 60, 0.04, 0.07],
+        "roughness": 0.62,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+    "walnut": {
+        "label": "Black Walnut",
+        "base": ["#6b543f", "#5f4936", "#66503b"],
+        "grain_lo": [40, 30, 22],
+        "grain_hi": [92, 74, 54],
+        "grain_alpha": [0.20, 0.30],
+        "line_gap": [3, 12],
+        "line_width": [0.8, 2.2],
+        "waviness": [2.0, 3.0],
+        "fleck_count": 500,
+        "fleck_rgba": [32, 24, 17, 0.05, 0.08],
+        "roughness": 0.55,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+    "maple": {
+        "label": "Hard Maple",
+        "base": ["#f0e7d4", "#ece1cb", "#eee4d0"],
+        "grain_lo": [196, 180, 150],
+        "grain_hi": [220, 205, 176],
+        "grain_alpha": [0.10, 0.14],
+        "line_gap": [4, 14],
+        "line_width": [0.6, 1.4],
+        "waviness": [2.0, 4.0],
+        "fleck_count": 200,
+        "fleck_rgba": [180, 162, 132, 0.03, 0.05],
+        "roughness": 0.60,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+    "cherry": {
+        "label": "American Cherry",
+        "base": ["#b57a5a", "#aa7052", "#b17656"],
+        "grain_lo": [118, 68, 46],
+        "grain_hi": [160, 100, 70],
+        "grain_alpha": [0.14, 0.20],
+        "line_gap": [3, 10],
+        "line_width": [0.6, 1.6],
+        "waviness": [1.8, 3.0],
+        "fleck_count": 400,
+        "fleck_rgba": [96, 54, 36, 0.04, 0.06],
+        "roughness": 0.58,
+        "scale_u": 250,
+        "scale_v": 1000,
+    },
+}
+
+
+def _finish_params(finish: Optional[str]) -> Optional[dict]:
+    """Resolve a finish key to its parameter dict, or None for the default
+    flat vertex-colour rendering.  Raises ValueError on unknown keys."""
+    if not finish or finish == "none":
+        return None
+    if finish not in WOOD_FINISHES:
+        raise ValueError(
+            f"Unknown finish {finish!r}. Available: {', '.join(sorted(WOOD_FINISHES))}"
+        )
+    return WOOD_FINISHES[finish]
+
+
+# JavaScript for the procedural wood-grain finish.  Kept as a plain string
+# (NOT part of the _build_html f-string) so its braces need no doubling; it is
+# interpolated into the template as an opaque value.  Reads the FINISH const
+# injected alongside it — a no-op when FINISH is null.
+_FINISH_JS = """\
+function applyWoodFinish(root) {
+  if (!FINISH) return;
+  try {
+    const cvs = document.createElement('canvas');
+    cvs.width = 512; cvs.height = 2048;
+    const ctx = cvs.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 512, 0);
+    grad.addColorStop(0,   FINISH.base[0]);
+    grad.addColorStop(0.5, FINISH.base[1]);
+    grad.addColorStop(1,   FINISH.base[2]);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 512, 2048);
+    // Deterministic LCG so the grain is identical on every load.
+    let seed = 42;
+    const rnd  = () => (seed = (seed * 1103515245 + 12345) | 0, ((seed >>> 16) & 0x7fff) / 32768);
+    const lerp = (a, b, t) => a + (b - a) * t;
+    let x = 0;
+    while (x < 512) {
+      x += FINISH.line_gap[0] + rnd() * FINISH.line_gap[1];
+      const t = rnd();
+      const r = Math.round(lerp(FINISH.grain_lo[0], FINISH.grain_hi[0], t));
+      const g = Math.round(lerp(FINISH.grain_lo[1], FINISH.grain_hi[1], t));
+      const b = Math.round(lerp(FINISH.grain_lo[2], FINISH.grain_hi[2], t));
+      const a = FINISH.grain_alpha[0] + rnd() * FINISH.grain_alpha[1];
+      ctx.strokeStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+      ctx.lineWidth = FINISH.line_width[0] + rnd() * FINISH.line_width[1];
+      ctx.beginPath();
+      let y = -20, gx = x;
+      ctx.moveTo(gx, y);
+      while (y < 2068) {
+        y += 60 + rnd() * 80;
+        gx = x + Math.sin(y * 0.004 + x) * (FINISH.waviness[0] + rnd() * FINISH.waviness[1]);
+        ctx.lineTo(gx, y);
+      }
+      ctx.stroke();
+    }
+    const [fr, fg, fb, fa0, fa1] = FINISH.fleck_rgba;
+    for (let i = 0; i < FINISH.fleck_count; i++) {
+      ctx.fillStyle = `rgba(${fr},${fg},${fb},${(fa0 + rnd() * fa1).toFixed(3)})`;
+      ctx.fillRect(rnd() * 512, rnd() * 2048, 0.8 + rnd() * 1.2, 3 + rnd() * 10);
+    }
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    // The GLB meshes carry no UVs, so box-project them in the CadQuery local
+    // frame (X=width, Y=depth, Z=up — the root node's -90° X rotation maps
+    // this to GLTF Y-up).  v = along-grain: vertical on fronts and sides,
+    // across the width on tops/bottoms.
+    function boxUV(geo) {
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      const pos = geo.attributes.position, nrm = geo.attributes.normal;
+      const uv = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) {
+        const nx = Math.abs(nrm.getX(i)), ny = Math.abs(nrm.getY(i)), nz = Math.abs(nrm.getZ(i));
+        const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+        let u, v;
+        if (ny >= nx && ny >= nz)      { u = px; v = pz; }
+        else if (nx >= nz)             { u = py; v = pz; }
+        else                           { u = py; v = px; }
+        uv[i * 2] = u / FINISH.scale_u; uv[i * 2 + 1] = v / FINISH.scale_v;
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    }
+    root.traverse(obj => {
+      if (!obj.isMesh) return;
+      // Pull hardware keeps its metal material — skip pull/doorpull ancestry.
+      let n = obj, isHardware = false;
+      for (let d = 0; d < 5 && n; d++, n = n.parent) {
+        if (/pull/i.test(n.name || '')) { isHardware = true; break; }
+      }
+      if (isHardware) return;
+      boxUV(obj.geometry);
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(m => {
+        if (!m) return;
+        m.map = tex; m.color = new THREE.Color(0xffffff);
+        m.vertexColors = false; m.roughness = FINISH.roughness; m.metalness = 0.0;
+        m.needsUpdate = true;
+      });
+    });
+  } catch (e) {
+    console.error('wood finish failed:', e);
+  }
+}"""
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -75,6 +261,7 @@ def generate_viewer_html(
     output_html: "Path | str",
     title: str = "Cabinet Viewer",
     cabinet_info: Optional[dict] = None,
+    finish: Optional[str] = None,
 ) -> Path:
     """Generate a self-contained Three.js HTML viewer with the GLB embedded.
 
@@ -89,6 +276,9 @@ def generate_viewer_html(
         cabinet_info: Optional dict with display info.  Recognised keys:
             ``width``, ``height``, ``depth`` (all in mm), plus any arbitrary
             string keys whose values will be displayed verbatim.
+        finish: Optional wood finish key (see ``WOOD_FINISHES``).  When set,
+            the viewer textures every non-hardware mesh with a procedural
+            grain instead of the flat vertex colours.
 
     Returns:
         Resolved ``Path`` to the written HTML file.
@@ -98,7 +288,7 @@ def generate_viewer_html(
     output_html.parent.mkdir(parents=True, exist_ok=True)
 
     glb_b64 = base64.b64encode(glb_path.read_bytes()).decode("ascii")
-    html = _build_html(title, glb_b64, cabinet_info or {})
+    html = _build_html(title, glb_b64, cabinet_info or {}, finish=finish)
     output_html.write_text(html, encoding="utf-8")
     return output_html
 
@@ -112,6 +302,7 @@ def visualize_assembly(
     tolerance: float = 0.1,
     angular_tolerance: float = 0.1,
     info: Optional[dict] = None,
+    finish: Optional[str] = None,
 ) -> dict:
     """Export a pre-built CadQuery Assembly to GLB and generate an HTML viewer.
 
@@ -127,11 +318,13 @@ def visualize_assembly(
         tolerance:   Mesh tessellation tolerance in mm.
         angular_tolerance: Angular tessellation tolerance in radians.
         info:        Optional dict of key/value pairs shown in the info panel.
+        finish:      Optional wood finish key (see ``WOOD_FINISHES``).
 
     Returns:
         Dict with keys ``glb``, ``html``, ``parts``, ``glb_size_kb``.
     """
     _require_cq()
+    finish_params = _finish_params(finish)  # validate before the slow export
 
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -143,12 +336,15 @@ def visualize_assembly(
 
     panel_info = dict(info) if info else {}
     panel_info.setdefault("parts", len(parts))
+    if finish_params:
+        panel_info.setdefault("finish", finish_params["label"])
 
     generate_viewer_html(
         glb_path,
         html_path,
         title=name.replace("_", " ").title(),
         cabinet_info=panel_info,
+        finish=finish,
     )
 
     if open_browser:
@@ -169,6 +365,7 @@ def build_and_visualize(
     open_browser: bool = True,
     tolerance: float = 0.1,
     angular_tolerance: float = 0.1,
+    finish: Optional[str] = None,
 ) -> dict:
     """Build a full cabinet assembly, export GLB, and generate the HTML viewer.
 
@@ -181,6 +378,7 @@ def build_and_visualize(
         open_browser: If ``True``, open the HTML file in the default browser.
         tolerance: Mesh tessellation tolerance in mm (lower = finer, bigger).
         angular_tolerance: Angular tessellation tolerance in radians.
+        finish: Optional wood finish key (see ``WOOD_FINISHES``).
 
     Returns:
         Dict with keys:
@@ -191,6 +389,8 @@ def build_and_visualize(
     """
     _require_cq()
     from .cabinet import build_cabinet
+
+    finish_params = _finish_params(finish)  # validate before the slow build
 
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -210,12 +410,15 @@ def build_and_visualize(
     }
     if cfg.openings:
         cabinet_info["openings"] = len(cfg.openings)
+    if finish_params:
+        cabinet_info["finish"] = finish_params["label"]
 
     generate_viewer_html(
         glb_path,
         html_path,
         title=name.replace("_", " ").title(),
         cabinet_info=cabinet_info,
+        finish=finish,
     )
 
     if open_browser:
@@ -231,12 +434,17 @@ def build_and_visualize(
 
 # ── HTML builder ──────────────────────────────────────────────────────────────
 
-def _build_html(title: str, glb_b64: str, info: dict) -> str:
+def _build_html(title: str, glb_b64: str, info: dict, finish: Optional[str] = None) -> str:
     """Construct the self-contained HTML viewer string.
 
     Uses Three.js r165 via importmap from the jsDelivr CDN.  The GLB data
-    is embedded verbatim as a base64 string constant.
+    is embedded verbatim as a base64 string constant.  When ``finish`` names
+    a ``WOOD_FINISHES`` key its parameters are embedded as the FINISH const
+    and the procedural grain is applied at load time.
     """
+    finish_json = json.dumps(_finish_params(finish))  # "null" when no finish
+    finish_js = _FINISH_JS
+
     # Build info panel rows
     info_rows: list[str] = []
     if "width" in info:
@@ -375,6 +583,10 @@ function b64ToBuffer(b64) {{
   for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
   return buf.buffer;
 }}
+
+// ── Wood finish (optional; see WOOD_FINISHES in visualize.py) ─────────────────
+const FINISH = {finish_json};
+{finish_js}
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({{ antialias: true }});
@@ -533,6 +745,7 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
     pair.pullVec = dir.multiplyScalar(depth * 0.70);
   }}
 
+  applyWoodFinish(model);
   scene.add(model);
 
   // Sit model on grid and centre camera
