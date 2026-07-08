@@ -130,6 +130,16 @@ Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite af
 
 ### Viewer wood finishes
 
+The viewer side panel has live controls: a finish dropdown ("Flat colors" + all
+presets — the full `WOOD_FINISHES` catalogue is embedded in the HTML), a
+grain-direction toggle, and a "Generate cutlist" button that opens a modal with
+a copyable request (seeded via the `cutlist_prompt` parameter; the viewer is a
+standalone file and cannot invoke MCP tools itself). The `finish` /
+`grain_direction` tool parameters set the *initial* dropdown/toggle state only.
+Switching finishes force-disables the X-ray and diag-color toggles and
+refreshes their material caches; keyboard shortcuts ignore events from form
+controls.
+
 `visualize_cabinet` and `visualize_project` accept an optional `finish` parameter
 (`rift_white_oak`, `flat_sawn_white_oak`, `maple`, `walnut` (European),
 `black_walnut`, `bamboo`, `baltic_birch`, `cherry`) applied to the carcass,
