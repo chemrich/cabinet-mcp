@@ -690,35 +690,48 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
       if (!nm) continue;
 
       // Drawer face (bay_i_face_j) or box (bay_i_drawer_j) — $ ensures we
-      // match the group node name exactly, not leaf mesh names like bay0_face0_part_0
-      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)$/);
+      // match the group node name exactly, not leaf mesh names like
+      // bay0_face0_part_0.  In multi-cabinet project scenes every cabinet
+      // reuses the same node names, so GLTFLoader dedupes the repeats by
+      // appending _1, _2, … — the optional (?:_\\d+)? accepts those.  Pair
+      // keys are scoped by the parent cabinet node's uuid (face, box, and
+      // pull groups are all siblings under the same cabinet node) so
+      // same-named drawers in different cabinets stay independent.
+      const dm = nm.match(/^bay(\\d+)_(face|drawer)(\\d+)(?:_\\d+)?$/);
       if (dm) {{
-        const key = dm[1] + '_' + dm[3];
+        const grp = searchNodes[si];
+        const key = (grp.parent ? grp.parent.uuid : '') + '|' + dm[1] + '_' + dm[3];
         const pair = _pairFor(key);
         if (dm[2] === 'face') {{
-          pair.face = searchNodes[si];  // group whose name matched — moves whole face
+          pair.face = grp;              // group whose name matched — moves whole face
           drawerFronts.push(obj);       // mesh ref kept for x-ray material swap
         }} else {{
           // Store the group whose name matched so position.add() moves all
           // child meshes together.
-          if (!pair.box) pair.box = searchNodes[si];
+          if (!pair.box) pair.box = grp;
         }}
         break;
       }}
 
-      // Pull hardware (bay_i_pull_j_k) — keyed the same as the drawer face
-      const pm = nm.match(/^bay(\\d+)_pull(\\d+)_\\d+/);
+      // Pull hardware (bay_i_pull_j_k) — anchored to the group node (leaf
+      // meshes are bay0_pull0_0_part_0) so the pair key uses the same parent
+      // uuid as the drawer face; the trailing (?:_\\d+)? absorbs either the
+      // per-pull index k or a GLTFLoader dedup suffix — the key only needs
+      // the drawer index j either way.
+      const pm = nm.match(/^bay(\\d+)_pull(\\d+)_\\d+(?:_\\d+)?$/);
       if (pm) {{
-        const key = pm[1] + '_' + pm[2];
+        const grp = searchNodes[si];
+        const key = (grp.parent ? grp.parent.uuid : '') + '|' + pm[1] + '_' + pm[2];
         const pair = _pairFor(key);
         if (!pair.pulls) pair.pulls = [];
-        pair.pulls.push(obj);
-        pullMeshes.push(obj);  // also track for x-ray toggle
+        if (!pair.pulls.includes(grp)) pair.pulls.push(grp);
+        pullMeshes.push(obj);  // leaf mesh ref kept for the x-ray toggle
         break;
       }}
 
-      // Door faces (bay_i_door_j or bay_i_door_j_k — single door or pair leaf)
-      if (/^bay\\d+_door\\d+(_\\d+)?$/.test(nm)) {{
+      // Door faces (bay_i_door_j or bay_i_door_j_k — single door or pair
+      // leaf, plus an optional GLTFLoader dedup suffix)
+      if (/^bay\\d+_door\\d+(_\\d+){{0,2}}$/.test(nm)) {{
         doorFaces.push(obj);
         break;
       }}
