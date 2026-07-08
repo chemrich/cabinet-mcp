@@ -65,7 +65,7 @@ evaluation.py   ← returns typed Issue objects (no CadQuery required)
 cutlist.py      ← BOM, guillotine optimiser, JSON/CSV export (no CadQuery required)
         │
         ▼
-server.py       ← MCP server (21 tools, stdio or HTTP/SSE)
+server.py       ← MCP server (23 tools, stdio or HTTP/SSE)
 ```
 
 `evals/` (harness + scenarios) imports server handler functions directly — no MCP transport involved — so the full eval suite runs in under 1 second.
@@ -89,7 +89,7 @@ server.py       ← MCP server (21 tools, stdio or HTTP/SSE)
 | `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `check_project_consistency()` cross-cabinet warnings |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
 | `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `generate_sheet_layout_pdf()` produces an A4-landscape PDF with sheet drawings, parts list, and guillotine cut sequence tables; `to_json()`, `to_csv()` |
-| `server.py` | Twenty-one MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
+| `server.py` | Twenty-three MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
 
 ### Eval harness
 
