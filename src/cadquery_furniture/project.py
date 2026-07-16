@@ -171,27 +171,38 @@ def project_dir() -> Path:
 # out of the projects directory.
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
 
+# Cap the stem length so a name can never blow past filesystem limits
+# (typically 255 bytes) once the ".json" suffix is appended.
+_PROJECT_NAME_MAX_LEN = 100
+
 
 def project_path(name: str) -> Path:
     """Filesystem path for a project's JSON snapshot.
 
     Raises ValueError for names that are unsafe as a filename stem
-    (path separators, leading dots, ``..`` traversal, empty).
+    (path separators, leading dots, ``..`` traversal, empty, over-long).
     """
     if not _PROJECT_NAME_RE.match(name) or ".." in name:
         raise ValueError(
             f"Invalid project name {name!r}: use letters, digits, spaces, "
             "'.', '_' or '-' (must start with a letter or digit)."
         )
+    if len(name) > _PROJECT_NAME_MAX_LEN:
+        raise ValueError(
+            f"Project name too long ({len(name)} chars); "
+            f"keep it to {_PROJECT_NAME_MAX_LEN} characters or fewer."
+        )
     return project_dir() / f"{name}.json"
 
 
 def save_project(project: CabinetProject) -> Path:
-    """Serialize a resolved project to ~/.cabinet-mcp/projects/<name>.json.
+    """Serialize a project to ~/.cabinet-mcp/projects/<name>.json.
 
-    Persisted form is the *resolved* configs — what the project actually
-    designs to — alongside the original shared block and per-cabinet
-    override sets. Downstream tools can reload via :func:`load_project`.
+    Persisted form is each cabinet's *original* (unmerged) config alongside
+    the shared design block and per-cabinet override sets — i.e. exactly the
+    inputs to :meth:`CabinetProject.resolved`.  :func:`load_project`
+    reconstructs the project and re-applies the shared tokens on demand, so a
+    save/load round-trip reproduces the same resolved designs.
     """
     project_dir().mkdir(parents=True, exist_ok=True)
     path = project_path(project.name)
@@ -535,23 +546,34 @@ def check_project_consistency(project: CabinetProject) -> list[dict]:
             })
 
     # ── Drawer-face alignment ──────────────────────────────────────────────
-    base_faces = _drawer_face_boundaries(base_cfg)
-    if base_faces:
-        for name, cfg in resolved[1:]:
+    # Use the first cabinet that actually *has* drawer faces as the baseline —
+    # otherwise a leading door-only cabinet (which yields no boundaries) would
+    # suppress the whole check and let two later cabinets' faces clash
+    # unnoticed.
+    align_base_name = align_base_faces = None
+    for name, cfg in resolved:
+        faces = _drawer_face_boundaries(cfg)
+        if faces:
+            align_base_name, align_base_faces = name, faces
+            break
+    if align_base_faces:
+        for name, cfg in resolved:
+            if name == align_base_name:
+                continue
             faces = _drawer_face_boundaries(cfg)
-            if faces and faces != base_faces:
+            if faces and faces != align_base_faces:
                 issues.append({
                     "severity": "info",
                     "check": "project_drawer_face_alignment",
                     "message": (
                         f"Drawer-face lines of {name!r} "
                         f"({', '.join(f'{z:.0f}' for z in faces)} mm) do not "
-                        f"align with {base_name!r} "
-                        f"({', '.join(f'{z:.0f}' for z in base_faces)} mm) — "
+                        f"align with {align_base_name!r} "
+                        f"({', '.join(f'{z:.0f}' for z in align_base_faces)} mm) — "
                         "horizontal face lines usually carry across a run."
                     ),
                     "part_a": name,
-                    "part_b": base_name,
+                    "part_b": align_base_name,
                 })
 
     for name, cfg in resolved[1:]:

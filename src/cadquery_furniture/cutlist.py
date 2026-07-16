@@ -242,8 +242,15 @@ def consolidate_bom(panels: list[CutlistPanel]) -> list[CutlistPanel]:
         )
         if key in consolidated:
             consolidated[key].quantity += panel.quantity
-            # Track which part names were merged into this entry
-            consolidated[key].notes += f", {panel.name}"
+            # Merge any distinct notes from the incoming panel. The panel
+            # name is part of the consolidation key, so merged panels always
+            # share a name — appending it added no information (and produced a
+            # leading ", ") so it is intentionally dropped.
+            existing = consolidated[key]
+            if panel.notes and panel.notes not in existing.notes:
+                existing.notes = (
+                    f"{existing.notes}; {panel.notes}" if existing.notes else panel.notes
+                )
         else:
             # Preserve original notes; track part names separately in a leading tag
             new_panel = CutlistPanel(
@@ -383,6 +390,11 @@ class OptimizationResult:
         Empty list means everything fits.
     stock_sheet:
         The :class:`SheetStock` used for this optimisation run.
+    algorithm_used:
+        The optimiser that actually produced this result — one of
+        ``"opcut"``, ``"rectpack"``, ``"strip"``, or ``""`` (empty panel
+        list).  This reflects the real path taken, including fallbacks (e.g.
+        ``algorithm="opcut"`` falling back to ``"strip"`` when opcut fails).
     """
     sheets_used: int
     waste_pct: float
@@ -390,6 +402,7 @@ class OptimizationResult:
     unplaced: list[str]
     stock_sheet: SheetStock
     grain_mismatched: list[str] = field(default_factory=list)
+    algorithm_used: str = ""
 
     @property
     def is_complete(self) -> bool:
@@ -425,7 +438,20 @@ def optimize_cutlist(
             rectpack GuillotineBssfSas (requires ``rectpack``).
         ``"strip"``
             Pure-Python strip-cutting fallback (always available).
+
+    Raises
+    ------
+    ValueError
+        If *algorithm* is not one of the recognised names.
+    ImportError
+        If an explicitly requested optimiser is not installed.
     """
+    if algorithm not in ("auto", "opcut", "rectpack", "strip"):
+        raise ValueError(
+            f"Unknown algorithm {algorithm!r}; "
+            "expected one of 'auto', 'opcut', 'rectpack', 'strip'."
+        )
+
     if stock_sheet is None:
         stock_sheet = SHEET_4x8_3_4
 
@@ -433,6 +459,7 @@ def optimize_cutlist(
         return OptimizationResult(
             sheets_used=0, waste_pct=0.0, placements=[],
             unplaced=[], stock_sheet=stock_sheet, grain_mismatched=[],
+            algorithm_used="",
         )
 
     if algorithm == "opcut":
@@ -468,63 +495,97 @@ def _optimize_with_rectpack(
 ) -> OptimizationResult:
     """Guillotine layout via rectpack GuillotineBssfSas.
 
-    Rotation is disabled globally because grain direction is assumed for all
-    panels. Kerf is added to each piece dimension before packing and subtracted
-    from placed dimensions in the returned Placement objects.
+    Each piece is packed at its net dimensions plus one kerf on each axis
+    (the inter-piece / trailing saw cut), into a bin one kerf smaller than
+    the nominal sheet on each axis (the leading edge trim) — matching the
+    single-edge-trim convention used by :func:`_optimize_with_opcut`.
+
+    Grain-free panels (``grain_direction`` empty/None) may rotate; grain-
+    constrained panels keep their nominal orientation.  rectpack's rotation
+    flag is global, so grain is respected by keeping ``rotation=False`` and
+    *pre-rotating* only those grain-free pieces that fit rotated but not
+    nominally (the same approach as :func:`_optimize_strip`).  Each expanded
+    piece carries a globally-unique index so same-named panels never share a
+    packer id.
     """
-    sheet_l = stock_sheet.length - kerf
-    sheet_w = stock_sheet.width - kerf
+    eff_l = stock_sheet.length - kerf
+    eff_w = stock_sheet.width - kerf
+    EPS = 0.05
 
-    expanded: list[tuple[float, float, str, int]] = [
-        (p.length, p.width, p.name, i)
-        for p in panels
-        for i in range(p.quantity)
-    ]
-    expanded.sort(key=lambda e: e[0] * e[1], reverse=True)
+    grain_constrained: set[str] = {
+        p.name for p in panels if p.grain_direction not in ("", None)
+    }
 
+    # Expand with a globally-unique piece index so two distinct CutlistPanel
+    # objects that share a name (e.g. "side" across cabinets) never collide.
+    # ``dims`` are the orientation the piece is added to the packer in, and
+    # ``pre_rotated`` records whether that differs from the nominal L×W.
     oversized: list[str] = []
-    packable: list[tuple[float, float, str, int]] = []
-    piece_dims: dict[tuple[str, int], tuple[float, float]] = {}
+    # (add_len, add_wid, name, uid, pre_rotated)
+    packable: list[tuple[float, float, str, int, bool]] = []
+    piece_dims: dict[int, tuple[float, float]] = {}  # net add_len × add_wid
+    piece_name: dict[int, str] = {}
 
-    for length, width, name, idx in expanded:
-        if length + kerf > sheet_l or width + kerf > sheet_w:
-            if name not in oversized:
-                oversized.append(name)
-        else:
-            packable.append((length, width, name, idx))
-            piece_dims[(name, idx)] = (length, width)
+    counter = 0
+    for p in panels:
+        can_rotate = p.name not in grain_constrained
+        for _ in range(p.quantity):
+            uid = counter
+            counter += 1
+            add_l, add_w, pre_rot = p.length, p.width, False
+            fits = add_l <= eff_l + EPS and add_w <= eff_w + EPS
+            if not fits and can_rotate and p.width <= eff_l + EPS and p.length <= eff_w + EPS:
+                add_l, add_w, pre_rot = p.width, p.length, True
+                fits = True
+            if not fits:
+                if p.name not in oversized:
+                    oversized.append(p.name)
+                continue
+            packable.append((add_l, add_w, p.name, uid, pre_rot))
+            piece_dims[uid] = (add_l, add_w)
+            piece_name[uid] = p.name
 
+    packable.sort(key=lambda e: e[0] * e[1], reverse=True)
+
+    # rotation=False so the packer never rotates a piece — grain-constrained
+    # pieces are always placed in their nominal orientation, and grain-free
+    # pieces that needed rotating were already pre-rotated above.
     packer = _rectpack.newPacker(
         pack_algo=_rectpack.GuillotineBssfSas,
         rotation=False,
     )
-    packer.add_bin(sheet_l, sheet_w, count=max(1, len(packable)))
-    for length, width, name, idx in packable:
-        packer.add_rect(length + kerf, width + kerf, rid=(name, idx))
+    # Each piece is padded by one kerf on each axis; the bin is the *nominal*
+    # sheet, so the trailing kerf of the last piece in a row/column falls into
+    # the one-kerf margin rather than off the sheet. Net-fit boundary is then
+    # exactly ``sheet − kerf`` on each axis, matching opcut / strip.
+    packer.add_bin(stock_sheet.length, stock_sheet.width, count=max(1, len(packable)))
+    for add_l, add_w, name, uid, pre_rot in packable:
+        packer.add_rect(add_l + kerf, add_w + kerf, rid=uid)
     packer.pack()
 
+    pre_rotated: dict[int, bool] = {uid: pr for _, _, _, uid, pr in packable}
+
     placements: list[Placement] = []
-    placed_rids: set[tuple[str, int]] = set()
+    placed_uids: set[int] = set()
 
     for bin_idx, abin in enumerate(packer):
         for rect in abin:
-            rid: tuple[str, int] = rect.rid
-            placed_rids.add(rid)
-            orig_l, orig_w = piece_dims[rid]
-            rotated = abs(rect.width - (orig_l + kerf)) > 0.01
+            uid: int = rect.rid
+            placed_uids.add(uid)
+            name = piece_name[uid]
             placements.append(Placement(
-                panel_name=rid[0],
+                panel_name=name,
                 sheet_index=bin_idx,
                 x=round(rect.x, 1),
                 y=round(rect.y, 1),
                 placed_length=round(rect.width - kerf, 1),
                 placed_width=round(rect.height - kerf, 1),
-                rotated=rotated,
+                rotated=pre_rotated[uid],
             ))
 
     unplaced: list[str] = list(oversized)
-    for _, _, name, idx in packable:
-        if (name, idx) not in placed_rids and name not in unplaced:
+    for _, _, name, uid, _ in packable:
+        if uid not in placed_uids and name not in unplaced:
             unplaced.append(name)
 
     # Assign per-sheet cut sequence in placement order.
@@ -538,7 +599,7 @@ def _optimize_with_rectpack(
         waste_pct = 0.0
     else:
         total_area = sheets_used * stock_sheet.length * stock_sheet.width
-        placed_area = sum(piece_dims[rid][0] * piece_dims[rid][1] for rid in placed_rids)
+        placed_area = sum(piece_dims[uid][0] * piece_dims[uid][1] for uid in placed_uids)
         waste_pct = max(0.0, (total_area - placed_area) / total_area * 100)
 
     return OptimizationResult(
@@ -547,7 +608,10 @@ def _optimize_with_rectpack(
         placements=placements,
         unplaced=unplaced,
         stock_sheet=stock_sheet,
+        # rotation=False + pre-rotation of grain-free pieces means the packer
+        # never rotates a grain-constrained piece, so there is never a mismatch.
         grain_mismatched=[],
+        algorithm_used="rectpack",
     )
 
 
@@ -588,6 +652,7 @@ def _optimize_with_opcut(
         return OptimizationResult(
             sheets_used=0, waste_pct=0.0, placements=[],
             unplaced=oversized, stock_sheet=stock_sheet, grain_mismatched=[],
+            algorithm_used="opcut",
         )
 
     items: list = []
@@ -672,6 +737,7 @@ def _optimize_with_opcut(
         unplaced=oversized,
         stock_sheet=stock_sheet,
         grain_mismatched=grain_mismatched,
+        algorithm_used="opcut",
     )
 
 
@@ -685,9 +751,14 @@ def _optimize_strip(
     Groups panels into horizontal strips by across-grain dimension, sorted
     widest first.  Within each strip, pieces are arranged left-to-right.
     ``placed_length`` / ``placed_width`` are NET dimensions (no kerf added).
+
+    One kerf is trimmed off each sheet dimension (the leading edge cut);
+    inter-piece kerfs advance the cursor between pieces, but the last piece
+    in a strip / row may extend to the trimmed edge — matching the single-
+    edge-trim convention of :func:`_optimize_with_opcut`.
     """
-    sheet_l = stock_sheet.length - kerf
-    sheet_w = stock_sheet.width  - kerf
+    eff_l = stock_sheet.length - kerf
+    eff_w = stock_sheet.width  - kerf
     EPS = 0.05
 
     grain_constrained: set[str] = {
@@ -701,7 +772,7 @@ def _optimize_strip(
         for idx in range(p.quantity):
             if p.name in grain_constrained:
                 plen, pwid, rot = p.length, p.width, False
-                if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                if plen > eff_l + EPS or pwid > eff_w + EPS:
                     if p.name not in oversized:
                         oversized.append(p.name)
                 else:
@@ -711,9 +782,9 @@ def _optimize_strip(
                     plen, pwid, rot = p.length, p.width, False
                 else:
                     plen, pwid, rot = p.width, p.length, True
-                if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                if plen > eff_l + EPS or pwid > eff_w + EPS:
                     plen, pwid, rot = pwid, plen, not rot
-                    if plen + kerf > sheet_l + EPS or pwid + kerf > sheet_w + EPS:
+                    if plen > eff_l + EPS or pwid > eff_w + EPS:
                         if p.name not in oversized:
                             oversized.append(p.name)
                         continue
@@ -729,21 +800,20 @@ def _optimize_strip(
 
     for plen, pwid, name, idx, rotated in oriented:
         pk = plen + kerf
-        wk = pwid + kerf
 
         if current_h is None or abs(pwid - current_h) > EPS:
             if current_h is not None:
                 y += current_h + kerf
             current_h = pwid
             x = 0.0
-            if y + wk > sheet_w + EPS:
+            if y + pwid > eff_w + EPS:
                 sheet_index += 1
                 y = 0.0
 
-        if x + pk > sheet_l + EPS:
+        if x + plen > eff_l + EPS:
             y += current_h + kerf
             x = 0.0
-            if y + wk > sheet_w + EPS:
+            if y + pwid > eff_w + EPS:
                 sheet_index += 1
                 y = 0.0
 
@@ -775,6 +845,7 @@ def _optimize_strip(
         unplaced=oversized,
         stock_sheet=stock_sheet,
         grain_mismatched=[],
+        algorithm_used="strip",
     )
 
 
@@ -933,7 +1004,9 @@ def pull_lines_for_cabinet_config(
                 if line is not None:
                     lines.append(line)
             elif slot_type in ("door", "door_pair"):
-                num_doors = 2 if slot_type == "door_pair" else 1
+                # Honor a per-opening num_doors override (matches the hinge
+                # extractor); fall back to the slot-type default otherwise.
+                num_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
                 dcfg = DoorConfig(
                     opening_width=interior_width,
                     opening_height=opening_h,
@@ -1031,24 +1104,28 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
 
     Uses ``HingeSpec.hinges_for_height()`` to count hinges per door.
     Hinges are sold individually (pack_quantity=1).
+
+    Each door opening resolves its own hinge model (``op.hinge_key`` overriding
+    ``cab_cfg.door_hinge``), so a per-opening override is billed under its own
+    SKU — not the cabinet default — and openings whose resolved key is unknown
+    are skipped without suppressing the rest.
     """
     from .hardware import get_hinge
     from .door import DoorConfig
 
-    try:
-        hinge_spec = get_hinge(cab_cfg.door_hinge)
-    except KeyError:
-        return []
+    # One HardwareLine per resolved hinge SKU, in first-seen order.
+    lines: list[HardwareLine] = []
 
-    sku = hinge_spec.part_number or cab_cfg.door_hinge
-
-    def _hinges_from_stack(stack, interior_width: float) -> int:
-        total = 0
+    def _hinges_from_stack(stack, interior_width: float) -> None:
         for item in stack:
             op = to_opening(item)
             opening_h, slot_type = op.height_mm, op.opening_type
-            hinge_key = op.hinge_key or cab_cfg.door_hinge
             if slot_type not in ("door", "door_pair"):
+                continue
+            hinge_key = op.hinge_key or cab_cfg.door_hinge
+            try:
+                hinge_spec = get_hinge(hinge_key)
+            except KeyError:
                 continue
             num_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
             dcfg = DoorConfig(
@@ -1057,31 +1134,31 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 num_doors=num_doors,
                 hinge_key=hinge_key,
             )
-            total += dcfg.total_hinge_count
-        return total
+            count = dcfg.total_hinge_count
+            if count <= 0:
+                continue
+            sku = hinge_spec.part_number or hinge_key
+            lines.append(HardwareLine(
+                sku=sku,
+                category="hinge",
+                name=hinge_spec.name,
+                brand=hinge_spec.manufacturer,
+                model_number=sku,
+                pieces_needed=count,
+                pack_quantity=1,
+            ))
 
-    pieces = 0
     if columns_raw:
         for col in columns_raw:
             stack = stack_from_column(col)
-            pieces += _hinges_from_stack(stack, float(col["width_mm"]))
+            _hinges_from_stack(stack, float(col["width_mm"]))
     elif getattr(cab_cfg, "columns", None):
         for col in cab_cfg.columns:
-            pieces += _hinges_from_stack(col.openings, col.width_mm)
+            _hinges_from_stack(col.openings, col.width_mm)
     else:
-        pieces += _hinges_from_stack(cab_cfg.openings, cab_cfg.interior_width)
+        _hinges_from_stack(cab_cfg.openings, cab_cfg.interior_width)
 
-    if pieces <= 0:
-        return []
-    return [HardwareLine(
-        sku=sku,
-        category="hinge",
-        name=hinge_spec.name,
-        brand=hinge_spec.manufacturer,
-        model_number=sku,
-        pieces_needed=pieces,
-        pack_quantity=1,
-    )]
+    return consolidate_hardware_lines(lines)
 
 
 def leg_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
@@ -1144,28 +1221,37 @@ def joinery_lines_for_cabinet_config(
     interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
     side_t = getattr(cab_cfg, "side_thickness", 18.0)
 
-    # Count joints: top+bottom = 4, each divider adds 2, each shelf adds 2
-    n_dividers = max(0, len(columns_raw) - 1) if columns_raw else 0
+    # Count joints: top+bottom = 4, each divider adds 2, each shelf adds 2.
+    # Divider and per-column shelf counts come from columns_raw (dicts, when
+    # supplied) or fall back to cab_cfg.columns (ColumnConfig objects) — the
+    # same precedence the pull / slide / hinge extractors use.
     global_shelves = len(getattr(cab_cfg, "fixed_shelf_positions", []))
     col_shelves = 0
     if columns_raw:
+        n_dividers = max(0, len(columns_raw) - 1)
         for col in columns_raw:
             col_shelves += len(col.get("fixed_shelf_positions", []))
+    elif getattr(cab_cfg, "columns", None):
+        n_dividers = max(0, len(cab_cfg.columns) - 1)
+        for col in cab_cfg.columns:
+            col_shelves += len(getattr(col, "fixed_shelf_positions", ()) or ())
+    else:
+        n_dividers = 0
     n_joints = 4 + 2 * n_dividers + 2 * global_shelves + 2 * col_shelves
 
     if joinery == CarcassJoinery.FLOATING_TENON:
         spec = DominoSpec(size_key="8x40", max_spacing=150.0)
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
-        # Domino 8×40 mm — Festool 494869, sold in 50-piece bags
+        # Domino 8×40 mm — Festool 493298, 780-piece bulk pack
         return consolidate_hardware_lines([HardwareLine(
-            sku="festool-494869",
+            sku="festool-493298",
             category="joinery",
             name="Festool Domino 8×40 mm",
             brand="Festool",
-            model_number="494869",
+            model_number="493298",
             pieces_needed=total,
-            pack_quantity=50,
+            pack_quantity=780,
             notes=f"{per_joint} per joint × {n_joints} joints",
         )])
 
@@ -1207,9 +1293,9 @@ def joinery_lines_for_cabinet_config(
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
         return consolidate_hardware_lines([HardwareLine(
-            sku="dowel-8x40-50pk",
+            sku="dowel-8x30-50pk",
             category="joinery",
-            name="Hardwood Dowel 8×40 mm",
+            name="Hardwood Dowel 8×30 mm",
             brand="",
             model_number="",
             pieces_needed=total,
@@ -1816,6 +1902,13 @@ def generate_sheet_layout_pdf(
         )
 
     from datetime import date as _date
+    from xml.sax.saxutils import escape as _xml_escape
+
+    # cabinet_name / group_label are user-provided and flow into reportlab
+    # Paragraphs, which parse their text as inline XML markup — an unescaped
+    # "<" or a tag-like name (e.g. "Cab <b>bold") raises a paraparser error
+    # and aborts the whole PDF. Escape before interpolation.
+    safe_cabinet_name = _xml_escape(cabinet_name)
 
     PAGE = _rl_landscape(A4)
     MARGIN = 15 * _rl_mm
@@ -1863,7 +1956,7 @@ def generate_sheet_layout_pdf(
     story = []
 
     # ── Page 1: summary ───────────────────────────────────────────────────────
-    story.append(_Paragraph(f"Cutlist — {cabinet_name}", title_sty))
+    story.append(_Paragraph(f"Cutlist — {safe_cabinet_name}", title_sty))
     story.append(_Paragraph(
         f"Generated {_date.today().isoformat()} · Kerf: {kerf} mm", norm_sty
     ))
@@ -1926,7 +2019,8 @@ def generate_sheet_layout_pdf(
             pls = by_sheet[sheet_idx]
 
             story.append(_Paragraph(
-                f"{group_label} — Sheet {sheet_idx + 1} of {result.sheets_used}", h1_sty
+                f"{_xml_escape(group_label)} — Sheet {sheet_idx + 1} of {result.sheets_used}",
+                h1_sty,
             ))
             warn = ""
             if result.grain_mismatched:

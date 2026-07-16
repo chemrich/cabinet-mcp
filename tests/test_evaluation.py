@@ -8,17 +8,21 @@ is available.
 import pytest
 from cadquery_furniture.cabinet import CabinetConfig
 from cadquery_furniture.drawer import DrawerConfig
+from cadquery_furniture.door import DoorConfig
 from cadquery_furniture.evaluation import (
     Severity,
     check_cumulative_heights,
     check_drawer_hardware_clearances,
     check_drawer_carcass_clearances,
+    check_door_dimensions,
     check_face_clearances,
     check_shelf_deflection,
     check_back_panel_fit,
     check_dado_alignment,
     evaluate_cabinet,
 )
+from cadquery_furniture.auto_fix import auto_fix_cabinet
+from cadquery_furniture.proportions import graduated_drawer_heights, column_widths
 
 
 class TestCumulativeHeights:
@@ -244,6 +248,13 @@ class TestBackPanelFit:
         issues = check_back_panel_fit(cfg)
         errors = [i for i in issues if i.severity == Severity.ERROR]
         assert any("protrude" in e.message.lower() for e in errors)
+
+    def test_rabbet_deeper_than_side_panel(self):
+        """New check (review #8): rabbet depth cannot exceed side thickness."""
+        cfg = CabinetConfig(side_thickness=18, back_rabbet_depth=20, back_thickness=6)
+        issues = check_back_panel_fit(cfg)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert any("cannot be cut deeper" in e.message.lower() for e in errors)
 
 
 class TestDadoAlignment:
@@ -473,3 +484,158 @@ class TestFaceClearances:
         )
         errors = [i for i in issues if i.severity == Severity.ERROR]
         assert len(errors) == 0
+
+
+class TestDoorInsetFit:
+    """Review #1: inset door_inset_fit must be num_doors-aware."""
+
+    def test_inset_pair_no_false_warning(self):
+        """A correct inset pair must not raise a door_inset_fit warning."""
+        d = DoorConfig(opening_width=600, opening_height=700, num_doors=2,
+                       hinge_key="blum_clip_top_110_inset")
+        warns = [i for i in check_door_dimensions(d) if i.check == "door_inset_fit"]
+        assert warns == []
+
+    def test_inset_single_no_false_warning(self):
+        d = DoorConfig(opening_width=600, opening_height=700, num_doors=1,
+                       hinge_key="blum_clip_top_110_inset")
+        warns = [i for i in check_door_dimensions(d) if i.check == "door_inset_fit"]
+        assert warns == []
+
+
+class TestRearClearanceMath:
+    """Review #12: rear clearance must subtract front_gap."""
+
+    def test_rear_gap_accounts_for_front_gap(self):
+        # Depth chosen so box_depth is front-gap-limited; the true rear gap is
+        # 0, which must be flagged (formerly overstated by front_gap = 2 mm).
+        cfg = CabinetConfig(width=600, height=720, depth=284,
+                            openings=[(150, "drawer")])
+        issues = check_drawer_carcass_clearances(cfg)
+        rear = [i for i in issues
+                if i.check == "drawer_carcass_clearance" and "clearance" in i.message.lower()]
+        assert any(w.value is not None and w.value <= 5.0 for w in rear)
+
+
+class TestDegenerateDrawerHeightMessage:
+    """Review #11: degenerate box-height message/limit includes bottom clearance."""
+
+    def test_limit_includes_bottom_clearance(self):
+        cfg = CabinetConfig(width=600, height=720, depth=550,
+                            openings=[(20, "drawer")])
+        issues = check_drawer_carcass_clearances(cfg)
+        deg = [i for i in issues
+               if i.check == "drawer_carcass_clearance" and i.value is not None and i.value <= 0]
+        assert deg, "expected a degenerate box-height error"
+        # threshold = min_bottom_clearance (14) + vertical_gap (12) = 26 mm
+        assert deg[0].limit == pytest.approx(26.0)
+
+
+class TestAutoFixCumulativeHeights:
+    """Review #4/#9: cumulative-heights fixer must be fixed-point-safe."""
+
+    def test_fractional_interior_converges(self):
+        """Imperial (¾″) thicknesses → fractional interior; fix must fit within it."""
+        cfg = CabinetConfig(width=600, height=762, depth=550,
+                            bottom_thickness=19.05, top_thickness=19.05,
+                            openings=[(250, "drawer"), (250, "drawer"), (250, "drawer")])
+        r = auto_fix_cabinet(cfg)
+        total = sum(op.height_mm for op in r.config.openings)
+        assert total <= cfg.interior_height + 0.01
+        cum = [i for i in r.final_issues if i.check == "cumulative_heights"]
+        assert cum == [], f"cumulative issue persisted: {[str(i) for i in cum]}"
+
+    def test_success_does_not_trip_exact_fill_warning(self):
+        cfg = CabinetConfig(width=600, height=720, depth=550,
+                            openings=[(250, "drawer"), (250, "drawer"), (250, "drawer")])
+        r = auto_fix_cabinet(cfg)
+        total = sum(op.height_mm for op in r.config.openings)
+        assert total < cfg.interior_height  # leaves epsilon, not exact-fill
+        fills = [i for i in r.final_issues
+                 if i.check == "cumulative_heights" and "exactly fills" in i.message.lower()]
+        assert fills == []
+
+    def test_preserves_graduation_order(self):
+        cfg = CabinetConfig(width=600, height=720, depth=550,
+                            openings=[(240, "drawer"), (240, "drawer"), (240, "drawer")])
+        r = auto_fix_cabinet(cfg)
+        hs = [op.height_mm for op in r.config.openings]
+        assert hs[0] == max(hs), f"bottom drawer should stay tallest, got {hs}"
+
+    def test_infeasible_reports_honestly(self):
+        """Too many drawers for the height → cannot fit; must not fake success."""
+        cfg = CabinetConfig(width=600, height=720, depth=550,
+                            openings=[(100, "drawer")] * 8)
+        r = auto_fix_cabinet(cfg)
+        # No sub-minimum drawers were silently produced; the note explains why.
+        assert any("minimum" in c.lower() for c in r.changes)
+
+
+class TestAutoFixBackPanel:
+    """Review #4/#8: back-panel fixer must refuse impossible geometry."""
+
+    def test_normal_alignment(self):
+        cfg = CabinetConfig(back_thickness=12, back_rabbet_depth=6, side_thickness=18)
+        r = auto_fix_cabinet(cfg)
+        assert r.config.back_rabbet_depth == 12
+        assert not any(i.check == "back_panel_fit" and i.severity == Severity.ERROR
+                       for i in r.final_issues)
+
+    def test_refuses_when_back_thicker_than_side(self):
+        cfg = CabinetConfig(back_thickness=19, side_thickness=18, back_rabbet_depth=6)
+        r = auto_fix_cabinet(cfg)
+        # Config left unchanged rather than creating a rabbet ≥ side thickness.
+        assert r.config.back_rabbet_depth == 6
+        assert any("blow through" in c.lower() for c in r.changes)
+
+
+class TestProportionsMinHeight:
+    """Review #5: equal branch honours min_height; wide_index validated early."""
+
+    def test_equal_branch_raises_below_min(self):
+        with pytest.raises(ValueError):
+            graduated_drawer_heights(200, 4, "equal")  # 50 mm each < 75 mm min
+
+    def test_equal_branch_ok_above_min(self):
+        assert graduated_drawer_heights(800, 4, "equal") == [200.0, 200.0, 200.0, 200.0]
+
+    def test_wide_index_validated_in_equal_branch(self):
+        with pytest.raises(ValueError):
+            column_widths(900, 3, wide_index=99, ratio="equal")
+
+
+# CadQuery-dependent geometric checks (review #3). Skipped in lite/CI where
+# cadquery isn't installed — these are the checks that formerly disagreed with
+# the pure-Python paths.
+cq = pytest.importorskip("cadquery", reason="geometric checks need CadQuery")
+
+
+class TestGeometricPaths:
+    def test_drawer_in_opening_excludes_applied_face(self):
+        """Review #3: bbox fit must ignore the overhanging applied face."""
+        from cadquery_furniture.drawer import build_drawer
+        from cadquery_furniture.hardware import get_slide
+        from cadquery_furniture.evaluation import check_drawer_in_opening
+
+        dcfg = DrawerConfig(opening_width=564, opening_height=150, opening_depth=541)
+        assy, _ = build_drawer(dcfg)
+        issues = check_drawer_in_opening(
+            assy, opening_width=564, opening_height=150,
+            opening_depth=541, slide=get_slide(dcfg.slide_key),
+        )
+        # The box clears — no width or height fit errors from face overhang.
+        bad = [i for i in issues if i.check in ("drawer_fit_width", "drawer_fit_height")]
+        assert bad == [], f"applied face leaked into bbox: {[str(i) for i in bad]}"
+
+    def test_interference_ignores_group_nodes(self):
+        """Review #3: root/group compounds must not self-intersect their children."""
+        from cadquery_furniture.drawer import build_drawer
+        from cadquery_furniture.evaluation import check_interference
+
+        dcfg = DrawerConfig(opening_width=564, opening_height=150, opening_depth=541)
+        assy, _ = build_drawer(dcfg)
+        issues = check_interference(assy)
+        errors = [i for i in issues if i.severity == Severity.ERROR]
+        assert errors == []
+        # Clean assembly reports the informational "no interference" line.
+        assert any(i.severity == Severity.INFO for i in issues)

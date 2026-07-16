@@ -41,11 +41,18 @@ def _mm_to_ft_in(mm: float) -> str:
             return f"{whole} in"
         return f"{frac_str or '0'} in"
 
-    feet = int(total_in // 12)
-    inches = total_in - feet * 12
-    if inches < 0.1:
+    # Larger dimensions → feet + inches to the nearest ½ in.  Round to
+    # half-inches *first*, then carry into feet with divmod, so a value like
+    # 600 mm (23.62 in) never renders as "1 ft 12 in".
+    half_inches = round(total_in * 2)
+    feet, rem_half = divmod(half_inches, 24)   # 24 half-inches = 12 in = 1 ft
+    inches_whole, inches_half = divmod(rem_half, 2)
+    frac = "½" if inches_half else ""
+    if inches_whole == 0 and not frac:
         return f"{feet} ft"
-    return f"{feet} ft {inches:.0f} in"
+    if feet == 0:
+        return f"{inches_whole}{frac} in"
+    return f"{feet} ft {inches_whole}{frac} in"
 
 
 def _fmt_dim(mm: float) -> str:
@@ -119,35 +126,85 @@ def describe_design(cfg: CabinetConfig) -> dict:
     }
 
     # ── 2. Opening layout ────────────────────────────────────────────────────
-    ops = list(cfg.openings)
+    # Multi-column cabinets carry their openings on each ColumnConfig; single-
+    # column cabinets use the top-level ``openings`` stack.  ``ops`` is the
+    # flattened list of every opening across all columns — hardware selection
+    # and pull gating below key off it, so a multi-column cabinet is no longer
+    # mistaken for an empty carcass.
+    is_multi_column = bool(cfg.columns)
+    if is_multi_column:
+        column_stacks = [list(col.openings) for col in cfg.columns]
+    else:
+        column_stacks = [list(cfg.openings)]
+    ops = [op for stack in column_stacks for op in stack]
+
     counts: dict[str, int] = {}
     for op in ops:
         counts[op.opening_type] = counts.get(op.opening_type, 0) + 1
     stack_total = sum(op.height_mm for op in ops)
 
-    openings = {
-        "stack_from_bottom": [
-            {"height_mm": float(op.height_mm), "type": op.opening_type} for op in ops
-        ],
+    def _stack_dict(stack: list) -> list[dict]:
+        return [
+            {"height_mm": float(op.height_mm), "type": op.opening_type}
+            for op in stack
+        ]
+
+    def _stack_fills(stack: list) -> bool:
+        # Tolerance covers the intentional reveal auto_fix leaves (it targets
+        # interior − _FILL_EPSILON_MM = 1 mm, then floors slots to whole mm, so a
+        # repaired stack sits ~1–2 mm short by design). A genuine under-fill
+        # (open top compartment) is far larger, so this still flags real cases.
+        return sum(op.height_mm for op in stack) >= cfg.interior_height - 2.5
+
+    openings: dict = {
         "total_stack_height_mm":  stack_total,
         "interior_height_mm":     cfg.interior_height,
-        "stack_fills_interior":   abs(stack_total - cfg.interior_height) < 0.5,
         "counts": counts,
     }
+    if is_multi_column:
+        openings["columns"] = [
+            {
+                "width_mm": col.width_mm,
+                "stack_from_bottom": _stack_dict(list(col.openings)),
+                "stack_fills_interior": _stack_fills(list(col.openings)),
+            }
+            for col in cfg.columns
+        ]
+        # A multi-column layout is "filled" only if every column stack is.
+        openings["stack_fills_interior"] = all(
+            _stack_fills(stack) for stack in column_stacks
+        )
+    else:
+        openings["stack_from_bottom"] = _stack_dict(ops)
+        openings["stack_fills_interior"] = _stack_fills(ops)
 
-    if ops:
-        parts = [_slot_phrase(counts[k], k) for k in sorted(counts)]
+    def _describe_stack(stack: list) -> str:
+        """Prose for one bottom-to-top opening stack."""
+        stack_counts: dict[str, int] = {}
+        for op in stack:
+            stack_counts[op.opening_type] = stack_counts.get(op.opening_type, 0) + 1
+        parts = [_slot_phrase(stack_counts[k], k) for k in sorted(stack_counts)]
         layout_phrase = ", ".join(parts[:-1])
         if layout_phrase:
             layout_phrase = f"{layout_phrase} and {parts[-1]}"
         else:
             layout_phrase = parts[-1]
-        stack_desc = (
+        return (
             f"{layout_phrase} stacked from bottom to top — "
-            + ", ".join(f"{int(op.height_mm)} mm {op.opening_type}" for op in ops)
+            + ", ".join(f"{int(op.height_mm)} mm {op.opening_type}" for op in stack)
         )
-    else:
+
+    if not ops:
         stack_desc = "an open carcass with no fixed openings"
+    elif is_multi_column:
+        col_descs = [
+            f"column {i + 1} ({col.width_mm:.0f} mm wide): {_describe_stack(list(col.openings))}"
+            for i, col in enumerate(cfg.columns)
+            if col.openings
+        ]
+        stack_desc = f"{len(cfg.columns)} columns — " + "; ".join(col_descs)
+    else:
+        stack_desc = _describe_stack(ops)
 
     # ── 3. Hardware ──────────────────────────────────────────────────────────
     slide = SLIDES.get(cfg.drawer_slide)
@@ -185,16 +242,20 @@ def describe_design(cfg: CabinetConfig) -> dict:
             "name": drawer_pull_spec.name,
         }
         hardware_phrases.append(f"{drawer_pull_spec.name} drawer pulls")
-    elif has_drawers and not cfg.drawer_pull:
+    elif has_drawers and not drawer_pull_spec:
+        # No pull, OR a pull key that doesn't resolve to a catalog spec —
+        # either way the caller must pick one before visualizing.
         pull_selection_required = True
     if door_pull_spec and has_doors:
         hardware["door_pull"] = {
             "key":  cfg.door_pull,
             "name": door_pull_spec.name,
         }
-        if not drawer_pull_spec:
+        # Announce the door pull whenever it differs from the drawer pull
+        # (a shared pull is already covered by the "drawer pulls" phrase).
+        if door_pull_spec is not drawer_pull_spec:
             hardware_phrases.append(f"{door_pull_spec.name} door pulls")
-    elif has_doors and not cfg.door_pull:
+    elif has_doors and not door_pull_spec:
         pull_selection_required = True
 
     # ── 4. Materials + joinery ───────────────────────────────────────────────
@@ -230,12 +291,24 @@ def describe_design(cfg: CabinetConfig) -> dict:
     lines.append("Construction: " + material_phrase + ".")
 
     if not openings["stack_fills_interior"] and ops:
-        delta = stack_total - cfg.interior_height
-        lines.append(
-            f"⚠ Opening stack does not fill interior "
-            f"(off by {delta:+.0f} mm). Run auto_fix_cabinet or adjust "
-            f"drawer_config before visualizing."
-        )
+        if is_multi_column:
+            bad = [
+                f"column {i + 1} ({sum(op.height_mm for op in stack) - cfg.interior_height:+.0f} mm)"
+                for i, stack in enumerate(column_stacks)
+                if stack and not _stack_fills(stack)
+            ]
+            lines.append(
+                f"⚠ Opening stack does not fill interior in {', '.join(bad)}. "
+                f"Run auto_fix_cabinet or adjust the column stacks before "
+                f"visualizing."
+            )
+        else:
+            delta = stack_total - cfg.interior_height
+            lines.append(
+                f"⚠ Opening stack does not fill interior "
+                f"(off by {delta:+.0f} mm). Run auto_fix_cabinet or adjust "
+                f"drawer_config before visualizing."
+            )
     if pull_selection_required:
         lines.append(
             "⚠ No pull hardware selected. Ask the user to choose a pull style "

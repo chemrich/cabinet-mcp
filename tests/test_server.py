@@ -21,6 +21,7 @@ def test_server_importable():
     importlib.import_module("cadquery_furniture.server")
 
 import asyncio
+import importlib.util
 import json
 import socket
 import tempfile
@@ -28,17 +29,27 @@ from pathlib import Path
 
 import pytest
 
+_cq_missing = importlib.util.find_spec("cadquery") is None
+skipif_no_cq = pytest.mark.skipif(_cq_missing, reason="cadquery not installed")
+
 # Import the internal handler functions directly (they're module-level)
 from cadquery_furniture.server import (
     DEFAULT_PORT,
     PORT_FILE,
+    call_tool,
+    _safe_stem,
+    _compute_leg_positions,
     _tool_list_hardware,
     _tool_list_joinery,
     _tool_design_cabinet,
+    _tool_design_legs,
+    _tool_auto_fix_cabinet,
     _tool_evaluate_cabinet,
     _tool_design_door,
     _tool_design_drawer,
     _tool_generate_cutlist,
+    _tool_generate_project_cutlist,
+    _tool_visualize_project,
     _tool_compare_joinery,
     clear_port_file,
     find_free_port,
@@ -640,3 +651,144 @@ class TestPortFile:
 
     def test_default_port_file_path_is_path(self):
         assert isinstance(PORT_FILE, Path)
+
+    def test_default_port_file_not_in_tmp(self):
+        # Moved off predictable world-writable /tmp to a per-user directory.
+        assert "/tmp/" not in str(PORT_FILE)
+
+
+class TestSafeStem:
+    """Output-file names must not be able to traverse out of their directory."""
+
+    def test_plain_name_passes(self):
+        assert _safe_stem("kitchen_base") == "kitchen_base"
+
+    def test_name_with_spaces_and_dots_passes(self):
+        assert _safe_stem("My Cabinet v1.2") == "My Cabinet v1.2"
+
+    @pytest.mark.parametrize("bad", [
+        "../evil",
+        "../../etc/passwd",
+        "a/b",
+        "a\\b",
+        "..",
+        ".hidden",
+        "",
+        "x" * 200,
+    ])
+    def test_traversal_and_unsafe_names_rejected(self, bad):
+        with pytest.raises(ValueError):
+            _safe_stem(bad)
+
+    def test_generate_cutlist_rejects_traversal_name_directly(self):
+        # The handler raises; call_tool wraps it into an ERROR: response.
+        with pytest.raises(ValueError, match="Invalid cutlist name"):
+            run(_tool_generate_cutlist({
+                "width": 600, "height": 700, "depth": 500,
+                "name": "../../../../tmp/pwned",
+                "format": "csv", "optimizer": "strip",
+            }))
+
+    def test_generate_cutlist_traversal_name_surfaces_as_error(self):
+        result = run(call_tool("generate_cutlist", {
+            "width": 600, "height": 700, "depth": 500,
+            "name": "../../../../tmp/pwned",
+            "format": "csv", "optimizer": "strip",
+        }))
+        assert is_error(result)
+        assert "Invalid cutlist name" in result[0].text
+
+    def test_generate_project_cutlist_rejects_inline_traversal_name(self):
+        with pytest.raises(ValueError, match="Invalid project name"):
+            run(_tool_generate_project_cutlist({
+                "project": {
+                    "name": "../../pwned",
+                    "cabinets": [{"name": "a", "config": {
+                        "width": 600, "height": 700, "depth": 500}}],
+                },
+                "format": "csv", "optimizer": "strip",
+            }))
+
+
+class TestAutoFixRoundTrip:
+    """The auto-fix config output must serialize every field so a re-evaluation
+    of the round-tripped config matches auto-fix's own ``clean`` verdict."""
+
+    def test_config_includes_all_non_default_fields(self):
+        result = run(_tool_auto_fix_cabinet({
+            "width": 600, "height": 720, "depth": 550,
+            "drawer_config": [[300, "drawer"], [300, "drawer"], [300, "drawer"]],
+        }))
+        data = parse(result)
+        cfg = data["config"]
+        # Fields the old hand-built serializer dropped:
+        for key in ("back_rabbet_width", "back_rabbet_depth", "dado_depth",
+                    "columns", "drawer_pull", "door_pull", "fixed_shelf_positions",
+                    "drawer_joinery", "domino_spec"):
+            assert key in cfg, f"auto_fix config missing {key!r}"
+
+    def test_round_trip_re_evaluates_to_clean_verdict(self):
+        fix = run(_tool_auto_fix_cabinet({
+            "width": 600, "height": 720, "depth": 550,
+            "drawer_config": [[300, "drawer"], [300, "drawer"], [300, "drawer"]],
+        }))
+        fix_data = parse(fix)
+        cfg = fix_data["config"]
+        ev = parse(run(_tool_evaluate_cabinet(dict(cfg))))
+        # A config that auto-fix reports as clean must evaluate with zero errors.
+        assert (ev["summary"]["errors"] == 0) == fix_data["clean"]
+
+
+class TestDesignLegs:
+    """Leg pack-quantity comes from the LegSpec, and small-count placements
+    are non-degenerate."""
+
+    def test_richelieu_default_is_two_pack(self):
+        data = parse(run(_tool_design_legs({
+            "cabinet_width": 600, "cabinet_depth": 550, "count": 4})))
+        assert "2-pack" in data["ordering"]
+
+    def test_adjustable_leg_sold_individually(self):
+        data = parse(run(_tool_design_legs({
+            "cabinet_width": 600, "cabinet_depth": 550,
+            "leg_key": "richelieu_adjustable_40mm", "count": 4})))
+        assert "individual" in data["ordering"]
+
+    def test_corners_count_two_is_diagonal(self):
+        pos = _compute_leg_positions(600, 550, 2, "corners", 30)
+        assert len(pos) == 2
+        # Diagonally opposite: differ in both x and y.
+        assert pos[0]["x"] != pos[1]["x"] and pos[0]["y"] != pos[1]["y"]
+
+    def test_along_front_back_odd_count_places_all(self):
+        pos = _compute_leg_positions(600, 550, 3, "along_front_back", 30)
+        assert len(pos) == 3
+
+
+@skipif_no_cq
+class TestVisualizeProjectMultiColumn:
+    """Regression: visualize_project on a multi-column cabinet used to crash in
+    _sort_drawer_config (str(row[1]) over dict openings → KeyError: 1)."""
+
+    def test_multi_column_project_renders(self, tmp_path):
+        project = {
+            "name": "multicol_regression",
+            "cabinets": [{
+                "name": "left",
+                "config": {
+                    "width": 900, "height": 700, "depth": 500,
+                    "columns": [
+                        {"width_mm": 432, "drawer_config": [[300, "drawer"], [364, "drawer"]]},
+                        {"width_mm": 432, "drawer_config": [[664, "door"]]},
+                    ],
+                },
+            }],
+        }
+        result = run(_tool_visualize_project({
+            "project": project,
+            "open_browser": False,
+            "output_dir": str(tmp_path),
+        }))
+        data = parse(result)  # asserts no "ERROR:" prefix
+        assert "html" in data and "glb" in data
+        assert data["cabinet_count"] == 1

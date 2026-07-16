@@ -220,8 +220,15 @@ class TestEdgeCases:
         assert get_furniture("  dresser  ") is not None
 
     def test_piece_with_apostrophe(self):
-        # "Gentleman's chest" has a curly apostrophe in description; ASCII ' should work
+        # "Gentleman's chest" — ASCII straight apostrophe should work
         found = get_furniture("Gentleman's chest")
+        assert found is not None
+        assert found.piece == "Gentleman's chest"
+
+    def test_piece_with_curly_apostrophe(self):
+        # Regression: _norm previously replaced the curly apostrophe with
+        # itself (no-op), so a smart-quote query missed the ASCII-keyed entry.
+        found = get_furniture("Gentleman’s chest")
         assert found is not None
         assert found.piece == "Gentleman's chest"
 

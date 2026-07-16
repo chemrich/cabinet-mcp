@@ -20,14 +20,14 @@ from typing import Any, Callable
 class Op(Enum):
     """Comparison operators for result assertions."""
     EQ        = "eq"          # exact equality
-    APPROX    = "approx"      # within 0.1
+    APPROX    = "approx"      # absolute difference < 0.15
     GT        = "gt"          # greater than
     GTE       = "gte"         # greater than or equal
     LT        = "lt"          # less than
     LTE       = "lte"         # less than or equal
     IN        = "in"          # value is in a list
     CONTAINS  = "contains"    # list result contains value
-    HAS_KEY   = "has_key"     # dict result has key
+    HAS_KEY   = "has_key"     # path resolves (expected None/True) or dict at path has key `expected`
     LEN_EQ    = "len_eq"      # length of list equals
     LEN_GTE   = "len_gte"     # length of list >= value
     IS_TRUE   = "is_true"     # truthy
@@ -862,8 +862,9 @@ _s(Scenario(
                 Assertion("unplaced_panels", Op.CONTAINS,  "side"),
                 Assertion("unplaced_panels", Op.LEN_GTE,   1),
                 Assertion("optimization_note", Op.HAS_KEY, True),
-                # Sheets used only covers panels that *were* placed.
-                Assertion("sheets_used",     Op.GTE,       0),
+                # Sheets used only covers panels that *were* placed; assert the
+                # key is reported rather than a vacuous "count >= 0".
+                Assertion("sheets_used",     Op.HAS_KEY, True),
             ],
         ),
     ],
@@ -946,11 +947,14 @@ _s(Scenario(
             tool="generate_cutlist",
             args={
                 "width": 600, "height": 720, "depth": 550,
+                "drawer_config": [[150, "drawer"], [150, "drawer"], [350, "drawer"]],
                 "format": "both",
             },
             label="cutlist for 3-drawer",
             assertions=[
-                Assertion("panel_count", Op.GTE, 3),
+                # Carcass parts plus three drawer boxes (side/front/back + bottom)
+                # and false fronts — well above a bare-carcass count.
+                Assertion("panel_count", Op.GTE, 10),
             ],
         ),
     ],
@@ -1725,7 +1729,7 @@ SCENARIOS.append(Scenario(
             args={
                 "width": 1600, "height": 800, "depth": 450,
                 "drawer_config": [[564, "door_pair"], [100, "drawer"], [100, "drawer"]],
-                "drawer_slide": "blum_tandem_plus_566h",
+                "drawer_slide": "blum_tandem_plus_563h",
                 "door_hinge": "blum_clip_top_110_full",
                 "adj_shelf_holes": True,
             },
@@ -4365,7 +4369,7 @@ _s(Scenario(
             assertions=[
                 Assertion("panel_count", Op.GTE, 3),
                 Assertion("sheets_used", Op.GTE, 1),
-                Assertion("waste_pct",   Op.GTE, 0),
+                Assertion("waste_pct",   Op.LTE, 100),
             ],
         ),
     ],
@@ -5004,8 +5008,8 @@ _s(Scenario(
 ))
 
 _s(Scenario(
-    name="fm_tall_door_three_hinges",
-    prompt="My armoire door is 564 × 1800 mm — confirm it gets three hinges per door.",
+    name="fm_tall_door_four_hinges",
+    prompt="My armoire door is 564 × 1800 mm — how many hinges per door does it need?",
     tags=["furniture_maker", "door", "tall"],
     difficulty="basic",
     tool_calls=[
@@ -5015,9 +5019,13 @@ _s(Scenario(
                 "opening_width": 564, "opening_height": 1800,
                 "num_doors": 1, "hinge_key": "blum_clip_top_110_full",
             },
+            # A ~1796 mm door needs 4 hinges: with only 3 the on-centre spacing
+            # (~800 mm) would exceed the hinge's 700 mm max_hinge_spacing.
+            # (Was 3 before the audit fix to hinges_for_height, which now adds
+            # hinges until spacing ≤ max_hinge_spacing.)
             assertions=[
-                Assertion("hinges_per_door", Op.EQ, 3),
-                Assertion("total_hinges",    Op.EQ, 3),
+                Assertion("hinges_per_door", Op.EQ, 4),
+                Assertion("total_hinges",    Op.EQ, 4),
             ],
         ),
     ],
@@ -6178,7 +6186,7 @@ _s(Scenario(
                   "side_thickness": 18},
             assertions=[
                 Assertion("sheets_used", Op.GTE, 1),
-                Assertion("waste_pct",   Op.GTE, 0),
+                Assertion("waste_pct",   Op.LTE, 100),
             ],
         ),
     ],

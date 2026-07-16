@@ -63,6 +63,9 @@ DUAL_PULL_THRESHOLD_MM: float = 762.0
 END_MARGIN_MM: float = 40.0
 """Minimum clearance from the pull's outer edge to the face edge."""
 
+DUAL_PULL_MIN_GAP_MM: float = 20.0
+"""Minimum clear gap between the two bodies of a dual-pull layout."""
+
 
 VerticalPolicy = Literal["center", "upper_third", "lower_third"]
 """Vertical placement options exposed to callers."""
@@ -126,12 +129,21 @@ def pull_fits_face(
     For single-pull placements this is simply:
         face_width ≥ length_mm + 2 · END_MARGIN_MM
 
-    For dual-pull placements at ⅓/⅔ spacing, each pull's outer edge sits at
-        x_outer = face_width · ⅔ + length_mm / 2   (for the right pull)
-    so the same lower bound on face_width as single-pull applies in practice
-    (dual pulls are only used above 600 mm, and a pull of body length L fits
-     at ⅔ · face + L/2 ≤ face - END_MARGIN iff face ≥ 3·(L/2 + END_MARGIN)).
-    We apply the tighter dual-pull inequality when count = 2.
+    For dual-pull placements at ⅓/⅔ spacing there are two independent
+    constraints, and both must hold:
+
+      1. Edge clearance — the rightmost pull's outer edge sits at
+         ⅔ · face_width + length/2, which must be ≤ face_width − END_MARGIN.
+         Rearranging: face_width ≥ 3 · (length/2 + END_MARGIN).
+      2. No mutual overlap — the two pull centres are ⅓ · face_width apart,
+         so the bodies clear each other by DUAL_PULL_MIN_GAP_MM only when
+         ⅓ · face_width ≥ length + gap, i.e. face_width ≥ 3 · (length + gap).
+
+    Constraint 2 is the binding one for any body longer than 2·END_MARGIN,
+    and the earlier version omitted it — so a 316 mm pull on an 800 mm face
+    passed the edge check while the two bodies overlapped at the centre.
+    Both inequalities are now applied when count = 2.  (The dual-pull layout
+    is the default only above DUAL_PULL_THRESHOLD_MM = 762 mm.)
     """
     if count is None:
         count = recommend_pull_count(face_width_mm, pull)
@@ -139,11 +151,10 @@ def pull_fits_face(
     if count <= 1:
         return face_width_mm >= pull.length_mm + 2 * END_MARGIN_MM
 
-    # Dual-pull: the rightmost pull's centre sits at x = 2/3 · face_width;
-    # its outer edge is at 2/3 · face_width + length/2, which must be
-    # ≤ face_width - END_MARGIN_MM.  Rearranging:
-    #     face_width ≥ 3 · (length/2 + END_MARGIN)
-    return face_width_mm >= 3.0 * (pull.length_mm / 2.0 + END_MARGIN_MM)
+    # Dual-pull: require edge clearance AND mutual non-overlap.
+    edge_ok    = face_width_mm >= 3.0 * (pull.length_mm / 2.0 + END_MARGIN_MM)
+    overlap_ok = face_width_mm >= 3.0 * (pull.length_mm + DUAL_PULL_MIN_GAP_MM)
+    return edge_ok and overlap_ok
 
 
 # ── Placement math ───────────────────────────────────────────────────────────

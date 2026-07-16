@@ -46,10 +46,10 @@ Minor changes between catalog years are possible.
 """
 
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from importlib import resources
-from typing import Optional
 
 
 class SlideType(Enum):
@@ -201,9 +201,13 @@ class HingeSpec:
         """Return the recommended number of hinges for a given door height and weight.
 
         Rules (Blum Clip Top family):
-          ≤ 1 200 mm  → 2 hinges
-          ≤ 1 800 mm  → 3 hinges
-          > 1 800 mm  → 4 hinges
+          ≤ 1 200 mm  → 2 hinges (base)
+          ≤ 1 800 mm  → 3 hinges (base)
+          > 1 800 mm  → 4 hinges (base)
+        The base count is then raised, if necessary, until the on-centre
+        spacing between adjacent hinges is ≤ ``max_hinge_spacing`` — so the
+        spec never recommends a layout that ``check_door_hinge_count`` would
+        flag as over-spaced.
         One extra hinge is added for every 25 kg above ``max_door_weight_kg``.
         """
         if door_height <= 1200:
@@ -212,9 +216,16 @@ class HingeSpec:
             count = 3
         else:
             count = 4
+        # Raise the count until adjacent hinges fall within max_hinge_spacing.
+        # Hinges span hinge_inset_bottom … (door_height − hinge_inset_top);
+        # with ``count`` hinges the largest gap is span / (count − 1).
+        span = (door_height - self.hinge_inset_top) - self.hinge_inset_bottom
+        if span > 0 and self.max_hinge_spacing > 0:
+            needed = math.ceil(span / self.max_hinge_spacing) + 1
+            count = max(count, needed)
         # Additional hinge for excess weight
         if door_weight_kg > self.max_door_weight_kg:
-            extra = int((door_weight_kg - self.max_door_weight_kg) / 25) + 1
+            extra = math.ceil((door_weight_kg - self.max_door_weight_kg) / 25)
             count += extra
         return count
 
@@ -224,10 +235,24 @@ class HingeSpec:
         The first hinge is ``hinge_inset_bottom`` from the door bottom; the
         last is ``hinge_inset_top`` from the door top.  Middle hinges are
         evenly distributed across the remaining span.
+
+        For doors too short to hold the nominal insets (``top_z <= bottom_z``)
+        the cup centres are clamped to the door interior — keeping every
+        position inside ``[cup_radius, door_height − cup_radius]`` and strictly
+        ordered rather than the old behaviour of returning negative or
+        reversed z-values.  ``validate_door`` flags such doors as too short.
         """
         count = self.hinges_for_height(door_height, door_weight_kg)
         bottom_z = self.hinge_inset_bottom
         top_z = door_height - self.hinge_inset_top
+        # Clamp for short doors: keep cup centres inside the door and ordered.
+        if top_z <= bottom_z:
+            cup_r = self.cup_diameter / 2.0
+            lo = min(cup_r, door_height / 2.0)
+            hi = max(door_height - cup_r, door_height / 2.0)
+            if hi <= lo:
+                return [door_height / 2.0] * count
+            bottom_z, top_z = lo, hi
         if count == 1:
             return [door_height / 2]
         if count == 2:
@@ -262,6 +287,16 @@ class HingeSpec:
             issues.append(
                 f"Cup boring too close to door edge: only {edge_to_cup_edge:.1f} mm margin "
                 f"(minimum 3 mm). Increase cup_boring_distance."
+            )
+        # Door must be tall enough to seat top and bottom hinges at their
+        # nominal insets without the cups overlapping.
+        min_height = self.hinge_inset_top + self.hinge_inset_bottom + self.cup_diameter
+        if door_height > 0 and door_height < min_height:
+            issues.append(
+                f"Door height {door_height:.1f} mm is too short for {self.name}: "
+                f"needs at least {min_height:.1f} mm "
+                f"(top inset {self.hinge_inset_top:.0f} + bottom inset "
+                f"{self.hinge_inset_bottom:.0f} + cup Ø {self.cup_diameter:.0f})."
             )
         return issues
 
@@ -434,7 +469,7 @@ BLUM_MOVENTO_760H = DrawerSlideSpec(
 
 BLUM_MOVENTO_769 = DrawerSlideSpec(
     # Heavy-duty Movento. 170 lb static / 155 lb dynamic load (~77/70 kg).
-    # Inch-series lengths 18"–27" (457–686 mm). Requires front locking devices
+    # Inch-series lengths 18"–30" (457–762 mm). Requires front locking devices
     # ordered separately. For ½"–⅝" drawer sides.
     # Source: Blum 769 catalog page © 2019; confirmed SKUs:
     #   769.4570S = 18" (457 mm), 769.4570M = 18" alternate finish,
@@ -575,8 +610,8 @@ SALICE_PROGRESSA_PLUS = DrawerSlideSpec(
         457: "G5U6S457",    # 18" — pattern-derived
         533: "G5U6S533",    # 21" — confirmed (cabinetparts SHG5U6S533XXF6 base)
         610: "G5U6S610",    # 24" — pattern-derived
-        686: "G5U6S686",    # 28" — pattern-derived (catalog lists 700 mm)
-        762: "G5U6S762",    # 30" — confirmed (marathonhardware SG7E6S700XXB ≈ 700mm)
+        686: "G5U6S686",    # 27" — pattern-derived (catalog lists 700 mm)
+        762: "G5U6S762",    # 30" — pattern-derived (marathonhardware SG7E6S700XXB ≈ 700 mm is a nearby length, not this SKU)
     },
 )
 
@@ -847,6 +882,7 @@ class LegSpec:
     finish: str                     # e.g. "brushed_nickel", "matte_black", "chrome"
     part_number: str = ""
     notes: str = ""
+    pack_quantity: int = 1          # legs per retail pack (1 = sold individually)
 
 
 # ── Richelieu 176138106 — Contemporary Square Leg, 100 mm, Brushed Nickel ────
@@ -868,6 +904,7 @@ RICHELIEU_176138106 = LegSpec(
     finish="brushed_nickel",
     part_number="176138106",
     notes="Square contemporary leg, integrated floor pad. Sold 2/pack.",
+    pack_quantity=2,
 )
 
 # ── Richelieu 17613B106 — Contemporary Square Leg, 100 mm, Matte Black ───────
@@ -884,6 +921,7 @@ RICHELIEU_17613B106 = LegSpec(
     finish="matte_black",
     part_number="17613B106",
     notes="Square contemporary leg, integrated floor pad. Sold 2/pack.",
+    pack_quantity=2,
 )
 
 # ── Richelieu Adjustable Leg, 40–65 mm, Aluminium ────────────────────────────
@@ -1257,18 +1295,20 @@ PRICE_LIST: dict[str, float] = {
     "hafele-193.18.766":   12.00,
     "hafele-151.35.665":    8.00,
     "rockler-42250":        6.00,
+    # IKEA — sold in 2-packs (pack_quantity=2 in the catalog); prices below are
+    # per 2-pack, matching the per-pack basis the BOM math uses.
     "ikea-bagganas-black-128":   5.00,
     "ikea-hackas-anthracite-128": 5.00,
     "ikea-borghamn-black-416":   8.00,
     "ikea-billsbro-white-120":   5.00,
 
     # ── Joinery consumables — per pack ────────────────────────────────────────
-    "festool-494869":          17.00,   # Domino 8×40, 50-pack
+    "festool-493298":         129.00,   # Domino 8×40, 780-piece bulk pack
     "kreg-sml-c32-100":        12.00,   # pocket screws 1-1/4", 100-pack
     "kreg-sml-c38-100":        12.00,
     "kreg-sml-c45-100":        12.00,
     "biscuit-10-100pk":         8.00,
-    "dowel-8x40-50pk":          6.00,
+    "dowel-8x30-50pk":          6.00,
     "screw-8x32-panhead-100pk": 8.00,   # false-front screws
 }
 

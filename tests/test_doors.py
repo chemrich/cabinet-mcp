@@ -5,7 +5,17 @@ evaluation checks in evaluation.py.
 All tests are pure-Python (no CadQuery) — they exercise parametric logic only.
 """
 
+import importlib.util
+import math
+
 import pytest
+
+
+cq_missing = importlib.util.find_spec("cadquery") is None
+skipif_no_cq = pytest.mark.skipif(cq_missing, reason="cadquery not installed")
+
+if not cq_missing:
+    import cadquery as cq
 
 from cadquery_furniture.hardware import (
     OverlayType,
@@ -105,12 +115,29 @@ class TestHingesForHeight:
     h = BLUM_CLIP_TOP_110_FULL  # 20 kg rating
 
     def test_short_door_2_hinges(self):
+        # 700 mm door: base 2 hinges, span 500 mm ≤ max_hinge_spacing → stays 2.
         assert self.h.hinges_for_height(700) == 2
-        assert self.h.hinges_for_height(1200) == 2
+
+    def test_thousand_mm_door_spacing_bumps_to_3(self):
+        # Behavior change (audit finding: count vs max_hinge_spacing contradiction).
+        # Old rule gave a 1200 mm door 2 hinges at 1000 mm spacing — which
+        # check_door_hinge_count then flagged as > 700 mm max. hinges_for_height
+        # now raises the count until spacing ≤ max_hinge_spacing, so a 1200 mm
+        # door gets 3 hinges (max gap 500 mm ≤ 700 mm) instead of 2.
+        assert self.h.hinges_for_height(1200) == 3
+        # No position gap exceeds the spec's own max_hinge_spacing.
+        pos = self.h.hinge_positions(1200)
+        gaps = [pos[i] - pos[i - 1] for i in range(1, len(pos))]
+        assert max(gaps) <= self.h.max_hinge_spacing + 1e-6
 
     def test_tall_door_3_hinges(self):
+        # 1201 mm door: base 3 hinges, span 1001 mm → ceil(1001/700)+1 = 3.
         assert self.h.hinges_for_height(1201) == 3
-        assert self.h.hinges_for_height(1800) == 3
+
+    def test_1800_mm_door_spacing_bumps_to_4(self):
+        # Behavior change: 1800 mm span 1600 mm needs ceil(1600/700)+1 = 4
+        # hinges to keep spacing ≤ 700 mm (old height-only rule gave 3).
+        assert self.h.hinges_for_height(1800) == 4
 
     def test_very_tall_door_4_hinges(self):
         assert self.h.hinges_for_height(1801) == 4
@@ -152,6 +179,54 @@ class TestHingePositions:
             positions = self.h.hinge_positions(height)
             for i in range(1, len(positions)):
                 assert positions[i] > positions[i - 1]
+
+
+# ─── Hinge layout regressions (audit) ─────────────────────────────────────────
+
+class TestHingeLayoutRegressions:
+    """Guards the audit fixes: (1) hinges_for_height must never recommend a
+    layout that exceeds its own max_hinge_spacing; (2) hinge_positions must be
+    ordered and inside the door for short doors; (3) validate_door flags doors
+    too short to seat top+bottom hinges; (4) the weight off-by-one is gone.
+    """
+
+    h = BLUM_CLIP_TOP_110_FULL
+
+    def test_spacing_within_max_for_every_covered_height(self):
+        # Every height the count rule covers must produce a layout whose
+        # largest hinge gap is ≤ max_hinge_spacing.
+        for height in range(200, 3001, 10):
+            positions = self.h.hinge_positions(height)
+            if len(positions) < 2:
+                continue
+            gaps = [positions[i] - positions[i - 1] for i in range(1, len(positions))]
+            assert max(gaps) <= self.h.max_hinge_spacing + 1e-6, (height, gaps)
+
+    def test_short_door_positions_ordered_and_in_range(self):
+        for height in (80, 100, 150, 199, 235):
+            positions = self.h.hinge_positions(height)
+            assert all(0.0 <= z <= height for z in positions), (height, positions)
+            for i in range(1, len(positions)):
+                assert positions[i] > positions[i - 1], (height, positions)
+
+    def test_validate_door_flags_too_short(self):
+        min_h = (self.h.hinge_inset_top + self.h.hinge_inset_bottom
+                 + self.h.cup_diameter)  # 235 mm for this hinge
+        issues = self.h.validate_door(door_thickness=19.0, door_height=min_h - 1)
+        assert any("too short" in i for i in issues)
+        # A comfortably tall door raises no height issue.
+        assert not any("too short" in i
+                       for i in self.h.validate_door(19.0, min_h + 100))
+
+    def test_weight_off_by_one_fixed(self):
+        # Exactly one bracket above the rating adds exactly one hinge, not two.
+        base = self.h.hinges_for_height(700)  # 2 for a short door
+        # +25 kg over the 20 kg rating → +1 hinge.
+        assert self.h.hinges_for_height(700, door_weight_kg=45.0) == base + 1
+        # Just past the limit is already +1.
+        assert self.h.hinges_for_height(700, door_weight_kg=20.1) == base + 1
+        # Just past two brackets is +2.
+        assert self.h.hinges_for_height(700, door_weight_kg=45.1) == base + 2
 
 
 # ─── DoorConfig properties ────────────────────────────────────────────────────
@@ -397,3 +472,82 @@ class TestCabinetConfigDoorSlots:
         )
         total = sum(op.height_mm for op in cfg.openings)
         assert total == pytest.approx(716)
+
+
+# ─── Hinge cup boring geometry (CadQuery) ─────────────────────────────────────
+
+@skipif_no_cq
+class TestHingeCupBoringGeometry:
+    """Regression tests for the CadQuery hinge-cup borings in make_door_panel.
+
+    The cups must be bored into the *back* face (y = door_thickness) at
+    x = cup_boring_distance from the hinge edge and z = each hinge position —
+    not on the wrong axis (a prior bug transposed x/z and bored across width).
+    """
+
+    def _panel(self):
+        from cadquery_furniture.door import DoorConfig, make_door_panel
+        cfg = DoorConfig(opening_width=500, opening_height=700)
+        return cfg, make_door_panel(cfg).val()
+
+    def _has_material(self, solid, x, y, z):
+        probe = (
+            cq.Workplane("XY")
+            .transformed(offset=(x - 0.5, y - 0.5, z - 0.5))
+            .box(1, 1, 1, centered=False)
+        )
+        return solid.intersect(probe.val()).Volume() > 1e-6
+
+    def test_removed_volume_equals_two_full_cups(self):
+        cfg, solid = self._panel()
+        h = cfg.hinge
+        r = h.cup_diameter / 2
+        full = cfg.door_width * cfg.door_height * cfg.door_thickness
+        removed = full - solid.Volume()
+        expected = len(cfg.hinge_positions_z) * math.pi * r * r * h.cup_depth
+        assert len(cfg.hinge_positions_z) == 2
+        assert removed == pytest.approx(expected, rel=1e-3)
+
+    def test_cups_bored_into_back_face_at_correct_positions(self):
+        cfg, solid = self._panel()
+        h = cfg.hinge
+        t = cfg.door_thickness
+        for z_pos in cfg.hinge_positions_z:
+            # Interior of the intended cup void is empty (material removed).
+            assert not self._has_material(
+                solid, h.cup_boring_distance, t - h.cup_depth / 2, z_pos
+            )
+            # Front face at the same x/z is still solid (cup does not pierce through).
+            assert self._has_material(solid, h.cup_boring_distance, 1.0, z_pos)
+
+
+# ─── Drawer face over a door opening (CadQuery) ───────────────────────────────
+
+@skipif_no_cq
+class TestDrawerFaceOverDoor:
+    """Regression: a drawer stacked above a door must not anchor its face to
+    the bottom of the face stack (which would overlap the door below it)."""
+
+    def _faces(self, openings):
+        from cadquery_furniture.cabinet import CabinetConfig, build_multi_bay_cabinet
+        cfg = CabinetConfig(
+            width=600, height=720, depth=550, openings=openings
+        )
+        assy, _ = build_multi_bay_cabinet([cfg], include_feet=False)
+        spans = {}
+        for child in assy.children:
+            n = child.name
+            if "face" in n or "door" in n:
+                z0 = child.loc.toTuple()[0][2]
+                bb = child.obj.val().BoundingBox()
+                spans[n] = (z0 + bb.zmin, z0 + bb.zmax)
+        return cfg, spans
+
+    def test_drawer_face_starts_above_door(self):
+        cfg, spans = self._faces([(450, "door"), (234, "drawer")])
+        door_top = spans["bay0_door0"][1]
+        face_bot = spans["bay0_face1"][0]
+        # Face must start above the bottom panel (bug produced z≈18) and sit a
+        # face_gap/2 reveal above the door top rather than overlapping it.
+        assert face_bot > cfg.bottom_thickness + 1
+        assert face_bot >= door_top

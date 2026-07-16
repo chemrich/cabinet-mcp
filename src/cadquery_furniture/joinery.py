@@ -63,9 +63,8 @@ Dowel system : 32 mm European cabinet standard (Hettich/Grass technical
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 try:
     import cadquery as cq
@@ -343,7 +342,7 @@ DOMINO_SIZES: dict[str, DominoSize] = {
         # 18 mm stock.  Use the deeper setting only in panels ≥ 23 mm thick.
         tenon_length=40, tenon_thickness=8,
         mortise_length=40.5, mortise_width=8.5, mortise_depth_per_side=15,
-        min_edge_distance=11, machine="DF 500", part_number="498882",
+        min_edge_distance=11, machine="DF 500", part_number="493298",
     ),
     "8x50": DominoSize(
         tenon_length=50, tenon_thickness=8,
@@ -403,33 +402,47 @@ class DominoSpec:
     def count_for_span(self, span: float) -> int:
         """Minimum number of tenons needed for a panel edge of ``span`` mm.
 
-        At least 2 tenons are always used (one near each end).  Beyond that,
-        one tenon is added for every ``max_spacing`` mm of span.
+        Two tenons (one near each end) are the norm.  Beyond that, one tenon is
+        added for every ``max_spacing`` mm of span.  A span too small to seat
+        two end mortises without their slots overlapping (the end-tenon centres,
+        placed at ``min_edge_distance + mortise_length / 2`` from each end,
+        would cross) uses a single centred tenon — kept consistent with
+        ``positions_for_span``.
         """
         if span <= 0:
             return 0
         s = self.size
+        # End-tenon centres, placed so the mortise slot clears the panel end.
+        start = s.min_edge_distance + s.mortise_length / 2
+        end = span - s.min_edge_distance - s.mortise_length / 2
+        if end <= start:
+            return 1
         # Usable span between the two end tenons
-        usable = span - 2 * s.min_edge_distance
-        if usable <= 0:
-            return 2
-        extra = math.ceil(usable / self.max_spacing) - 1
+        extra = math.ceil((end - start) / self.max_spacing) - 1
         return 2 + max(0, extra)
 
     def positions_for_span(self, span: float) -> list[float]:
         """Centred positions (from panel edge) for each tenon along the span.
 
-        The first and last tenons are placed at ``min_edge_distance`` from each
-        end.  Remaining tenons are evenly distributed between them.
+        ``min_edge_distance`` is the clearance from the slot *edge* to the panel
+        end, so the end-tenon *centres* sit at ``min_edge_distance +
+        mortise_length / 2`` — this keeps the cut mortise fully inside
+        ``[0, span]``.  Remaining tenons are evenly distributed between them.
+
+        When the span is too small to hold two end fasteners without their
+        slots overlapping (``span < 2 * min_edge_distance``) a single centred
+        tenon is returned instead of a crossed/overrunning pair.
         """
         n = self.count_for_span(span)
         s = self.size
         if n == 0:
             return []
-        if n == 1:
+        if n == 1 or span < 2 * s.min_edge_distance:
             return [span / 2]
-        start = s.min_edge_distance
-        end = span - s.min_edge_distance
+        start = s.min_edge_distance + s.mortise_length / 2
+        end = span - s.min_edge_distance - s.mortise_length / 2
+        if end <= start:
+            return [span / 2]
         if n == 2:
             return [start, end]
         step = (end - start) / (n - 1)
@@ -487,22 +500,29 @@ class PocketScrewSpec:
     def count_for_span(self, span: float) -> int:
         """Minimum pockets for a panel edge of ``span`` mm.
 
-        Always at least 2 (one near each end); one more per ``max_spacing`` mm.
+        Two pockets (one near each end) are the norm; one more per
+        ``max_spacing`` mm.  A span too small to hold two pockets without their
+        edge-distances overlapping (``span <= 2 * min_edge_distance``) uses a
+        single centred pocket — kept consistent with ``positions_for_span``.
         """
         if span <= 0:
             return 0
         usable = span - 2 * self.min_edge_distance
         if usable <= 0:
-            return 2
+            return 1
         extra = math.ceil(usable / self.max_spacing) - 1
         return 2 + max(0, extra)
 
     def positions_for_span(self, span: float) -> list[float]:
-        """Pocket-centre positions (from panel edge) along ``span`` mm."""
+        """Pocket-centre positions (from panel edge) along ``span`` mm.
+
+        When ``span < 2 * min_edge_distance`` a single centred pocket is
+        returned rather than a crossed/overrunning pair.
+        """
         n = self.count_for_span(span)
         if n == 0:
             return []
-        if n == 1:
+        if n == 1 or span < 2 * self.min_edge_distance:
             return [span / 2]
         start = self.min_edge_distance
         end = span - self.min_edge_distance
@@ -517,10 +537,12 @@ class PocketScrewSpec:
 
 # ANSI standard biscuit dimensions: (slot_length, slot_width, slot_depth_per_side)
 # Source: Porter-Cable / DeWalt biscuit dimension standard (ANSI 1986).
+# slot_depth_per_side must be ≥ half the biscuit width so the two mating
+# slots (one per panel) together seat the full biscuit (2×depth ≥ width).
 BISCUIT_DIMS: dict[str, tuple[float, float, float]] = {
-    "#0":  (47.0, 15.0, 8.0),
-    "#10": (53.0, 19.0, 8.0),
-    "#20": (56.0, 23.0, 10.0),
+    "#0":  (47.0, 15.0, 8.0),   # 2×8.0  = 16 ≥ 15
+    "#10": (53.0, 19.0, 10.0),  # 2×10.0 = 20 ≥ 19
+    "#20": (56.0, 23.0, 12.5),  # 2×12.5 = 25 ≥ 23
 }
 
 
@@ -563,21 +585,30 @@ class BiscuitSpec:
         return self.dims[2]
 
     def count_for_span(self, span: float) -> int:
-        """Minimum biscuits for a panel edge of ``span`` mm."""
+        """Minimum biscuits for a panel edge of ``span`` mm.
+
+        A span too small to hold two biscuits without their edge-distances
+        overlapping (``span <= 2 * min_edge_distance``) uses a single centred
+        biscuit — kept consistent with ``positions_for_span``.
+        """
         if span <= 0:
             return 0
         usable = span - 2 * self.min_edge_distance
         if usable <= 0:
-            return 2
+            return 1
         extra = math.ceil(usable / self.max_spacing) - 1
         return 2 + max(0, extra)
 
     def positions_for_span(self, span: float) -> list[float]:
-        """Biscuit-centre positions (from panel edge) along ``span`` mm."""
+        """Biscuit-centre positions (from panel edge) along ``span`` mm.
+
+        When ``span < 2 * min_edge_distance`` a single centred biscuit is
+        returned rather than a crossed/overrunning pair.
+        """
         n = self.count_for_span(span)
         if n == 0:
             return []
-        if n == 1:
+        if n == 1 or span < 2 * self.min_edge_distance:
             return [span / 2]
         start = self.min_edge_distance
         end = span - self.min_edge_distance
@@ -606,12 +637,17 @@ class DowelSpec:
     min_edge_distance: float = 16.0  # dowel centre → panel end
 
     def count_for_span(self, span: float) -> int:
-        """Minimum dowels for a panel edge of ``span`` mm."""
+        """Minimum dowels for a panel edge of ``span`` mm.
+
+        A span too small to hold two dowels without their edge-distances
+        overlapping (``span <= 2 * min_edge_distance``) uses a single centred
+        dowel — kept consistent with ``positions_for_span``.
+        """
         if span <= 0:
             return 0
         usable = span - 2 * self.min_edge_distance
         if usable <= 0:
-            return 2
+            return 1
         extra = math.ceil(usable / self.max_spacing) - 1
         return 2 + max(0, extra)
 
@@ -621,11 +657,14 @@ class DowelSpec:
         Positions are snapped to the nearest 32 mm grid increment when
         ``snap_to_32mm`` would be True, but the raw version just distributes
         evenly between the two end positions.
+
+        When ``span < 2 * min_edge_distance`` a single centred dowel is
+        returned rather than a crossed/overrunning pair.
         """
         n = self.count_for_span(span)
         if n == 0:
             return []
-        if n == 1:
+        if n == 1 or span < 2 * self.min_edge_distance:
             return [span / 2]
         start = self.min_edge_distance
         end = span - self.min_edge_distance

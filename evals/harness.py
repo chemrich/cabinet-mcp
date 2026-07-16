@@ -25,21 +25,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from .scenarios import (
-    ALL_TAGS,
     Assertion,
     Op,
     Scenario,
     ToolCall,
     SCENARIOS,
-    scenarios_by_tag,
-    scenarios_by_difficulty,
 )
 
 from cadquery_furniture.server import (
@@ -64,6 +60,7 @@ from cadquery_furniture.server import (
     _tool_design_project,
     _tool_evaluate_project,
     _tool_generate_project_cutlist,
+    _tool_visualize_cabinet,
     _tool_visualize_project,
 )
 
@@ -91,6 +88,7 @@ TOOL_DISPATCH = {
     "design_project":               _tool_design_project,
     "evaluate_project":             _tool_evaluate_project,
     "generate_project_cutlist":     _tool_generate_project_cutlist,
+    "visualize_cabinet":            _tool_visualize_cabinet,
     "visualize_project":            _tool_visualize_project,
 }
 
@@ -324,8 +322,17 @@ def evaluate_assertion(data: dict, assertion: Assertion) -> AssertionResult:
         exp = assertion.expected
 
         if op == Op.HAS_KEY:
-            # The path itself must resolve to something
-            passed = not missing
+            if isinstance(exp, str):
+                # Nested form: the value at `path` must be a dict containing `exp`.
+                passed = (
+                    not missing
+                    and isinstance(value, dict)
+                    and exp in value
+                )
+            else:
+                # Bare-existence form (expected is None or True): the path itself
+                # must resolve to something.
+                passed = not missing
         elif missing:
             return AssertionResult(assertion, False, actual="<MISSING>",
                                    error=f"Path '{assertion.path}' not found in result")
@@ -383,6 +390,24 @@ def _run_sync(coro):
         return asyncio.run(coro)
 
 
+def _error_result(tc: ToolCall, error: str, duration_ms: float = 0.0) -> ToolCallResult:
+    """Build a ToolCallResult for a failed tool call.
+
+    Every declared assertion is recorded as failed so that a tool error can
+    never make ``assertions_total`` shrink — otherwise ``pass_rate`` / ``score``
+    could read 100 % while the scenario as a whole failed.
+    """
+    return ToolCallResult(
+        tc,
+        error=error,
+        duration_ms=duration_ms,
+        assertion_results=[
+            AssertionResult(a, passed=False, error=f"tool call errored: {error}")
+            for a in tc.assertions
+        ],
+    )
+
+
 def run_tool_call(
     tc: ToolCall,
     context: dict[str, Any] | None = None,
@@ -402,16 +427,16 @@ def run_tool_call(
     """
     handler = TOOL_DISPATCH.get(tc.tool)
     if handler is None:
-        return ToolCallResult(tc, error=f"Unknown tool: {tc.tool}")
+        return _error_result(tc, f"Unknown tool: {tc.tool}")
 
     # ── Resolve context-injected args ────────────────────────────────────────
     resolved_args = dict(tc.args)
     if context is not None and tc.context_args:
         for arg_name, ctx_var in tc.context_args.items():
             if ctx_var not in context:
-                return ToolCallResult(
+                return _error_result(
                     tc,
-                    error=f"Context variable '{ctx_var}' not set by a prior step",
+                    f"Context variable '{ctx_var}' not set by a prior step",
                 )
             value = context[ctx_var]
             transform = tc.arg_transforms.get(arg_name)
@@ -422,22 +447,27 @@ def run_tool_call(
     t0 = time.perf_counter()
     try:
         result = _run_sync(handler(resolved_args))
+
+        # Parse the TextContent response inside the try so a malformed or empty
+        # response records a single tool failure instead of crashing the run.
+        if not result or getattr(result[0], "text", None) is None:
+            duration_ms = (time.perf_counter() - t0) * 1000
+            return _error_result(tc, "empty or non-text response from handler",
+                                 duration_ms)
+
+        text = result[0].text
+        if text.startswith("ERROR:"):
+            duration_ms = (time.perf_counter() - t0) * 1000
+            return _error_result(tc, text, duration_ms)
+
+        data = json.loads(text)
         duration_ms = (time.perf_counter() - t0) * 1000
+    except json.JSONDecodeError as exc:
+        duration_ms = (time.perf_counter() - t0) * 1000
+        return _error_result(tc, f"JSON parse error: {exc}", duration_ms)
     except Exception as exc:
         duration_ms = (time.perf_counter() - t0) * 1000
-        return ToolCallResult(tc, error=f"{type(exc).__name__}: {exc}",
-                              duration_ms=duration_ms)
-
-    # Parse the TextContent response
-    text = result[0].text
-    if text.startswith("ERROR:"):
-        return ToolCallResult(tc, error=text, duration_ms=duration_ms)
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return ToolCallResult(tc, error=f"JSON parse error: {exc}",
-                              duration_ms=duration_ms)
+        return _error_result(tc, f"{type(exc).__name__}: {exc}", duration_ms)
 
     # ── Save context variables from this result ──────────────────────────────
     saved: dict[str, Any] = {}
@@ -492,7 +522,7 @@ def run_all(
     difficulty : str, optional
         Only run scenarios at this difficulty level.
     """
-    pool = scenarios or SCENARIOS
+    pool = SCENARIOS if scenarios is None else scenarios
 
     if tags:
         pool = [s for s in pool if any(t in s.tags for t in tags)]

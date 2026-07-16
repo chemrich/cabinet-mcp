@@ -129,7 +129,7 @@ class TestBuildHtml:
         html = _build_html("t", GLB_B64, {}, finish="rift_white_oak")
         assert "tex.wrapS = tex.wrapT = THREE.RepeatWrapping;" in html
         assert "geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));" in html
-        assert "if (/pull/i.test(nm)) { isHardware = true; break; }" in html
+        assert "if (HARDWARE_RE.test(nm)) { isHardware = true; break; }" in html
         assert r"/^bay\d+_drawer\d+(?:_\d+)?$/" in html  # drawer-box ancestry regex
 
 
@@ -158,6 +158,67 @@ class TestViewerControls:
     def test_keyboard_shortcuts_guard_form_controls(self):
         html = _build_html("t", GLB_B64, {})
         assert "/^(SELECT|INPUT|TEXTAREA|BUTTON)$/.test(e.target.tagName)" in html
+
+
+class TestHtmlInjection:
+    """The viewer embeds caller-supplied strings; verify none can break out of
+    the <script> element or inject markup into the page."""
+
+    def _module_js(self, html):
+        import re
+        return re.search(
+            r'<script type="module">(.*?)</script>', html, re.S
+        ).group(1)
+
+    def test_cutlist_prompt_script_close_escaped(self):
+        # A literal </script> in cutlist_prompt must NOT terminate the module
+        # script — json.dumps leaves '/' unescaped, so we escape "</" → "<\/".
+        evil = "Evil </script><img src=x onerror=alert(1)> done"
+        html = _build_html("t", GLB_B64, {}, cutlist_prompt=evil)
+        # The raw closing tag must not appear inside the embedded constant.
+        assert "</script><img" not in html
+        assert r"<\/script>" in html
+        # And the module <script> must not be terminated early: the first
+        # </script> after it opens should be the real closing tag (near EOF).
+        idx_open = html.index('<script type="module">')
+        idx_prompt = html.index("CUTLIST_PROMPT")
+        first_close = html.index("</script>", idx_open)
+        assert first_close > idx_prompt  # not cut off at the prompt line
+
+    def test_htmly_title_escaped(self):
+        html = _build_html("</title><script>alert(1)</script>", GLB_B64, {})
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+    def test_htmly_info_value_escaped(self):
+        html = _build_html("t", GLB_B64, {"note": "<img src=x onerror=alert(2)>"})
+        assert "<img src=x onerror=alert(2)>" not in html
+        assert "&lt;img src=x onerror=alert(2)&gt;" in html
+
+
+class TestNameValidation:
+    def test_visualize_assembly_rejects_traversal_name(self, tmp_path):
+        pytest.importorskip("cadquery")
+        from cadquery_furniture.cabinet import CabinetConfig, build_cabinet
+        from cadquery_furniture.visualize import visualize_assembly
+
+        assy, parts = build_cabinet(CabinetConfig(width=400, height=500, depth=350))
+        with pytest.raises(ValueError, match="Invalid name"):
+            visualize_assembly(
+                assy, parts, output_dir=tmp_path,
+                name="../escape", open_browser=False,
+            )
+
+    def test_build_and_visualize_rejects_traversal_name(self, tmp_path):
+        pytest.importorskip("cadquery")
+        from cadquery_furniture.cabinet import CabinetConfig
+        from cadquery_furniture.visualize import build_and_visualize
+
+        with pytest.raises(ValueError, match="Invalid name"):
+            build_and_visualize(
+                CabinetConfig(width=400, height=500, depth=350),
+                output_dir=tmp_path, name="../../etc/x", open_browser=False,
+            )
 
 
 class TestVisualizeCabinetHandler:

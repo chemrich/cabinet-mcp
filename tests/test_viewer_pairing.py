@@ -75,3 +75,34 @@ class TestDiagColorClassifiers:
         js = _js()
         assert "diagMat.map = null;" in js
         assert "diagMat.vertexColors = false;" in js
+
+
+class TestToggleInteractions:
+    def test_xray_and_diag_cross_disable(self):
+        # X and V swap the same face/door materials; each must turn the other
+        # off first so neither caches the other's clone as "orig".
+        js = _js()
+        assert "if (!xrayOn && diagOn) toggleDiagColors();" in js
+        assert "if (!diagOn && xrayOn) toggleXray();" in js
+
+
+class TestHardwareClassification:
+    def test_pull_and_foot_anchored_not_substring(self):
+        # A cabinet named 'pull*' must keep its finish — the hardware check is
+        # anchored to real pull/foot node names, not a bare /pull/i substring.
+        js = _js()
+        assert r"const HARDWARE_RE = /^(bay\d+_(?:door)?pull\d+|foot)(?:_\d+)*$/;" in js
+        assert "if (/pull/i.test(nm))" not in js
+
+    def test_grain_lcg_uses_imul(self):
+        # 32-bit multiply must use Math.imul so the state doesn't lose low bits
+        # to float rounding (which shortens the deterministic cycle).
+        assert "Math.imul(seed, 1103515245)" in _js()
+
+    def test_cutlist_uses_box_finish_label(self):
+        # cutlistRequestText must honour an explicit drawer_box_finish override.
+        assert "BOX_FINISH && BOX_FINISH.label" in _js()
+
+    def test_loader_applies_current_finish(self):
+        # A finish picked while parsing must be honoured, not reverted to INITIAL.
+        assert "if (currentFinishKey) setShowFinish(currentFinishKey);" in _js()

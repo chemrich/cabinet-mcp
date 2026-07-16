@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import tempfile
 import webbrowser
+from html import escape as html_escape
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -40,6 +42,22 @@ def _require_cq() -> None:
             "cadquery is required for 3D export. "
             "Install with: pip install cadquery"
         )
+
+
+# Output ``name`` becomes a filename stem (``<name>.glb`` / ``<name>_viewer.html``)
+# — restrict it exactly as project.py does so it can never contain a path
+# separator or traverse out of the output directory.
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+
+
+def _validate_name(name: str) -> str:
+    """Return ``name`` if it is safe as a filename stem, else raise ValueError."""
+    if not _NAME_RE.match(name) or ".." in name:
+        raise ValueError(
+            f"Invalid name {name!r}: use letters, digits, spaces, '.', '_' or "
+            "'-' (must start with a letter or digit)."
+        )
+    return name
 
 
 # ── Wood finishes ─────────────────────────────────────────────────────────────
@@ -239,7 +257,7 @@ function makeGrainTexture(P) {
   ctx.fillStyle = grad; ctx.fillRect(0, 0, 512, 2048);
   // Deterministic LCG so the grain is identical on every load.
   let seed = 42;
-  const rnd  = () => (seed = (seed * 1103515245 + 12345) | 0, ((seed >>> 16) & 0x7fff) / 32768);
+  const rnd  = () => (seed = (Math.imul(seed, 1103515245) + 12345) | 0, ((seed >>> 16) & 0x7fff) / 32768);
   const lerp = (a, b, t) => a + (b - a) * t;
   let x = 0;
   while (x < 512) {
@@ -337,17 +355,21 @@ let currentGrain     = INITIAL_GRAIN;
 let boxesTextured    = false;
 let boxTexture       = null;
 
-const BOX_RE = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
+const BOX_RE  = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
+// Metal hardware — pull nodes (bay{i}_pull{j}_{k}, bay{i}_doorpull{j}_...) and
+// adjustable feet (foot_{n}) — keeps its own material.  The pull check is
+// anchored so a cabinet whose name merely contains 'pull' still gets its
+// finish; the /_\\d+/ tolerates GLTFLoader dedup suffixes.
+const HARDWARE_RE = /^(bay\\d+_(?:door)?pull\\d+|foot)(?:_\\d+)*$/;
 function classifyWood(root) {
   root.traverse(obj => {
     if (!obj.isMesh) return;
-    // Pull hardware keeps its metal material; drawer-box meshes live under
-    // a bay{i}_drawer{j} group (GLTFLoader dedup suffix tolerated).
+    // Drawer-box meshes live under a bay{i}_drawer{j} group (dedup tolerated).
     let isHardware = false, isBox = false;
     for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
       const nm = n.name || '';
-      if (/pull/i.test(nm)) { isHardware = true; break; }
-      if (BOX_RE.test(nm))  { isBox = true; break; }
+      if (HARDWARE_RE.test(nm)) { isHardware = true; break; }
+      if (BOX_RE.test(nm))      { isBox = true; break; }
     }
     if (isHardware) return;
     (isBox ? woodBox : woodShow).push({ mesh: obj, orig: obj.material });
@@ -410,8 +432,12 @@ function setShowFinish(key) {
 // ── Finish / grain / cutlist UI ───────────────────────────────────────────────
 function cutlistRequestText() {
   const fin = currentFinishKey ? FINISHES[currentFinishKey].label : 'not selected';
+  // Honour an explicit drawer_box_finish override; default copy names Baltic birch.
+  const box = BOX_FINISH && BOX_FINISH.label
+    ? BOX_FINISH.label + ' ply, water-based urethane'
+    : 'Baltic birch ply, water-based urethane';
   return CUTLIST_PROMPT + ' Exterior finish: ' + fin + ', grain direction: ' +
-         currentGrain + '. Drawer boxes: Baltic birch ply, water-based urethane.';
+         currentGrain + '. Drawer boxes: ' + box + '.';
 }
 
 function fallbackCopy(txt, done) {
@@ -577,6 +603,7 @@ def visualize_assembly(
     """
     _require_cq()
     # Validate everything before the slow export.
+    name = _validate_name(name)
     finish_params = _finish_params(finish)
     grain_direction = _grain_direction(grain_direction)
     if finish and drawer_box_finish is None:
@@ -662,6 +689,7 @@ def build_and_visualize(
     from .cabinet import build_cabinet
 
     # Validate everything before the slow build.
+    name = _validate_name(name)
     finish_params = _finish_params(finish)
     grain_direction = _grain_direction(grain_direction)
     if finish and drawer_box_finish is None:
@@ -743,18 +771,28 @@ def _build_html(
     if drawer_box_finish is None:
         drawer_box_finish = DEFAULT_DRAWER_BOX_FINISH
     box_params = _finish_params(drawer_box_finish)
-    finishes_json = json.dumps(WOOD_FINISHES)
-    initial_finish_json = json.dumps(finish if params else None)
-    initial_grain_json = json.dumps(grain_direction)
-    box_finish_json = json.dumps(
+    # json.dumps does not escape '/', so a literal "</script>" in any embedded
+    # value would terminate the <script> element (the HTML parser ends the
+    # element at the first "</script" regardless of JS string context) and
+    # inject the remainder as markup.  Escape "</" → "<\/" (a valid JS string
+    # escape) in every embed so no value can break out of the script.
+    def _js_str(obj) -> str:
+        return json.dumps(obj).replace("</", "<\\/")
+
+    finishes_json = _js_str(WOOD_FINISHES)
+    initial_finish_json = _js_str(finish if params else None)
+    initial_grain_json = _js_str(grain_direction)
+    box_finish_json = _js_str(
         {**box_params, "grain_direction": "horizontal"} if box_params else None
     )
-    cutlist_prompt_json = json.dumps(
+    cutlist_prompt_json = _js_str(
         cutlist_prompt or "Generate the cutlist for this design."
     )
     finish_js = _FINISH_JS
 
-    # Build info panel rows
+    # Build info panel rows.  Title and info values are interpolated straight
+    # into the HTML, so escape them to prevent markup injection / breakage.
+    safe_title = html_escape(title)
     info_rows: list[str] = []
     if "width" in info:
         info_rows.append(f'<div class="row">W <span>{info["width"]:.0f} mm</span></div>')
@@ -764,8 +802,10 @@ def _build_html(
         info_rows.append(f'<div class="row">D <span>{info["depth"]:.0f} mm</span></div>')
     for k, v in info.items():
         if k not in ("width", "height", "depth"):
-            label = k.replace("_", " ").capitalize()
-            info_rows.append(f'<div class="row">{label} <span>{v}</span></div>')
+            label = html_escape(k.replace("_", " ").capitalize())
+            info_rows.append(
+                f'<div class="row">{label} <span>{html_escape(str(v))}</span></div>'
+            )
     info_html = "\n    ".join(info_rows)
 
     return f"""\
@@ -774,7 +814,7 @@ def _build_html(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{title}</title>
+  <title>{safe_title}</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{ background: #16162a; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }}
@@ -882,7 +922,7 @@ def _build_html(
   <div id="loading">Loading model…</div>
 
   <div id="panel">
-    <h2>{title}</h2>
+    <h2>{safe_title}</h2>
     {info_html}
     <div id="finish-ui">
       <select id="finish-sel" title="Exterior finish (drawer boxes stay Baltic birch)"></select>
@@ -1131,7 +1171,10 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   }}
 
   classifyWood(model);
-  if (INITIAL_FINISH) setShowFinish(INITIAL_FINISH);
+  // Apply the current selection (initialised to INITIAL_FINISH) rather than
+  // INITIAL_FINISH directly, so a finish picked while the model was still
+  // parsing is honoured instead of reverted.
+  if (currentFinishKey) setShowFinish(currentFinishKey);
   scene.add(model);
 
   // Sit model on grid and centre camera
@@ -1180,6 +1223,9 @@ function _makeXrayMaterial(src) {{
 }}
 
 function toggleXray() {{
+  // Diag colors (V) swap the same face/door materials; leaving them on would
+  // let x-ray cache the diag material as "orig" and strand it after toggling.
+  if (!xrayOn && diagOn) toggleDiagColors();
   xrayOn = !xrayOn;
   for (const mesh of [...drawerFronts, ...pullMeshes, ...doorFaces, ...doorPullMeshes]) {{
     if (!xrayCache.has(mesh)) {{
@@ -1244,7 +1290,10 @@ function updateClipPlane() {{
   if (clipAxis === 'x') {{
     normal = new THREE.Vector3(-1, 0, 0); constant = v; axisLabel = 'from left';
   }} else if (clipAxis === 'y') {{
-    normal = new THREE.Vector3(0, 0, -1); constant = v; axisLabel = 'from front';
+    // Cabinet front is world +Z (drawers open along local -Y → world -Z after
+    // the root's -90° X rotation), so box.min.z is the BACK.  axisSpan('y')
+    // measures t*span up from box.min.z, i.e. from the back.
+    normal = new THREE.Vector3(0, 0, -1); constant = v; axisLabel = 'from back';
   }} else {{
     normal = new THREE.Vector3(0, -1, 0); constant = v; axisLabel = 'from bottom';
   }}
@@ -1360,6 +1409,9 @@ function initDiagColors() {{
 }}
 
 function toggleDiagColors() {{
+  // X-ray (X) swaps the same face/door materials; turn it off first so diag's
+  // captured origMat is the real material, not a stranded x-ray/diag clone.
+  if (!diagOn && xrayOn) toggleXray();
   diagOn = !diagOn;
   for (const {{ mesh, origMat, diagMat }} of diagMeshes) {{
     mesh.material = diagOn ? diagMat : origMat;
