@@ -1295,18 +1295,20 @@ PRICE_LIST: dict[str, float] = {
     "hafele-193.18.766":   12.00,
     "hafele-151.35.665":    8.00,
     "rockler-42250":        6.00,
+    # IKEA — sold in 2-packs (pack_quantity=2 in the catalog); prices below are
+    # per 2-pack, matching the per-pack basis the BOM math uses.
     "ikea-bagganas-black-128":   5.00,
     "ikea-hackas-anthracite-128": 5.00,
     "ikea-borghamn-black-416":   8.00,
     "ikea-billsbro-white-120":   5.00,
 
     # ── Joinery consumables — per pack ────────────────────────────────────────
-    "festool-494869":          17.00,   # Domino 8×40, 50-pack
+    "festool-493298":         129.00,   # Domino 8×40, 780-piece bulk pack
     "kreg-sml-c32-100":        12.00,   # pocket screws 1-1/4", 100-pack
     "kreg-sml-c38-100":        12.00,
     "kreg-sml-c45-100":        12.00,
     "biscuit-10-100pk":         8.00,
-    "dowel-8x40-50pk":          6.00,
+    "dowel-8x30-50pk":          6.00,
     "screw-8x32-panhead-100pk": 8.00,   # false-front screws
 }
 

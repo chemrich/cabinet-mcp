@@ -342,7 +342,7 @@ DOMINO_SIZES: dict[str, DominoSize] = {
         # 18 mm stock.  Use the deeper setting only in panels ≥ 23 mm thick.
         tenon_length=40, tenon_thickness=8,
         mortise_length=40.5, mortise_width=8.5, mortise_depth_per_side=15,
-        min_edge_distance=11, machine="DF 500", part_number="498882",
+        min_edge_distance=11, machine="DF 500", part_number="493298",
     ),
     "8x50": DominoSize(
         tenon_length=50, tenon_thickness=8,

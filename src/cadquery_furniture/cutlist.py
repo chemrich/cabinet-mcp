@@ -1243,15 +1243,15 @@ def joinery_lines_for_cabinet_config(
         spec = DominoSpec(size_key="8x40", max_spacing=150.0)
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
-        # Domino 8×40 mm — Festool 494869, sold in 50-piece bags
+        # Domino 8×40 mm — Festool 493298, 780-piece bulk pack
         return consolidate_hardware_lines([HardwareLine(
-            sku="festool-494869",
+            sku="festool-493298",
             category="joinery",
             name="Festool Domino 8×40 mm",
             brand="Festool",
-            model_number="494869",
+            model_number="493298",
             pieces_needed=total,
-            pack_quantity=50,
+            pack_quantity=780,
             notes=f"{per_joint} per joint × {n_joints} joints",
         )])
 
@@ -1293,9 +1293,9 @@ def joinery_lines_for_cabinet_config(
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
         return consolidate_hardware_lines([HardwareLine(
-            sku="dowel-8x40-50pk",
+            sku="dowel-8x30-50pk",
             category="joinery",
-            name="Hardwood Dowel 8×40 mm",
+            name="Hardwood Dowel 8×30 mm",
             brand="",
             model_number="",
             pieces_needed=total,
