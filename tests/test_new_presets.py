@@ -1,10 +1,10 @@
 """
 Stress tests for the new preset catalogue and the identify_furniture_type tool.
 
-Validates:
-- Every new preset's opening stack sums to interior height
+Validates (over every registered preset, derived from PRESETS):
+- Every preset's opening stack sums to interior height
 - Multi-column presets have correct column width sums
-- evaluate_cabinet returns no errors for any new preset
+- evaluate_cabinet returns no errors for any preset
 - identify_furniture_type tool handles valid, ambiguous, and invalid inputs
 - apply_preset synonym resolution roundtrips for all furniture-type synonyms
   that have a preset mapping
@@ -37,21 +37,13 @@ def _parse(result) -> dict:
     return json.loads(result[0].text)
 
 
-# ─── New preset slugs ─────────────────────────────────────────────────────────
+# ─── Preset slugs under guard ─────────────────────────────────────────────────
+#
+# Every registered preset is guarded — derived from PRESETS rather than a
+# hand-maintained list, so a newly added preset is covered automatically (no
+# separate registration step). ``sorted`` keeps the parametrized test IDs stable.
 
-NEW_PRESET_SLUGS = [
-    "bedroom_nightstand",
-    "bedroom_tall_chest",
-    "bedroom_lingerie_chest",
-    "bedroom_chiffoniere",
-    "bedroom_gentleman_chest",
-    "bedroom_armoire",
-    "bathroom_linen_tower",
-    "living_room_bar_cabinet",
-    "office_filing_cabinet",
-    "entryway_entry_cabinet",
-    "entryway_hall_tree",
-]
+ALL_PRESET_SLUGS = sorted(PRESETS)
 
 
 # ─── Opening-stack integrity ──────────────────────────────────────────────────
@@ -59,7 +51,7 @@ NEW_PRESET_SLUGS = [
 class TestOpeningStackIntegrity:
     """Every preset's opening stack must exactly fill interior_height."""
 
-    @pytest.mark.parametrize("slug", NEW_PRESET_SLUGS)
+    @pytest.mark.parametrize("slug", ALL_PRESET_SLUGS)
     def test_stack_fills_interior(self, slug):
         preset = get_preset(slug)
         cfg = preset.config
@@ -78,7 +70,7 @@ class TestOpeningStackIntegrity:
                 f"{slug}: stack {total} ≠ interior {interior_h}"
             )
 
-    @pytest.mark.parametrize("slug", NEW_PRESET_SLUGS)
+    @pytest.mark.parametrize("slug", ALL_PRESET_SLUGS)
     def test_stack_has_at_least_one_opening(self, slug):
         preset = get_preset(slug)
         cfg = preset.config
@@ -121,9 +113,9 @@ class TestMultiColumnIntegrity:
 # ─── evaluate_cabinet produces no errors ──────────────────────────────────────
 
 class TestPresetEvaluationClean:
-    """evaluate_cabinet must return zero ERROR-severity issues for every new preset."""
+    """evaluate_cabinet must return zero ERROR-severity issues for every preset."""
 
-    @pytest.mark.parametrize("slug", NEW_PRESET_SLUGS)
+    @pytest.mark.parametrize("slug", ALL_PRESET_SLUGS)
     def test_no_errors(self, slug):
         cfg = get_preset(slug).config
         issues = evaluate_cabinet(cfg)
