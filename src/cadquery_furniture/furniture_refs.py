@@ -586,7 +586,10 @@ for _cat, _piece, _syns_raw, _typical, _example, _desc, _presets in _RAW:
 # Maps normalised (lower-case, stripped) name → FurnitureRef
 
 def _norm(s: str) -> str:
-    return s.lower().strip().rstrip("*").replace("’", "’")  # curly apostrophe → straight
+    # Normalize the curly apostrophe (U+2019) to an ASCII one so a query typed
+    # with a smart quote (e.g. "Gentleman's chest") matches the same key as the
+    # straight-quote form.
+    return s.lower().strip().rstrip("*").replace("’", "'")
 
 
 _INDEX: dict[str, FurnitureRef] = {}

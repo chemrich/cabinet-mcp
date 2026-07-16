@@ -9,7 +9,9 @@ from cadquery_furniture.cutlist import (
     SHEET_4x8_3_4,
     SHEET_4x8_1_2,
     optimize_cutlist,
+    _optimize_with_rectpack,
     _RECTPACK_AVAILABLE,
+    _OPCUT_AVAILABLE,
 )
 
 
@@ -229,11 +231,137 @@ class TestWasteCalculation:
 
 
 class TestNoRectpack:
-    """Strip cutting is pure Python — rectpack is not required."""
+    """Strip cutting is pure Python — neither opcut nor rectpack is required."""
 
     def test_works_without_rectpack(self, monkeypatch):
         import cadquery_furniture.cutlist as cl
+        # Disable BOTH optional solvers so "auto" actually reaches the strip
+        # fallback — otherwise opcut (installed in full/dev) would answer and
+        # this test would silently exercise opcut, not strip.
+        monkeypatch.setattr(cl, "_OPCUT_AVAILABLE", False)
         monkeypatch.setattr(cl, "_RECTPACK_AVAILABLE", False)
-        # Should succeed: strip layout has no rectpack dependency.
         result = cl.optimize_cutlist([panel("p", 200, 100)])
         assert result.is_complete
+        assert result.algorithm_used == "strip"
+
+
+# ─── Algorithm selection & unknown-name guard ────────────────────────────────
+
+
+class TestAlgorithmSelection:
+    def test_unknown_algorithm_raises_value_error(self):
+        with pytest.raises(ValueError):
+            optimize_cutlist([panel("p", 200, 100)], algorithm="rect_pack")
+
+    def test_empty_panels_algorithm_used_blank(self):
+        result = optimize_cutlist([], stock_sheet=SMALL_SHEET)
+        assert result.algorithm_used == ""
+
+    @pytest.mark.parametrize(
+        "algo",
+        [
+            pytest.param(
+                "opcut",
+                marks=pytest.mark.skipif(not _OPCUT_AVAILABLE, reason="opcut not installed"),
+            ),
+            pytest.param(
+                "rectpack",
+                marks=pytest.mark.skipif(not _RECTPACK_AVAILABLE, reason="rectpack not installed"),
+            ),
+            "strip",
+        ],
+    )
+    def test_algorithm_used_reported(self, algo):
+        result = optimize_cutlist([panel("p", 400, 200)], stock_sheet=SMALL_SHEET, algorithm=algo)
+        assert result.algorithm_used == algo
+        assert result.is_complete
+
+
+# ─── Cross-algorithm behaviour parity ────────────────────────────────────────
+
+
+_ALGOS = ["strip"]
+if _OPCUT_AVAILABLE:
+    _ALGOS.append("opcut")
+if _RECTPACK_AVAILABLE:
+    _ALGOS.append("rectpack")
+
+
+class TestAlgorithmParity:
+    """Behaviour that should hold identically across every optimizer."""
+
+    @pytest.mark.parametrize("algo", _ALGOS)
+    def test_basic_placement(self, algo):
+        panels = [panel("left", 400, 200), panel("right", 400, 200)]
+        result = optimize_cutlist(panels, stock_sheet=SMALL_SHEET, algorithm=algo)
+        assert result.is_complete
+        assert result.sheets_used == 1
+        assert len(result.placements) == 2
+
+    @pytest.mark.parametrize("algo", _ALGOS)
+    def test_quantity_expansion(self, algo):
+        result = optimize_cutlist([panel("s", 200, 100, qty=4)], stock_sheet=SMALL_SHEET, algorithm=algo)
+        assert len(result.placements) == 4
+
+    @pytest.mark.parametrize("algo", _ALGOS)
+    def test_oversized_reported_once(self, algo):
+        result = optimize_cutlist([panel("giant", 800, 700, qty=3)], stock_sheet=SMALL_SHEET, algorithm=algo)
+        assert result.unplaced.count("giant") == 1
+        assert result.sheets_used == 0
+
+    @pytest.mark.parametrize("algo", _ALGOS)
+    def test_single_edge_trim_convention(self, algo):
+        # Under the unified single-edge-trim convention, a piece equal to the
+        # sheet minus one kerf on each axis must fit; the full nominal sheet
+        # must not (one kerf is trimmed for the leading edge cut).
+        kerf = 3.2
+        fits = panel("ok", SMALL_SHEET.length - kerf, SMALL_SHEET.width - kerf)
+        result_ok = optimize_cutlist([fits], stock_sheet=SMALL_SHEET, kerf=kerf, algorithm=algo)
+        assert result_ok.is_complete, f"{algo} should place a sheet-minus-kerf piece"
+
+        too_big = panel("nope", SMALL_SHEET.length, SMALL_SHEET.width)
+        result_nope = optimize_cutlist([too_big], stock_sheet=SMALL_SHEET, kerf=kerf, algorithm=algo)
+        assert not result_nope.is_complete, f"{algo} should reject a full-sheet piece"
+
+
+# ─── rectpack rid uniqueness (regression) ────────────────────────────────────
+
+
+@pytest.mark.skipif(not _RECTPACK_AVAILABLE, reason="rectpack not installed")
+class TestRectpackDuplicateNames:
+    """Regression: distinct CutlistPanel objects sharing a name must not
+    collide on the packer id (previously the per-panel index restarted at 0,
+    so ("shelf", 0) was reused — corrupting waste %, rotation flags, and
+    unplaced detection)."""
+
+    def test_same_name_different_dims_both_placed_and_areas_distinct(self):
+        big = SheetStock(name="4x8", length=2440, width=1220, thickness=18)
+        panels = [
+            CutlistPanel(name="shelf", length=800, width=400, thickness=18, grain_direction="length"),
+            CutlistPanel(name="shelf", length=600, width=300, thickness=18, grain_direction="length"),
+        ]
+        result = _optimize_with_rectpack(panels, big, kerf=3.2)
+
+        assert len(result.placements) == 2
+        assert not result.unplaced
+
+        # Both distinct areas must be represented — a rid collision would
+        # double-count one piece's area and drop the other's.
+        placed_areas = sorted(round(p.placed_length * p.placed_width) for p in result.placements)
+        assert placed_areas == sorted([800 * 400, 600 * 300])
+
+        # Waste computed from both real areas (not a doubled single area).
+        sheet_area = 2440 * 1220
+        expected = round((sheet_area - (800 * 400 + 600 * 300)) / sheet_area * 100, 1)
+        assert abs(result.waste_pct - expected) < 0.2
+
+        # Grain-constrained pieces are never rotated by the packer.
+        assert all(not p.rotated for p in result.placements)
+        assert result.grain_mismatched == []
+
+    def test_many_same_name_pieces_all_placed(self):
+        big = SheetStock(name="4x8", length=2440, width=1220, thickness=18)
+        panels = [CutlistPanel(name="side", length=300, width=300, thickness=18, quantity=6)]
+        result = _optimize_with_rectpack(panels, big, kerf=3.2)
+        assert len(result.placements) == 6
+        assert not result.unplaced

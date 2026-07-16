@@ -187,10 +187,25 @@ class TestFitCheck:
         assert     pull_fits_face(224, p, count=1)
 
     def test_dual_fit_tighter(self):
-        # 305 mm CC pull: length 316.  Dual requires 3 · (316/2 + 40) = 594.
+        # 305 mm CC pull: length 316.  A dual layout must satisfy BOTH the
+        # edge-clearance bound 3·(316/2 + 40) = 594 AND the non-overlap bound
+        # 3·(316 + 20) = 1008.  The overlap bound is the binding one here, so
+        # the pull does NOT fit at 594 (bodies would overlap at centre) and
+        # only fits once the face reaches 1008 mm.
+        #
+        # NOTE: this test previously asserted a fit at 594 mm — that encoded
+        # the old edge-only check, which approved physically overlapping
+        # dual pulls.  Updated for the added non-overlap constraint.
         p = get_pull("topknobs-hb-305")
-        assert not pull_fits_face(593, p, count=2)
-        assert     pull_fits_face(594, p, count=2)
+        assert not pull_fits_face(1007, p, count=2)
+        assert     pull_fits_face(1008, p, count=2)
+
+    def test_dual_no_overlap_regression(self):
+        # Regression: a 316 mm pull on an 800 mm face passes the edge check
+        # (3·(316/2+40)=594 ≤ 800) but its two bodies overlap at the centre
+        # (spacing 800/3 ≈ 267 mm < 316 mm body).  Must be rejected.
+        p = get_pull("topknobs-hb-305")  # length 316
+        assert not pull_fits_face(800, p, count=2)
 
     def test_flush_small_footprint(self):
         p = get_pull("hafele-151.35.665")  # length 110

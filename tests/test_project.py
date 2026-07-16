@@ -269,6 +269,15 @@ class TestProjectPersistence:
             with pytest.raises(ValueError):
                 load_project(bad)
 
+    def test_over_long_project_name_rejected(self, tmp_path, monkeypatch):
+        # Regression: names were length-unbounded, so a very long name reached
+        # the filesystem and failed with OSError on write.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
+        assert pmod.project_path("a" * 100).name == "a" * 100 + ".json"
+        with pytest.raises(ValueError):
+            pmod.project_path("a" * 101)
+
 
 # ─── Cross-cabinet checks ─────────────────────────────────────────────────────
 
@@ -293,6 +302,42 @@ class TestProjectConsistencyChecks:
         issues = check_project_consistency(proj)
         checks = {i["check"] for i in issues}
         assert "project_height_match" in checks
+
+    def test_alignment_baseline_skips_drawerless_lead_cabinet(self):
+        # Regression: the alignment check used cabinets[0] as its baseline, so
+        # a leading door-only cabinet (no drawer faces) suppressed the whole
+        # check — two later cabinets could clash unnoticed. The baseline must
+        # be the first cabinet that actually has drawer faces.
+        payload = {
+            "name": "align_test",
+            "cabinets": [
+                {"name": "base", "config": {"width": 600, "height": 720, "depth": 550,
+                                            "openings": [[684, "door"]]}},
+                {"name": "b", "config": {"width": 600, "height": 720, "depth": 550,
+                                         "openings": [[300, "drawer"], [384, "drawer"]]}},
+                {"name": "c", "config": {"width": 600, "height": 720, "depth": 550,
+                                         "openings": [[400, "drawer"], [284, "drawer"]]}},
+            ],
+        }
+        proj = build_project(payload)
+        checks = {i["check"] for i in check_project_consistency(proj)}
+        assert "project_drawer_face_alignment" in checks
+
+    def test_alignment_silent_when_drawer_faces_match(self):
+        payload = {
+            "name": "align_ok",
+            "cabinets": [
+                {"name": "base", "config": {"width": 600, "height": 720, "depth": 550,
+                                            "openings": [[684, "door"]]}},
+                {"name": "b", "config": {"width": 600, "height": 720, "depth": 550,
+                                         "openings": [[300, "drawer"], [384, "drawer"]]}},
+                {"name": "c", "config": {"width": 600, "height": 720, "depth": 550,
+                                         "openings": [[300, "drawer"], [384, "drawer"]]}},
+            ],
+        }
+        proj = build_project(payload)
+        checks = {i["check"] for i in check_project_consistency(proj)}
+        assert "project_drawer_face_alignment" not in checks
 
 
 # ─── MCP tool end-to-end ──────────────────────────────────────────────────────

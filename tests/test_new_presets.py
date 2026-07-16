@@ -291,3 +291,68 @@ class TestApplyPresetSynonymResolution:
     def test_synonym_resolution_trims_whitespace(self):
         result = _parse(_run(_tool_apply_preset({"name": "  dresser  "})))
         assert result.get("preset_name") == "bedroom_dresser"
+
+
+# ─── describe_design regressions ──────────────────────────────────────────────
+
+class TestDescribeMultiColumn:
+    """Regression: describe_design must see multi-column openings rather than
+    reporting them as an empty carcass (which also disabled hardware and the
+    pull-selection gate)."""
+
+    def test_multi_column_preset_reports_openings_and_hardware(self):
+        from cadquery_furniture.describe import describe_design
+
+        d = describe_design(get_preset("armoire_2col").config)
+        # Aggregated counts across both columns: 6 drawers + 2 doors.
+        assert d["openings"]["counts"] == {"drawer": 6, "door": 2}
+        # Hardware is no longer suppressed.
+        assert "drawer_slide" in d["hardware"]
+        assert "door_hinge" in d["hardware"]
+        # Per-column structure is exposed.
+        assert "columns" in d["openings"]
+        assert len(d["openings"]["columns"]) == 2
+        # Prose describes the columns, not an "open carcass".
+        assert "open carcass with no fixed openings" not in d["prose"]
+        assert "column" in d["prose"].lower()
+        # armoire_2col ships with pulls set, so no selection prompt.
+        assert d["pull_selection_required"] is False
+
+    def test_multi_column_without_pulls_triggers_pull_gate(self):
+        from cadquery_furniture.describe import describe_design
+
+        # bedroom_gentleman_chest is multi-column with no pull keys set.
+        d = describe_design(get_preset("bedroom_gentleman_chest").config)
+        assert d["pull_selection_required"] is True
+        assert d["openings"]["counts"]  # non-empty
+
+    def test_multi_column_stack_fills_interior_true_for_valid_preset(self):
+        from cadquery_furniture.describe import describe_design
+
+        d = describe_design(get_preset("armoire_2col").config)
+        assert d["openings"]["stack_fills_interior"] is True
+
+
+class TestImperialFormatter:
+    """Regression: the feet+inches formatter used to render 600 mm as
+    '1 ft 12 in' because it rounded the inch remainder without carrying."""
+
+    def test_600mm_renders_as_1ft_11_half_in(self):
+        from cadquery_furniture.describe import _mm_to_ft_in
+
+        assert _mm_to_ft_in(600) == "1 ft 11½ in"
+
+    def test_no_twelve_inch_remainder(self):
+        from cadquery_furniture.describe import _mm_to_ft_in
+
+        # Sweep a range and assert we never emit "12 in" (must carry to feet).
+        for mm in range(150, 3000, 3):
+            out = _mm_to_ft_in(float(mm))
+            assert "12 in" not in out, f"{mm} mm -> {out!r}"
+
+    def test_exact_foot_boundaries(self):
+        from cadquery_furniture.describe import _mm_to_ft_in
+
+        assert _mm_to_ft_in(304.8) == "1 ft"      # exactly 12 in
+        assert _mm_to_ft_in(1828.8) == "6 ft"     # exactly 72 in
+        assert _mm_to_ft_in(152.4) == "6 in"      # exactly 6 in, sub-foot

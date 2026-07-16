@@ -52,7 +52,9 @@ class DoorConfig:
         Default 0 lets the count be driven by height alone.
     gap_top, gap_bottom :
         Clearance between door top/bottom and adjacent shelf or cabinet edge.
-        Ignored for full/half overlay (door face sits proud of the opening).
+        For full/half overlay these are the expansion reveal built into the
+        face edges; for inset they are the swing clearance inside the opening.
+        Subtracted from opening_height in both cases (see ``door_height``).
     gap_side :
         Side reveal for *inset* doors only (applied to each side).
     gap_between :
@@ -138,17 +140,13 @@ class DoorConfig:
     def door_height(self) -> float:
         """Height of each door panel (mm).
 
-        Full / Half overlay — no top/bottom gap formula needed because the door
-        face sits in front of the opening; standard practice is to subtract a
-        nominal 4 mm (2 mm per edge) for expansion and reveal.
-
-        Inset — door must clear the opening: subtract gap_top and gap_bottom.
+        In all overlay types the door height is the opening height less the
+        top and bottom reveal.  For full/half overlay the door face sits proud
+        of the opening, so gap_top/gap_bottom act as the expansion reveal built
+        into the face edges (default 2 mm each); for inset they are the
+        clearance the door needs to swing inside the opening.
         """
-        if self.hinge.overlay_type == OverlayType.INSET:
-            return self.opening_height - self.gap_top - self.gap_bottom
-        else:
-            # Full/half overlay: 2 mm gap at each end is built into the reveal
-            return self.opening_height - self.gap_top - self.gap_bottom
+        return self.opening_height - self.gap_top - self.gap_bottom
 
     @property
     def hinge_count(self) -> int:
@@ -226,11 +224,13 @@ def make_door_panel(cfg: DoorConfig) -> "cq.Workplane":
     cup_depth = h.cup_depth
     boring_x = h.cup_boring_distance  # from hinge-side edge
 
+    # The XZ workplane has local x → global X, local y → global Z, normal → −Y.
+    # Offsetting local z by −t starts the bore at the back face (y = t) and the
+    # cylinder extends cup_depth toward the door front (−Y direction).
     for z_pos in cfg.hinge_positions_z:
         cup = (
-            cq.Workplane("YZ")
-            .transformed(offset=(t, boring_x, z_pos))
-            # Drill in the –Y direction (into the door back face)
+            cq.Workplane("XZ")
+            .transformed(offset=(boring_x, z_pos, -t))
             .cylinder(cup_depth, cup_r, centered=(True, True, False))
         )
         panel = panel.cut(cup)

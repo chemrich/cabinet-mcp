@@ -63,6 +63,14 @@ class OpeningConfig:
     num_doors:      Optional[int]   = None   # 1 or 2; only for door types
     door_thickness: Optional[float] = None
 
+    def __post_init__(self) -> None:
+        valid_types = {"drawer", "door", "door_pair", "shelf", "open"}
+        if self.opening_type not in valid_types:
+            raise ValueError(
+                f"opening_type must be one of {sorted(valid_types)}, "
+                f"got {self.opening_type!r}."
+            )
+
 
 @dataclass(frozen=True)
 class ColumnConfig:
@@ -778,6 +786,9 @@ def build_multi_bay_cabinet(
     """
     _require_cq()
 
+    if not bay_configs:
+        raise ValueError("bay_configs must be non-empty")
+
     # Lazy import to avoid circular dependency (drawer.py imports from cabinet.py)
     from .drawer import DrawerConfig, build_drawer
 
@@ -1061,13 +1072,15 @@ def build_multi_bay_cabinet(
 
             n_faces = len(drawer_slots)
             for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
-                is_first = face_num == 0
                 is_last  = face_num == n_faces - 1
 
                 # Bottom edge of this face.
-                # Non-first faces start face_gap/2 above the opening boundary so
-                # the gap straddles the boundary symmetrically.
-                if is_first:
+                # Anchor to z_face_start only when this drawer is the lowest
+                # opening in the column; otherwise (a door/open opening sits
+                # below it) start face_gap/2 above the opening boundary so the
+                # gap straddles the boundary symmetrically.
+                is_first_in_col = drw_idx == 0
+                if is_first_in_col:
                     face_z_bot = z_face_start
                 else:
                     face_z_bot = opening_z + face_gap / 2
@@ -1218,12 +1231,11 @@ def build_multi_bay_cabinet(
             n_faces = len(drawer_slots)
             pull_py = -face_thickness - pull_spec.projection_mm / 2.0
 
-            is_last_slot_drawer = cfg.openings[-1].opening_type == "drawer"
             for face_num, (drw_idx, opening_h, opening_z) in enumerate(drawer_slots):
-                is_first = face_num == 0
                 is_last  = face_num == n_faces - 1
+                is_first_in_col = drw_idx == 0
                 is_last_in_col = drw_idx == len(cfg.openings) - 1
-                face_z_bot = z_face_start if is_first else opening_z + face_gap / 2
+                face_z_bot = z_face_start if is_first_in_col else opening_z + face_gap / 2
                 if is_last and is_last_in_col:
                     face_z_top = z_face_end
                 else:
@@ -1349,10 +1361,11 @@ def build_multi_bay_cabinet(
             _foot_height   = foot_height   if foot_height   is not None else 102.0
             _foot_diameter = foot_diameter if foot_diameter is not None else 50.0
 
-        # X positions: outer corners only, or also under each interior divider
+        # X positions: outer corners only, or also under each interior divider.
+        # Divider feet sit on the divider centreline, not its left edge.
         foot_xs = [foot_inset, total_width - foot_inset]
         if feet_at_dividers:
-            foot_xs += list(x_offsets[1:])
+            foot_xs += [dx + cfg0.side_thickness / 2 for dx in x_offsets[1:]]
         foot_ys = [foot_inset, depth - foot_inset]
 
         foot_shape = (

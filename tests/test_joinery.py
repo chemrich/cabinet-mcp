@@ -254,7 +254,17 @@ class TestBiscuitSpec:
     def test_dims_correct(self):
         assert self.spec.slot_length == 53.0
         assert self.spec.slot_width == 19.0
-        assert self.spec.slot_depth_per_side == 8.0
+        # slot_depth_per_side raised 8.0 → 10.0 so the two mating slots seat
+        # the full #10 biscuit (2×10 = 20 ≥ 19 mm width); the old 8.0 left a
+        # 3 mm gap at the joint line (audit finding: biscuit slots too shallow).
+        assert self.spec.slot_depth_per_side == 10.0
+
+    def test_slot_depth_seats_biscuit(self):
+        # Regression: 2 × slot_depth_per_side must cover the biscuit width
+        # for every standard size so the joint can close.
+        for size in ("#0", "#10", "#20"):
+            b = BiscuitSpec(size=size)
+            assert 2 * b.slot_depth_per_side >= b.slot_width, size
 
     def test_count_minimum_two(self):
         assert self.spec.count_for_span(300) >= 2
@@ -291,6 +301,63 @@ class TestDowelSpec:
     def test_positions_count_matches(self):
         for span in [200, 400, 600]:
             assert len(self.spec.positions_for_span(span)) == self.spec.count_for_span(span)
+
+
+# ─── Fastener layout regressions (audit) ──────────────────────────────────────
+
+class TestFastenerLayoutContainment:
+    """Regression: every fastener CENTRE — and, where a slot length is known,
+    every slot EDGE — must fall inside [0, span] for all spans, and positions
+    must be strictly increasing.  Guards the audit fixes for Domino edge-distance
+    semantics and the span-too-small guard across all four fastener types.
+    """
+
+    SPANS = [1, 5, 20, 30, 60, 80, 100, 150, 200, 300, 400, 564, 800, 1200]
+
+    def _check(self, spec, span, slot_len=0.0):
+        positions = spec.positions_for_span(span)
+        assert len(positions) == spec.count_for_span(span), (span, positions)
+        for p in positions:
+            # Fastener CENTRE must always be inside the panel.
+            assert 0.0 <= p <= span, (span, p)
+            # Slot EDGES must not overrun the ends — but only when the span can
+            # physically hold the slot at all (a 40 mm mortise cannot fit a
+            # 20 mm-wide panel; that degenerate case is a caller error, not a
+            # layout bug, and centre-in-range is the only meaningful guarantee).
+            if span >= slot_len:
+                assert p - slot_len / 2 >= -1e-9, (span, p, slot_len)
+                assert p + slot_len / 2 <= span + 1e-9, (span, p, slot_len)
+        for i in range(1, len(positions)):
+            assert positions[i] > positions[i - 1], (span, positions)
+
+    def test_domino_all_sizes_contained(self):
+        for key, size in DOMINO_SIZES.items():
+            spec = DominoSpec(size_key=key)
+            for span in self.SPANS:
+                self._check(spec, span, slot_len=size.mortise_length)
+
+    def test_pocket_screw_contained(self):
+        spec = DEFAULT_POCKET_SCREW
+        for span in self.SPANS:
+            self._check(spec, span, slot_len=spec.pocket_diameter)
+
+    def test_biscuit_contained(self):
+        for size in ("#0", "#10", "#20"):
+            spec = BiscuitSpec(size=size)
+            for span in self.SPANS:
+                self._check(spec, span, slot_len=spec.slot_length)
+
+    def test_dowel_contained(self):
+        spec = DEFAULT_DOWEL
+        for span in self.SPANS:
+            self._check(spec, span, slot_len=spec.diameter)
+
+    def test_small_span_returns_single_centred_fastener(self):
+        # span < 2 * min_edge_distance → one centred fastener, not a crossed pair.
+        assert DominoSpec("8x40").positions_for_span(15) == [7.5]
+        assert BiscuitSpec().positions_for_span(80) == [40.0]
+        assert DEFAULT_DOWEL.positions_for_span(20) == [10.0]
+        assert DEFAULT_POCKET_SCREW.positions_for_span(30) == [15.0]
 
 
 # ─── DrawerConfig.joinery property ───────────────────────────────────────────

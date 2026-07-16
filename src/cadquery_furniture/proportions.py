@@ -126,6 +126,15 @@ def graduated_drawer_heights(
         base = h_tenths / 10
         heights = [base] * num_drawers
         heights[0] = round(base + extra_tenths / 10, 1)     # bottom absorbs the remainder
+        # Same min-height guard as the geometric branch: the smallest opening is
+        # ``base`` here (every drawer equals base except the bottom, which only
+        # ever grows), so check that.
+        if base < min_height_mm:
+            raise ValueError(
+                f"With ratio={r:.3f} and {num_drawers} drawers each opening "
+                f"would be {base:.0f} mm — below the {min_height_mm:.0f} mm "
+                f"minimum.  Increase total height or reduce the drawer count."
+            )
         return heights
 
     # Geometric series: h0, h0/r, h0/r², …, h0/r^(n-1)   (bottom to top)
@@ -186,16 +195,18 @@ def column_widths(
 
     r = _resolve_ratio(ratio, "column")
 
+    # Validate wide_index up front so a bad index is rejected consistently
+    # regardless of whether the equal-split fast path is taken below.
+    if wide_index is not None and not (0 <= wide_index < num_columns):
+        raise ValueError(
+            f"wide_index must be in 0..{num_columns - 1}, got {wide_index}."
+        )
+
     if num_columns == 1 or wide_index is None or r == 1.0:
         w = round(total_mm / num_columns, 1)
         widths = [w] * num_columns
         widths[0] = round(total_mm - w * (num_columns - 1), 1)
         return widths
-
-    if not (0 <= wide_index < num_columns):
-        raise ValueError(
-            f"wide_index must be in 0..{num_columns - 1}, got {wide_index}."
-        )
 
     # wide = r × narrow   →   (n_narrow × narrow) + r × narrow = total
     # narrow × (n_narrow + r) = total

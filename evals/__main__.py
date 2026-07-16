@@ -52,6 +52,18 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Validate --tag against the known catalogue so a typo can't silently run
+    # zero scenarios and exit green.
+    if args.tags:
+        unknown = [t for t in args.tags if t not in ALL_TAGS]
+        if unknown:
+            print(
+                f"Unknown tag(s): {', '.join(sorted(unknown))}. "
+                f"Available tags: {', '.join(ALL_TAGS)}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
     if args.list_only:
         print(f"\n{'Name':40s} {'Difficulty':12s} {'Tags':30s} Calls")
         print("-" * 92)
@@ -70,6 +82,16 @@ def main() -> None:
             sys.exit(1)
 
     report = run_all(scenarios=pool, tags=args.tags, difficulty=args.difficulty)
+
+    # A filter combination that matches nothing is almost certainly a mistake;
+    # don't let it exit 0 with an empty, all-green report.
+    if report.scenarios_total == 0:
+        print(
+            "No scenarios matched the given filters "
+            f"(tags={args.tags}, difficulty={args.difficulty}, names={args.names}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if args.json_output:
         print(json.dumps(report.to_dict(), indent=2))

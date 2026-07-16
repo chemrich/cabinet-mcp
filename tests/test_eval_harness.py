@@ -116,6 +116,24 @@ class TestEvaluateAssertion:
         r = evaluate_assertion(self._data(), Assertion("nonexistent", Op.HAS_KEY, True))
         assert not r.passed
 
+    def test_has_key_nested_pass(self):
+        # expected is a string → the value at `path` must be a dict with that key.
+        r = evaluate_assertion(self._data(), Assertion("nested", Op.HAS_KEY, "flag"))
+        assert r.passed
+
+    def test_has_key_nested_missing_child_fails(self):
+        r = evaluate_assertion(self._data(), Assertion("nested", Op.HAS_KEY, "absent"))
+        assert not r.passed
+
+    def test_has_key_nested_on_non_dict_fails(self):
+        # `items` resolves to a list, not a dict — nested HAS_KEY must fail.
+        r = evaluate_assertion(self._data(), Assertion("items", Op.HAS_KEY, "0"))
+        assert not r.passed
+
+    def test_has_key_nested_missing_parent_fails(self):
+        r = evaluate_assertion(self._data(), Assertion("nope", Op.HAS_KEY, "child"))
+        assert not r.passed
+
     def test_len_eq_pass(self):
         r = evaluate_assertion(self._data(), Assertion("items", Op.LEN_EQ, 3))
         assert r.passed
@@ -180,6 +198,23 @@ class TestScenarioCatalogue:
                     f"Scenario {s.name} references unknown tool: {tc.tool}"
                 )
 
+    def test_dispatch_matches_server_tool_list(self):
+        """Every MCP tool the server exposes must be reachable from the harness.
+
+        Guards against dispatch→server drift: if a new tool is added to the
+        server but not wired into TOOL_DISPATCH (as visualize_cabinet once was),
+        it silently gets zero eval coverage.
+        """
+        import re
+        import cadquery_furniture.server as srv
+        from evals.harness import TOOL_DISPATCH
+
+        src = open(srv.__file__).read()
+        server_tools = set(re.findall(r'types\.Tool\(\s*name="([^"]+)"', src))
+        assert server_tools, "could not extract any tool names from server.py"
+        missing = server_tools - set(TOOL_DISPATCH)
+        assert not missing, f"Server tools missing from TOOL_DISPATCH: {sorted(missing)}"
+
     def test_unique_names(self):
         names = [s.name for s in SCENARIOS]
         assert len(names) == len(set(names)), "Duplicate scenario names"
@@ -222,6 +257,36 @@ class TestRunToolCall:
         result = run_tool_call(tc)
         assert not result.passed
         assert "Unknown tool" in result.error
+
+    def test_error_emits_failed_assertions(self):
+        # An unknown tool with declared assertions must record them as failed,
+        # so assertions_total does not shrink (which would let pass_rate read
+        # 100% while the scenario actually failed).
+        tc = ToolCall(
+            tool="nonexistent_tool",
+            args={},
+            assertions=[
+                Assertion("a", Op.EQ, 1),
+                Assertion("b", Op.EQ, 2),
+            ],
+        )
+        result = run_tool_call(tc)
+        assert result.error != ""
+        assert result.assertions_total == 2
+        assert result.assertions_passed == 0
+        assert not result.passed
+
+    def test_tool_runtime_error_emits_failed_assertions(self):
+        # A handler that raises (invalid args) must also account its assertions.
+        tc = ToolCall(
+            tool="design_drawer",
+            args={"opening_width": 100},
+            assertions=[Assertion("box_width_mm", Op.GT, 0)],
+        )
+        result = run_tool_call(tc)
+        assert result.error != ""
+        assert result.assertions_total == 1
+        assert result.assertions_passed == 0
 
     def test_tool_error_returns_error(self):
         # Invalid args should produce an error
@@ -279,6 +344,15 @@ class TestRunAll:
         for r in report.results:
             assert r.scenario.difficulty == "basic"
 
+    def test_explicit_empty_scenarios_runs_none(self):
+        # An explicit empty list must NOT fall back to the full catalogue.
+        report = run_all(scenarios=[])
+        assert report.scenarios_total == 0
+
+    def test_none_scenarios_runs_full_catalogue(self):
+        report = run_all(scenarios=None)
+        assert report.scenarios_total == len(SCENARIOS)
+
     def test_pass_rate_is_float(self):
         report = run_all()
         assert 0.0 <= report.pass_rate <= 1.0
@@ -309,3 +383,41 @@ class TestEvalReport:
         assert report.score == 1.0
         assert report.pass_rate == 1.0
         assert report.scenarios_total == 0
+
+
+# ─── CLI exit codes ───────────────────────────────────────────────────────────
+
+class TestCLI:
+    """Exercise the `python -m evals` entry point in-process so filter
+    mistakes cannot exit 0 with an empty, all-green report.
+
+    Calls ``evals.__main__.main`` directly (via a patched argv) and asserts on
+    the ``SystemExit`` code — deterministic and fast, no subprocess."""
+
+    def _main_exit_code(self, monkeypatch, *cli_args):
+        import evals.__main__ as cli
+        monkeypatch.setattr("sys.argv", ["python -m evals", *cli_args])
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        code = exc.value.code
+        return 0 if code is None else code
+
+    def test_unknown_tag_exits_2(self, monkeypatch, capsys):
+        code = self._main_exit_code(monkeypatch, "--tag", "definitely_not_a_real_tag")
+        assert code == 2
+        assert "Unknown tag" in capsys.readouterr().err
+
+    def test_valid_name_with_nonmatching_difficulty_exits_1(self, monkeypatch, capsys):
+        # A known scenario name filtered to a difficulty it doesn't have yields
+        # an empty pool → must exit 1, not 0.
+        code = self._main_exit_code(
+            monkeypatch, "--name", "standard_base_cabinet", "--difficulty", "advanced"
+        )
+        assert code == 1
+        assert "No scenarios matched" in capsys.readouterr().err
+
+    def test_known_tag_runs_normally(self, monkeypatch):
+        # A valid tag that matches scenarios must reach the run path (exit 0 if
+        # all pass, 1 if any fail) — never the tag-validation error code 2.
+        code = self._main_exit_code(monkeypatch, "--tag", "basic_cabinet", "--json")
+        assert code in (0, 1)

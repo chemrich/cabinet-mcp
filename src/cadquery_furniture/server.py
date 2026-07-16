@@ -26,9 +26,9 @@ HTTP/SSE  (``--http``)
     server tries 3750, 3751, … up to ``--max-port-attempts`` tries.  The
     resolved port is:
     - printed to **stderr** on startup
-    - written to ``/tmp/cabinet-mcp.port`` so scripts / other tools can
-      discover it without parsing log output
-    - removed from ``/tmp/cabinet-mcp.port`` on clean exit
+    - written to ``~/.cabinet-mcp/cabinet-mcp.port`` so scripts / other tools
+      can discover it without parsing log output
+    - removed from ``~/.cabinet-mcp/cabinet-mcp.port`` on clean exit
 
 Entry point: ``cabinet-mcp`` (defined in pyproject.toml [project.scripts]).
 
@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import socket
 import sys
 import textwrap
@@ -115,6 +116,37 @@ from .joinery import (
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+# Output-file names (cutlists, visualizations, inline-project names) become
+# filename stems on disk.  Restrict them so a supplied name can never contain
+# a path separator or traverse out of the intended output directory — the same
+# guarantee ``project.project_path`` gives persisted project files.
+_SAFE_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+_MAX_STEM_LEN = 100
+
+
+def _safe_stem(name: str, *, kind: str = "name") -> str:
+    """Validate ``name`` as a safe filename stem, returning it unchanged.
+
+    Rejects path separators, ``..`` traversal, empty/leading-dot names, and
+    over-long names.  Raises ``ValueError`` (surfaced to the client as a plain
+    input-validation error, not a traceback) on anything unsafe.
+    """
+    name = str(name)
+    if (
+        not name
+        or len(name) > _MAX_STEM_LEN
+        or ".." in name
+        or "/" in name
+        or "\\" in name
+        or not _SAFE_STEM_RE.match(name)
+    ):
+        raise ValueError(
+            f"Invalid {kind} {name!r}: use letters, digits, spaces, '.', '_' "
+            f"or '-' (must start with a letter or digit; max {_MAX_STEM_LEN} chars)."
+        )
+    return name
+
+
 def _ok(data: Any) -> list[types.TextContent]:
     """Return a JSON success response."""
     return [types.TextContent(type="text", text=json.dumps(data, indent=2))]
@@ -146,10 +178,18 @@ def _sort_drawer_config(dc: list) -> list:
         return dc
 
     def _type(row):
-        return row.opening_type if isinstance(row, OpeningConfig) else str(row[1])
+        if isinstance(row, OpeningConfig):
+            return row.opening_type
+        if isinstance(row, dict):
+            return str(row.get("opening_type", row.get("slot_type", "open")))
+        return str(row[1])
 
     def _height(row):
-        return row.height_mm if isinstance(row, OpeningConfig) else float(row[0])
+        if isinstance(row, OpeningConfig):
+            return row.height_mm
+        if isinstance(row, dict):
+            return float(row["height_mm"])
+        return float(row[0])
 
     types_set = {_type(r) for r in dc}
     if len(types_set) == 1:
@@ -725,6 +765,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "side_thickness":   {"type": "number", "default": 18.0},
                     "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
                     "drawer_config": {
@@ -838,6 +879,7 @@ async def list_tools() -> list[types.Tool]:
                     "depth":  {"type": "number", "description": "Exterior depth in mm."},
                     "side_thickness":   {"type": "number", "default": 18.0},
                     "bottom_thickness": {"type": "number", "default": 18.0},
+                    "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
                     "drawer_config": {
@@ -930,6 +972,10 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_pull": {
                         "type": "string",
                         "description": "Pull catalog key from list_hardware (category='pulls'). Omit for no pull hardware in render.",
+                    },
+                    "door_pull": {
+                        "type": "string",
+                        "description": "Pull catalog key applied to every door / door_pair slot in the render.",
                     },
                     "pull_preset": {
                         "type": "string",
@@ -1830,10 +1876,13 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
 
     cfg = _build_cabinet_config(args)
 
-    # Interior dimensions
+    # Interior dimensions.  Use the canonical ``interior_depth`` property
+    # (depth − back_rabbet_width) so the reported interior matches
+    # describe_design and the evaluator; panel cut depths below use
+    # ``depth − back_thickness`` deliberately (panel sits in front of the back).
     interior_width  = cfg.width  - 2 * cfg.side_thickness
     interior_height = cfg.interior_height
-    interior_depth  = cfg.depth  - cfg.back_thickness
+    interior_depth  = cfg.interior_depth
 
     # Panel sizes (parametric only, no CQ needed)
     panels = {
@@ -1986,6 +2035,8 @@ async def _tool_design_multi_column_cabinet(args: dict) -> list[types.TextConten
         "columns":               col_details,
         "adj_shelf_holes":       cfg.adj_shelf_holes,
         "door_hinge":            cfg.door_hinge,
+        "drawer_pull":           cfg.drawer_pull,
+        "door_pull":             cfg.door_pull,
     }
     if proportions_used:
         result["proportions_used"] = proportions_used
@@ -2525,7 +2576,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     sheet_width  = float(args.pop("sheet_width",  1220))
     kerf         = float(args.pop("kerf", 3.2))
     optimizer    = str(args.pop("optimizer", "auto"))
-    name         = str(args.pop("name", "cabinet"))
+    name         = _safe_stem(args.pop("name", "cabinet"), kind="cutlist name")
     columns_raw  = args.pop("columns", None)
     args.pop("furniture_top", None)
 
@@ -2770,7 +2821,7 @@ def _cabinet_assembly(
 
 
 async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
-    name          = str(args.pop("name", "cabinet"))
+    name          = _safe_stem(args.pop("name", "cabinet"), kind="visualization name")
     output_dir    = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
     open_browser  = bool(args.pop("open_browser", True))
     tolerance     = float(args.pop("tolerance", 0.1))
@@ -2952,26 +3003,22 @@ async def _tool_auto_fix_cabinet(args: dict) -> list[types.TextContent]:
     errors_after  = sum(1 for i in result.final_issues   if i.severity == Severity.ERROR)
 
     # Re-serialise the (possibly modified) config so it can be passed back
-    # to evaluate_cabinet or describe_design directly.
+    # to evaluate_cabinet or describe_design directly.  Use the project layer's
+    # full, round-trippable serializer so EVERY non-default field survives
+    # (back_rabbet_*, dado_depth, columns, pulls, fixed shelves, drawer_joinery,
+    # joinery specs) — a hand-picked subset silently drops fields the auto-fixer
+    # may have touched, so a round-tripped config could re-evaluate dirty.
+    from .project import _config_to_dict
     fixed_cfg = result.config
-    config_dict: dict[str, Any] = {
-        "width":            fixed_cfg.width,
-        "height":           fixed_cfg.height,
-        "depth":            fixed_cfg.depth,
-        "side_thickness":   fixed_cfg.side_thickness,
-        "bottom_thickness": fixed_cfg.bottom_thickness,
-        "top_thickness":    fixed_cfg.top_thickness,
-        "shelf_thickness":  fixed_cfg.shelf_thickness,
-        "back_thickness":   fixed_cfg.back_thickness,
-        "drawer_config":    [[op.height_mm, op.opening_type] for op in fixed_cfg.openings],
-        "carcass_joinery":  fixed_cfg.carcass_joinery.value,
-        "door_hinge":       fixed_cfg.door_hinge,
-        "drawer_slide":     fixed_cfg.drawer_slide,
-        "adj_shelf_holes":  fixed_cfg.adj_shelf_holes,
-        "leg_key":          fixed_cfg.leg_key,
-        "leg_count":        fixed_cfg.leg_count,
-        "leg_inset":        fixed_cfg.leg_inset,
-    }
+    config_dict: dict[str, Any] = _config_to_dict(fixed_cfg)
+    # `_config_to_dict` emits the canonical `openings` list of dicts.  Also echo a
+    # `drawer_config` in [[height_mm, opening_type], ...] form (matching every
+    # other config-echoing tool, e.g. apply_preset) so the repaired config can be
+    # piped straight back into a tool's `drawer_config` arg without conversion.
+    if not fixed_cfg.columns:
+        config_dict["drawer_config"] = [
+            [op.height_mm, op.opening_type] for op in fixed_cfg.openings
+        ]
 
     return _ok({
         "config":         config_dict,
@@ -3010,20 +3057,29 @@ def _compute_leg_positions(
     positions: list[dict[str, float]] = []
 
     if pattern == "corners":
-        positions = [
+        corners = [
             {"x": inset,         "y": inset},
             {"x": width - inset, "y": inset},
             {"x": inset,         "y": depth - inset},
             {"x": width - inset, "y": depth - inset},
         ]
-        # If more than 4 feet requested, add evenly-spaced extras along front/back
-        extra = count - 4
-        if extra > 0:
-            spacing = width / (extra + 1)
-            for i in range(extra):
-                x = spacing * (i + 1)
-                positions.append({"x": x, "y": inset})
-                positions.append({"x": x, "y": depth - inset})
+        if count <= 0:
+            positions = []
+        elif count < 4:
+            # Fewer than four feet: pick diagonally-opposite corners so the
+            # cabinet is supported front-and-back, not both on the same edge.
+            order = [corners[0], corners[3], corners[1], corners[2]]
+            positions = order[:count]
+        else:
+            positions = list(corners)
+            # More than 4 feet: add evenly-spaced extras along front/back.
+            extra = count - 4
+            if extra > 0:
+                spacing = width / (extra + 1)
+                for i in range(extra):
+                    x = spacing * (i + 1)
+                    positions.append({"x": x, "y": inset})
+                    positions.append({"x": x, "y": depth - inset})
 
     elif pattern == "corners_and_midspan":
         positions = [
@@ -3036,12 +3092,20 @@ def _compute_leg_positions(
         ]
 
     elif pattern == "along_front_back":
-        half = max(count // 2, 1)
-        spacing = (width - 2 * inset) / (half - 1) if half > 1 else 0.0
-        for i in range(half):
-            x = inset + spacing * i if half > 1 else width / 2
-            positions.append({"x": x, "y": inset})
-            positions.append({"x": x, "y": depth - inset})
+        # Split count evenly front/back; an odd count rounds the front row up so
+        # every requested foot is placed (the trailing slice never drops one).
+        front_n = -(-count // 2)   # ceil(count / 2)
+        back_n  = count // 2       # floor(count / 2)
+
+        def _row(n: int, y: float) -> list[dict[str, float]]:
+            if n <= 0:
+                return []
+            if n == 1:
+                return [{"x": width / 2, "y": y}]
+            sp = (width - 2 * inset) / (n - 1)
+            return [{"x": inset + sp * i, "y": y} for i in range(n)]
+
+        positions = _row(front_n, inset) + _row(back_n, depth - inset)
 
     # Trim or pad to exactly count feet
     return positions[:count]
@@ -3080,10 +3144,11 @@ async def _tool_design_legs(args: dict) -> list[types.TextContent]:
                 f"({(load_per_leg / capacity * 100):.0f}% capacity)."
             )
 
-    packs_needed = -(-actual_count // 2) if "richelieu" in leg_key else actual_count  # ceiling div
+    pack_qty = max(getattr(leg, "pack_quantity", 1), 1)
+    packs_needed = -(-actual_count // pack_qty)  # ceiling div
     ordering_note = (
-        f"Sold in 2-packs — order {packs_needed} pack(s) for {actual_count} legs."
-        if "richelieu" in leg_key
+        f"Sold in {pack_qty}-packs — order {packs_needed} pack(s) for {actual_count} legs."
+        if pack_qty > 1
         else f"Order {actual_count} individual legs."
     )
 
@@ -3371,6 +3436,9 @@ async def _tool_evaluate_project(args: dict) -> list[types.TextContent]:
 
 async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     project = _project_from_args(args)
+    # Inline project payloads skip save_project's validation, so re-check the
+    # name before it becomes an output directory / file stem.
+    _safe_stem(project.name, kind="project name")
 
     fmt          = args.get("format", "both")
     sheet_length = float(args.get("sheet_length", 2440))
@@ -3434,6 +3502,9 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     import cadquery as cq  # raises in lite mode; call_tool wraps into an error
 
     project = _project_from_args(args)
+    # Inline project payloads skip save_project's validation, so re-check the
+    # name before it becomes an output GLB/HTML file stem.
+    _safe_stem(project.name, kind="project name")
     output_dir   = str(args.get("output_dir", "~/.cabinet-mcp/visualizations"))
     open_browser = bool(args.get("open_browser", True))
     tolerance    = float(args.get("tolerance", 0.1))
@@ -3511,8 +3582,10 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
 DEFAULT_PORT: int = 3749
 
 #: File written when the server binds in HTTP mode so other processes can
-#: discover the actual port without parsing log output.
-PORT_FILE: Path = Path("/tmp/cabinet-mcp.port")
+#: discover the actual port without parsing log output.  Kept under the
+#: per-user ``~/.cabinet-mcp`` directory (not a world-writable /tmp path) so a
+#: predictable name can't be pre-created as a symlink by another user.
+PORT_FILE: Path = Path.home() / ".cabinet-mcp" / "cabinet-mcp.port"
 
 
 def find_free_port(start: int = DEFAULT_PORT, max_attempts: int = 20) -> int:
@@ -3538,8 +3611,22 @@ def find_free_port(start: int = DEFAULT_PORT, max_attempts: int = 20) -> int:
 
 
 def write_port_file(port: int, path: Path = PORT_FILE) -> None:
-    """Write the resolved port to a well-known file so other tools can read it."""
-    path.write_text(str(port))
+    """Write the resolved port to a well-known file so other tools can read it.
+
+    Written with ``O_NOFOLLOW`` (never follow a symlink at the final path
+    component) so a pre-planted symlink at the well-known name can't redirect
+    the write elsewhere.  A stale file from a previous run is truncated in
+    place.
+    """
+    import os
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.write(fd, str(port).encode("ascii"))
+    finally:
+        os.close(fd)
 
 
 def clear_port_file(path: Path = PORT_FILE) -> None:

@@ -142,7 +142,7 @@ def check_cumulative_heights(cab_cfg: CabinetConfig) -> list[Issue]:
                 value=total_opening_height,
                 limit=available_height,
             ))
-        elif total_opening_height == available_height:
+        elif abs(total_opening_height - available_height) < 0.01:
             issues.append(Issue(
                 check="cumulative_heights",
                 severity=Severity.WARNING,
@@ -303,18 +303,27 @@ def check_back_panel_fit(cab_cfg: CabinetConfig) -> list[Issue]:
     """Verify back panel dimensions match rabbets."""
     issues = []
 
-    expected_width = cab_cfg.width - (cab_cfg.side_thickness - cab_cfg.back_rabbet_depth) * 2
-    if abs(cab_cfg.back_panel_width - expected_width) > 0.1:
+    # NOTE: A former width check compared back_panel_width against
+    # ``width − 2·(side_thickness − back_rabbet_depth)`` — but that is the exact
+    # formula of the ``back_panel_width`` property, so the comparison was a
+    # tautology that could never fire. Removed. The real geometric constraints
+    # are the two checks below.
+
+    # The rabbet is cut into the side panel; its depth cannot exceed the panel
+    # thickness or the rabbet would blow through the side (and back_panel_width
+    # would exceed the cabinet width).
+    if cab_cfg.back_rabbet_depth > cab_cfg.side_thickness:
         issues.append(Issue(
             check="back_panel_fit",
             severity=Severity.ERROR,
             message=(
-                f"Back panel width {cab_cfg.back_panel_width:.1f}mm doesn't match "
-                f"rabbet spacing {expected_width:.1f}mm"
+                f"Back rabbet depth {cab_cfg.back_rabbet_depth:.1f}mm exceeds "
+                f"side panel thickness {cab_cfg.side_thickness:.1f}mm — the rabbet "
+                f"cannot be cut deeper than the panel it's cut into."
             ),
             part_a="back",
-            value=cab_cfg.back_panel_width,
-            limit=expected_width,
+            value=cab_cfg.back_rabbet_depth,
+            limit=cab_cfg.side_thickness,
         ))
 
     if cab_cfg.back_thickness > cab_cfg.back_rabbet_depth:
@@ -454,7 +463,7 @@ def check_domino_layout(
             message=(
                 f"Panel too thin for {spec.size_key} Domino at {joint_name}: "
                 f"panel is {panel_thickness:.1f} mm but mortise requires "
-                f"{s.mortise_depth_per_side:.0f} mm + 3 mm wall = {min_thickness:.0f} mm minimum."
+                f"{s.mortise_depth_per_side:.0f} mm + 2 mm wall = {min_thickness:.0f} mm minimum."
             ),
             part_a=joint_name,
             value=panel_thickness,
@@ -568,11 +577,14 @@ def check_carcass_joinery(cab_cfg: CabinetConfig) -> list[Issue]:
 
     elif method == CarcassJoinery.POCKET_SCREW:
         spec = cab_cfg.pocket_screw_spec
+        # The pocket is bored into the shelf / bottom (the piece the screw
+        # drives *out of*), so the min-thickness check must use that panel's
+        # thickness, not the side's.
         issues.extend(check_pocket_screw_layout(
-            spec, interior_d, cab_cfg.side_thickness, "shelf-to-side"
+            spec, interior_d, cab_cfg.shelf_thickness, "shelf-to-side"
         ))
         issues.extend(check_pocket_screw_layout(
-            spec, interior_d, cab_cfg.side_thickness, "bottom-to-side"
+            spec, interior_d, cab_cfg.bottom_thickness, "bottom-to-side"
         ))
 
     elif method == CarcassJoinery.BISCUIT:
@@ -686,15 +698,19 @@ def check_door_dimensions(door_cfg: DoorConfig) -> list[Issue]:
     issues = []
     h = door_cfg.hinge
 
-    # Delegate thickness + cup edge checks to the hinge spec's own validator
+    # Delegate thickness + cup edge checks to the hinge spec's own validator.
+    # A "too short" door is buildable (hinge_positions clamps the cups inside
+    # the panel) — it just can't use the nominal 100 mm insets — so it is a
+    # WARNING, whereas out-of-range thickness / cup blowout stay ERRORs.
     for msg in h.validate_door(
         door_thickness=door_cfg.door_thickness,
         door_height=door_cfg.door_height,
         door_width=door_cfg.door_width,
     ):
+        severity = Severity.WARNING if "too short" in msg else Severity.ERROR
         issues.append(Issue(
             check="door_dimensions",
-            severity=Severity.ERROR,
+            severity=severity,
             message=msg,
         ))
 
@@ -721,9 +737,15 @@ def check_door_dimensions(door_cfg: DoorConfig) -> list[Issue]:
             limit=0.0,
         ))
 
-    # Inset-specific: verify door + gaps fills the opening
+    # Inset-specific: verify door + gaps fills the opening.  The expected leaf
+    # width differs for a single door vs a pair (a pair splits the opening and
+    # loses gap_between between the leaves), so the expectation must match
+    # DoorConfig.door_width's own num_doors-dependent formula.
     if h.overlay_type == OverlayType.INSET:
-        expected = door_cfg.opening_width - 2 * door_cfg.gap_side
+        if door_cfg.num_doors == 2:
+            expected = (door_cfg.opening_width - door_cfg.gap_between) / 2 - door_cfg.gap_side
+        else:
+            expected = door_cfg.opening_width - 2 * door_cfg.gap_side
         if abs(door_cfg.door_width - expected) > 0.5:
             issues.append(Issue(
                 check="door_inset_fit",
@@ -1045,11 +1067,17 @@ def check_interference(assembly: "cq.Assembly", tolerance: float = 0.1) -> list[
     issues = []
     parts = []
 
-    # Traverse assembly and collect positioned shapes
+    # Traverse assembly and collect positioned shapes.  Only leaf nodes carry a
+    # single physical part; group/root nodes toCompound() to the *union of their
+    # descendants*, so including them would intersect every child against a
+    # compound that already contains it (spurious self-overlaps and null-shape
+    # warnings, and it suppresses the "no interference" INFO). Skip non-leaves.
     for name, obj in assembly.traverse():
+        if getattr(obj, "children", None):
+            continue
         try:
             compound = obj.toCompound() if hasattr(obj, 'toCompound') else None
-            if compound is not None:
+            if compound is not None and compound.Volume() > 0:
                 parts.append((name, compound))
         except Exception:
             pass
@@ -1104,9 +1132,26 @@ def check_drawer_in_opening(
 
     issues = []
 
+    # Measure the *box* only.  The applied drawer face (name "face") deliberately
+    # overhangs the opening on all sides (overlay + it sits proud of the front and
+    # below the bottom of the box), so including it in the bounding box would make
+    # every applied-face drawer appear to violate width/height/depth fit even
+    # though the box itself clears. Build a compound from the non-face leaves.
     try:
-        compound = drawer_assembly.toCompound()
-        bb = compound.BoundingBox()
+        box_shapes = []
+        for name, obj in drawer_assembly.traverse():
+            if obj.children:
+                continue  # skip group/root nodes; only measure leaves
+            if "face" in name.lower():
+                continue  # exclude the applied face
+            shape = obj.toCompound() if hasattr(obj, "toCompound") else None
+            if shape is not None and shape.Volume() > 0:
+                box_shapes.append(shape)
+        if not box_shapes:
+            # Fall back to the whole assembly if we couldn't isolate the box.
+            bb = drawer_assembly.toCompound().BoundingBox()
+        else:
+            bb = cq.Compound.makeCompound(box_shapes).BoundingBox()
     except Exception as e:
         return [Issue(
             check="drawer_fit",
@@ -1223,7 +1268,6 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
             continue
 
         # ── Width / side clearance ─────────────────────────────────────────
-        side_gap = (cab_cfg.interior_width - dcfg.box_width) / 2
         min_box_width = dcfg.side_thickness * 2  # box walls can't overlap
 
         if dcfg.box_width <= 0:
@@ -1253,35 +1297,19 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
                 value=dcfg.box_width,
                 limit=min_box_width,
             ))
-        elif side_gap < slide.min_side_clearance:
-            issues.append(Issue(
-                check="drawer_carcass_clearance",
-                severity=Severity.ERROR,
-                message=(
-                    f"{label}: side clearance {side_gap:.1f} mm < "
-                    f"{slide.name} minimum {slide.min_side_clearance:.1f} mm. "
-                    f"Widen the cabinet opening or use a slide with smaller clearance."
-                ),
-                part_a=label,
-                value=side_gap,
-                limit=slide.min_side_clearance,
-            ))
-        elif side_gap > slide.max_side_clearance:
-            issues.append(Issue(
-                check="drawer_carcass_clearance",
-                severity=Severity.WARNING,
-                message=(
-                    f"{label}: side clearance {side_gap:.1f} mm > "
-                    f"{slide.name} maximum {slide.max_side_clearance:.1f} mm — "
-                    f"coupling may not reach the side panel."
-                ),
-                part_a=label,
-                value=side_gap,
-                limit=slide.max_side_clearance,
-            ))
+        # NOTE: A former pair of side-clearance branches compared ``side_gap``
+        # against the slide's min/max clearance. But ``box_width`` is derived as
+        # ``interior_width − 2·nominal_side_clearance``, so ``side_gap`` here is
+        # identically ``nominal_side_clearance`` — always within [min, max] for
+        # any self-consistent slide spec. Those branches were dead code and were
+        # removed. Real side-clearance validation happens against *actual*
+        # (measured) geometry in check_drawer_in_opening.
 
         # ── Depth / rear clearance ─────────────────────────────────────────
-        rear_gap = cab_cfg.interior_depth - box_depth
+        # The box is positioned front_gap back from the interior front face
+        # (see drawer.py: drawer_y = front_gap), so the space behind the box is
+        # interior_depth − front_gap − box_depth, not interior_depth − box_depth.
+        rear_gap = cab_cfg.interior_depth - dcfg.front_gap - box_depth
         if rear_gap < 0:
             issues.append(Issue(
                 check="drawer_carcass_clearance",
@@ -1314,17 +1342,22 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
         # check_drawer_hardware_clearances; only flag the degenerate case
         # where the opening is too small for any gap at all.
         if dcfg.box_height <= 0:
+            # box_height = opening_height − min_bottom_clearance − vertical_gap,
+            # so the degenerate threshold is the sum of both deductions.
+            min_opening = dcfg.slide.min_bottom_clearance + dcfg.vertical_gap
             issues.append(Issue(
                 check="drawer_carcass_clearance",
                 severity=Severity.ERROR,
                 message=(
                     f"{label}: opening height {opening_h:.1f} mm is smaller than "
-                    f"the vertical gap ({dcfg.vertical_gap:.1f} mm) — box height "
-                    f"would be {dcfg.box_height:.1f} mm."
+                    f"the slide bottom clearance + vertical gap "
+                    f"({dcfg.slide.min_bottom_clearance:.1f} + {dcfg.vertical_gap:.1f} "
+                    f"= {min_opening:.1f} mm) — box height would be "
+                    f"{dcfg.box_height:.1f} mm."
                 ),
                 part_a=label,
                 value=dcfg.box_height,
-                limit=dcfg.vertical_gap,
+                limit=min_opening,
             ))
 
     return issues
