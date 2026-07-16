@@ -41,7 +41,7 @@ Presets live in `src/cadquery_furniture/presets.py` as frozen `CabinetPreset` da
 
 ## Verify
 
-- **Register the slug with the guard test.** The zero-error guard is `TestPresetEvaluationClean::test_no_errors` in `tests/test_new_presets.py`, and it is parametrized **only over the `NEW_PRESET_SLUGS` list** — not over every preset. Add your new slug to `NEW_PRESET_SLUGS` (near the top of that file), or the guard will not evaluate it. Then run:
+- **Run the guard test.** The zero-error guard is `TestPresetEvaluationClean::test_no_errors` in `tests/test_new_presets.py`. It is parametrized over `ALL_PRESET_SLUGS = sorted(PRESETS)`, so your new preset is picked up automatically once registered with `_p(...)` — no separate list to edit. The same file's `TestOpeningStackIntegrity` also checks your stack sums to interior. Run:
   ```bash
   uv run pytest tests/test_new_presets.py -q
   ```
