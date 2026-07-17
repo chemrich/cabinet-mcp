@@ -655,3 +655,42 @@ class TestProjectLibrary:
         # cabinets, so sides consolidate to one row of 12 across the batch.
         sides = [p for p in data["panels_summary"] if p["name"] == "side"]
         assert sides and sides[0]["qty"] == 12
+
+
+class TestSharedDrawerBoxThickness:
+    def test_config_field_defaults_and_round_trips(self):
+        cfg = CabinetConfig(width=700, height=400, depth=550)
+        assert cfg.drawer_box_thickness == 15.0
+        from cadquery_furniture.project import _config_to_dict, config_from_dict
+        cfg12 = CabinetConfig(width=700, height=400, depth=550,
+                              drawer_box_thickness=12)
+        assert config_from_dict(_config_to_dict(cfg12)).drawer_box_thickness == 12
+
+    def test_shared_token_applies_to_children(self):
+        proj = build_project({
+            "name": "boxthick",
+            "shared": {"drawer_box_thickness": 12},
+            "cabinets": [
+                {"name": "a", "config": {"width": 700, "height": 400,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}},
+            ],
+        })
+        (_, resolved), = proj.resolved()
+        assert resolved.drawer_box_thickness == 12
+
+    def test_shared_token_survives_save_load(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
+        proj = build_project({
+            "name": "boxthick_rt",
+            "shared": {"drawer_box_thickness": 12},
+            "cabinets": [
+                {"name": "a", "config": {"width": 700, "height": 400,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}},
+            ],
+        })
+        save_project(proj)
+        (_, resolved), = load_project("boxthick_rt").resolved()
+        assert resolved.drawer_box_thickness == 12

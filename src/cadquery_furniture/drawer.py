@@ -466,6 +466,8 @@ def drawers_from_cabinet_config(cab_cfg: CabinetConfig) -> list[tuple["cq.Assemb
                 slide_key=cab_cfg.drawer_slide,
                 pull_key=cab_cfg.drawer_pull,
                 joinery_style=cab_cfg.drawer_joinery,
+                side_thickness=cab_cfg.drawer_box_thickness,
+                front_back_thickness=cab_cfg.drawer_box_thickness,
                 bottom_thickness=op.bottom_thickness,
                 applied_face=False,  # faces handled by the caller / face stack
             )

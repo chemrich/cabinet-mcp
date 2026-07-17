@@ -8247,6 +8247,65 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="drawer_box_thickness_switches_stock",
+    prompt="Build the drawer boxes from 1/2-inch Baltic birch instead of 5/8.",
+    tags=["drawer", "cutlist"],
+    difficulty="standard",
+    description="drawer_box_thickness switches box side/front/back stock; "
+                "same-thickness box parts and bottoms pool onto shared "
+                "sheets; describe_design reports the stock.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_box_thickness": 12,
+                  "drawer_config": [[300, "drawer"]]},
+            label="12 mm boxes pool with the 12 mm heavy bottom",
+            assertions=[
+                Assertion("sheet_goods", Op.LEN_EQ, 4,
+                          "18 carcass + pooled 12 + 6 back + false fronts"),
+                Assertion("sheet_goods.1.thickness_mm", Op.EQ, 12),
+                Assertion("sheet_goods.1.panel_count", Op.EQ, 5,
+                          "2 sides + front + back + heavy bottom share sheets"),
+                Assertion("sheet_goods.2.thickness_mm", Op.EQ, 6.0),
+                Assertion("panels_summary.3.name", Op.EQ, "drawer_box_side"),
+                Assertion("panels_summary.3.thickness_mm", Op.EQ, 12),
+            ],
+        ),
+        ToolCall(
+            tool="describe_design",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_box_thickness": 12,
+                  "drawer_config": [[300, "drawer"]]},
+            label="describe reports the box stock",
+            assertions=[
+                Assertion("materials.drawer_box_thickness_mm", Op.EQ, 12),
+            ],
+        ),
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_boxthick",
+                  "shared": {"drawer_box_thickness": 12},
+                  "cabinets": [{"name": "a", "config": {
+                      "width": 700, "height": 400, "depth": 550,
+                      "drawer_config": [[300, "drawer"]]}}]},
+            label="save with the shared token",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_boxthick"},
+            label="shared token drives the project cutlist",
+            assertions=[
+                Assertion("sheet_goods.1.thickness_mm", Op.EQ, 12),
+                Assertion("sheet_goods.1.panel_count", Op.EQ, 5),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

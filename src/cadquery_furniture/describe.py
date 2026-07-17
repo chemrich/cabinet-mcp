@@ -266,6 +266,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
         "side_thickness_mm":      cfg.side_thickness,
         "back_thickness_mm":      cfg.back_thickness,
         "shelf_thickness_mm":     cfg.shelf_thickness,
+        "drawer_box_thickness_mm": getattr(cfg, "drawer_box_thickness", 15.0),
         "adj_shelf_holes":        cfg.adj_shelf_holes,
     }
     material_phrase = (

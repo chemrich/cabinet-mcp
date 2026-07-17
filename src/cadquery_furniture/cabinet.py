@@ -109,6 +109,9 @@ class CabinetConfig:
     top_thickness: float = 18.0
     shelf_thickness: float = 18.0
     back_thickness: float = 6.0  # 1/4" plywood
+    # Drawer box stock (sides + sub-front/back).  Bottoms are governed by the
+    # per-drawer bottom_thickness option / size rule in DrawerConfig.
+    drawer_box_thickness: float = 15.0  # 5/8" Baltic birch
 
     # Joinery
     dado_depth: float = 9.0  # half thickness dado for shelves/bottom
@@ -1046,6 +1049,8 @@ def build_multi_bay_cabinet(
                         slide_key=cfg.drawer_slide,
                         applied_face=False,  # faces handled below
                         joinery_style=cfg.drawer_joinery,
+                        side_thickness=cfg.drawer_box_thickness,
+                        front_back_thickness=cfg.drawer_box_thickness,
                         bottom_thickness=op.bottom_thickness,
                     )
                     drw_assy, drw_parts = build_drawer(dcfg)
