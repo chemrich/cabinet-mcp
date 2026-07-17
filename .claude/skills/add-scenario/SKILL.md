@@ -60,4 +60,4 @@ uv run python -m evals --name overflow_drawer_stack --verbose   # your scenario
 uv run python -m evals                            # full suite stays green
 ```
 
-Baseline is 286 scenarios / 960 assertions; expect your additions to raise both counts. Remember evals run in **lite CI too** — assert on shapes available without CadQuery (e.g. the `ERROR:` result in lite for CadQuery-only tools), or gate accordingly.
+Baseline is 288 scenarios / 983 assertions; expect your additions to raise both counts. Remember evals run in **lite CI too** — assert on shapes available without CadQuery (e.g. the `ERROR:` result in lite for CadQuery-only tools), or gate accordingly.

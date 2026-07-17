@@ -221,6 +221,50 @@ def load_project(name: str) -> CabinetProject:
     return project_from_dict(json.loads(path.read_text()))
 
 
+def list_saved_projects() -> list[dict]:
+    """Lightweight metadata for every saved project under :func:`project_dir`.
+
+    Reads each ``*.json`` snapshot without building full config objects so a
+    catalogue listing stays cheap and a single corrupt file can't sink the
+    whole listing — unreadable files come back as an entry with an ``error``
+    field instead.
+    """
+    from datetime import datetime
+
+    entries: list[dict] = []
+    d = project_dir()
+    if not d.exists():
+        return entries
+    for path in sorted(d.glob("*.json")):
+        modified = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+            timespec="seconds"
+        )
+        try:
+            data = json.loads(path.read_text())
+            cabinets = data.get("cabinets", [])
+            entries.append({
+                "name": data.get("name", path.stem),
+                "cabinet_count": len(cabinets),
+                "cabinet_names": [c.get("name", "") for c in cabinets],
+                "total_run_width_mm": round(sum(
+                    float(c.get("config", {}).get("width", 0) or 0)
+                    for c in cabinets
+                ), 1),
+                "wall_width_mm": data.get("wall_width_mm"),
+                "notes": data.get("notes", ""),
+                "modified": modified,
+                "path": str(path),
+            })
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            entries.append({
+                "name": path.stem,
+                "error": f"unreadable snapshot: {exc}",
+                "modified": modified,
+                "path": str(path),
+            })
+    return entries
+
+
 # ─── Dict <-> object conversion ───────────────────────────────────────────────
 
 

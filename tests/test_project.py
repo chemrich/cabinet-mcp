@@ -585,3 +585,73 @@ class TestPerOpeningDetailInProjectCutlist:
         hinges = sum(h["pieces_needed"] for h in data["hardware_bom"]
                      if h["category"] == "hinge")
         assert hinges == 6, hinges
+
+
+class TestProjectLibrary:
+    """list_saved_projects + the list/load tools and batched cutlists."""
+
+    def _redirect(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
+
+    def test_list_saved_projects_empty_store(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path / "nonexistent", monkeypatch)
+        assert list_saved_projects() == []
+
+    def test_list_saved_projects_metadata(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="lib_one")))
+        entries = list_saved_projects()
+        assert len(entries) == 1
+        e = entries[0]
+        assert e["name"] == "lib_one"
+        assert e["cabinet_count"] == 3
+        assert e["total_run_width_mm"] > 0
+        assert "modified" in e and "error" not in e
+
+    def test_list_saved_projects_tolerates_corrupt_file(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="lib_good")))
+        (tmp_path / "lib_bad.json").write_text("{not json")
+        entries = list_saved_projects()
+        by_name = {e["name"]: e for e in entries}
+        assert "error" in by_name["lib_bad"]
+        assert "error" not in by_name["lib_good"]
+
+    def test_load_project_tool_round_trip(self, tmp_path, monkeypatch):
+        from cadquery_furniture.server import _tool_load_project
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="lib_rt")))
+        data = json.loads(_run(_tool_load_project({"name": "lib_rt"}))[0].text)
+        assert data["name"] == "lib_rt"
+        # The returned payload is design_project-shaped: rebuilding it yields
+        # the same resolved configs.
+        rebuilt = build_project(data["project"])
+        for (n1, c1), (n2, c2) in zip(
+            load_project("lib_rt").resolved(), rebuilt.resolved()
+        ):
+            assert n1 == n2
+            assert c1.width == c2.width
+            assert c1.drawer_slide == c2.drawer_slide
+
+    def test_batch_cutlist_merges_projects(self, tmp_path, monkeypatch):
+        from cadquery_furniture.server import _tool_generate_project_cutlist
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="lib_a")))
+        save_project(build_project(_sample_payload(name="lib_b")))
+        # Keep the output files in the tmp tree too.
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        data = json.loads(_run(_tool_generate_project_cutlist(
+            {"project_names": ["lib_a", "lib_b"]}
+        ))[0].text)
+        assert data["project"] == "lib_a-lib_b"
+        assert data["projects"] == ["lib_a", "lib_b"]
+        assert data["cabinet_count"] == 6
+        assert data["per_cabinet"][0]["name"].startswith("lib_a/")
+        # Identical panels merge across projects: each project has 3 identical
+        # cabinets, so sides consolidate to one row of 12 across the batch.
+        sides = [p for p in data["panels_summary"] if p["name"] == "side"]
+        assert sides and sides[0]["qty"] == 12

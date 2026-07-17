@@ -8134,6 +8134,120 @@ SCENARIOS.append(Scenario(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Project library: list, load, batched cutlists
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="project_library_list_and_load",
+    prompt="Save a design, find it in the project catalogue, and load it back "
+           "for later editing.",
+    tags=["project", "workflow"],
+    difficulty="standard",
+    description="list_projects catalogues the store; load_project returns the "
+                "durable payload (including per-opening options) that "
+                "design_project accepts back.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_lib_round_trip", "cabinets": [
+                {"name": "a", "config": {
+                    "width": 700, "height": 400, "depth": 550,
+                    "drawer_config": [[300, "drawer", {"bottom_thickness": 6}]]}},
+            ]},
+            label="save a one-cabinet project",
+            assertions=[
+                Assertion("name", Op.EQ, "eval_lib_round_trip"),
+                Assertion("cabinet_count", Op.EQ, 1),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={},
+            label="catalogue contains the save",
+            assertions=[
+                Assertion("count", Op.GTE, 1),
+                Assertion("names", Op.CONTAINS, "eval_lib_round_trip"),
+            ],
+        ),
+        ToolCall(
+            tool="load_project",
+            args={"name": "eval_lib_round_trip"},
+            label="load returns the durable payload",
+            assertions=[
+                Assertion("name", Op.EQ, "eval_lib_round_trip"),
+                Assertion("cabinet_count", Op.EQ, 1),
+                Assertion("project.cabinets.0.config.width", Op.EQ, 700),
+                Assertion("project.cabinets.0.config.openings.0.height_mm",
+                          Op.EQ, 300),
+                Assertion("project.cabinets.0.config.openings.0.bottom_thickness",
+                          Op.EQ, 6, "per-opening option survives the round trip"),
+                Assertion("resolved.0.exterior_mm.width", Op.EQ, 700),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="project_batch_cutlist_two_projects",
+    prompt="One combined sheet order for the miter station and the desk — "
+           "batch two saved projects into a single cutlist.",
+    tags=["project", "cutlist"],
+    difficulty="advanced",
+    description="generate_project_cutlist accepts project_names; panels merge "
+                "across projects and cabinet rows are project-qualified.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_batch_a", "cabinets": [
+                {"name": "a", "config": {"width": 600, "height": 720,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}},
+            ]},
+            label="save project A",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_batch_b", "cabinets": [
+                {"name": "a", "config": {"width": 600, "height": 720,
+                                         "depth": 550,
+                                         "openings": [[684, "door"]]}},
+            ]},
+            label="save project B",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_names": ["eval_batch_a", "eval_batch_b"]},
+            label="batch both into one cutlist",
+            assertions=[
+                Assertion("project", Op.EQ, "eval_batch_a-eval_batch_b"),
+                Assertion("projects", Op.LEN_EQ, 2),
+                Assertion("cabinet_count", Op.EQ, 2),
+                Assertion("per_cabinet.0.name", Op.EQ, "eval_batch_a/a"),
+                Assertion("per_cabinet.1.name", Op.EQ, "eval_batch_b/a"),
+                Assertion("panels_summary.0.name", Op.EQ, "side"),
+                Assertion("panels_summary.0.qty", Op.EQ, 4,
+                          "identical sides merge across the two projects"),
+                Assertion("files", Op.HAS_KEY, "csv"),
+                Assertion("cost_estimate", Op.HAS_KEY, "grand_total_usd"),
+            ],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_names": ["eval_batch_a", "eval_batch_b"],
+                  "batch_name": "eval_batch_custom"},
+            label="custom batch_name names the output",
+            assertions=[
+                Assertion("project", Op.EQ, "eval_batch_custom"),
+                Assertion("cabinet_count", Op.EQ, 2),
+            ],
+        ),
+    ],
+))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
