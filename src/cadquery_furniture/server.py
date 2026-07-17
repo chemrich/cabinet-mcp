@@ -1575,6 +1575,45 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="list_projects",
+            description=textwrap.dedent("""\
+                List every design saved under ~/.cabinet-mcp/projects/ —
+                name, cabinet count and names, total run width, notes, and
+                last-modified time. Use this to discover what can be loaded
+                with load_project or batched with generate_project_cutlist.
+
+                A single cabinet is saved as a one-cabinet project via
+                design_project, so this is the catalogue of all durable
+                designs, not just multi-cabinet runs.
+            """),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="load_project",
+            description=textwrap.dedent("""\
+                Load a saved project's full payload back from
+                ~/.cabinet-mcp/projects/<name>.json.
+
+                Returns the durable 'project' payload (shared design tokens,
+                per-cabinet configs with any per-opening options, notes,
+                wall width) plus a resolved per-cabinet summary. The payload
+                is exactly the shape design_project accepts — pass it back
+                (same name) to continue editing, or reference the project by
+                name in evaluate_project / visualize_project /
+                generate_project_cutlist.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Saved project name (see list_projects).",
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        types.Tool(
             name="evaluate_project",
             description=textwrap.dedent("""\
                 Run evaluate_cabinet against every child cabinet in a project,
@@ -1607,15 +1646,36 @@ async def list_tools() -> list[types.Tool]:
                 thickness, dimensions, grain) are merged across cabinets so the
                 sheet optimizer packs everyone together.
 
-                Pass either 'project_name' to load a persisted project or an
-                inline 'project' payload. Output files land in
-                ~/.cabinet-mcp/cutlists/<project_name>/.
+                Pass either 'project_name' to load a persisted project, an
+                inline 'project' payload, or 'project_names' (a list of saved
+                projects — see list_projects) to batch several designs into
+                ONE merged cutlist, sheet optimization, and hardware BOM.
+                Output files land in ~/.cabinet-mcp/cutlists/<name>/ (for a
+                batch, <name> is 'batch_name' or the joined project names).
             """),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "project_name": {"type": "string"},
                     "project": {"type": "object"},
+                    "project_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": (
+                            "Batch mode: names of saved projects to combine "
+                            "into one merged cutlist. Takes precedence over "
+                            "project_name/project."
+                        ),
+                    },
+                    "batch_name": {
+                        "type": "string",
+                        "description": (
+                            "Output name for a project_names batch (file stem "
+                            "and cutlist directory). Defaults to the project "
+                            "names joined with '-'."
+                        ),
+                    },
                     "sheet_length": {"type": "number", "default": 2440},
                     "sheet_width":  {"type": "number", "default": 1220},
                     "kerf":         {"type": "number", "default": 3.2},
@@ -1731,6 +1791,10 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_list_pull_presets(arguments)
         elif name == "design_project":
             return await _tool_design_project(arguments)
+        elif name == "list_projects":
+            return await _tool_list_projects(arguments)
+        elif name == "load_project":
+            return await _tool_load_project(arguments)
         elif name == "evaluate_project":
             return await _tool_evaluate_project(arguments)
         elif name == "generate_project_cutlist":
@@ -3448,6 +3512,51 @@ async def _tool_design_project(args: dict) -> list[types.TextContent]:
     })
 
 
+async def _tool_list_projects(args: dict) -> list[types.TextContent]:
+    from .project import list_saved_projects, project_dir
+
+    entries = list_saved_projects()
+    return _ok({
+        "count": len(entries),
+        "names": [e["name"] for e in entries if "error" not in e],
+        "projects": entries,
+        "directory": str(project_dir()),
+    })
+
+
+async def _tool_load_project(args: dict) -> list[types.TextContent]:
+    from .project import load_project, project_to_dict
+
+    name = args.get("name") or args.get("project_name")
+    if not name:
+        return _err("Provide 'name' (see list_projects for saved names).")
+    project = load_project(str(name))
+
+    per_cabinet = []
+    for (cname, cfg), pc in zip(project.resolved(), project.cabinets):
+        per_cabinet.append({
+            "name": cname,
+            "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
+            "drawer_slide": cfg.drawer_slide,
+            "door_hinge":   cfg.door_hinge,
+            "carcass_joinery": cfg.carcass_joinery.value,
+            "drawer_joinery":  cfg.drawer_joinery.value,
+            "overrides":       sorted(pc.overrides),
+        })
+
+    return _ok({
+        "name": project.name,
+        "cabinet_count": len(project.cabinets),
+        "project": project_to_dict(project),
+        "resolved": per_cabinet,
+        "note": (
+            "'project' is the durable payload — pass it back to design_project "
+            "(same name) to continue editing, or reference the project by name "
+            "in evaluate_project / visualize_project / generate_project_cutlist."
+        ),
+    })
+
+
 async def _tool_evaluate_project(args: dict) -> list[types.TextContent]:
     from .project import check_project_consistency
 
@@ -3491,10 +3600,21 @@ async def _tool_evaluate_project(args: dict) -> list[types.TextContent]:
 
 
 async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
-    project = _project_from_args(args)
-    # Inline project payloads skip save_project's validation, so re-check the
-    # name before it becomes an output directory / file stem.
-    _safe_stem(project.name, kind="project name")
+    # Batch mode: 'project_names' loads several saved projects and merges
+    # them into one cutlist run; otherwise resolve the single project from
+    # 'project_name' / inline 'project' as before.
+    batch_names = args.get("project_names") or []
+    if batch_names:
+        from .project import load_project
+        projects = [load_project(str(n)) for n in batch_names]
+        out_name = str(args.get("batch_name")
+                       or "-".join(p.name for p in projects))
+    else:
+        projects = [_project_from_args(args)]
+        out_name = projects[0].name
+    # Inline project payloads and batch names skip save_project's validation,
+    # so re-check before the name becomes an output directory / file stem.
+    _safe_stem(out_name, kind="batch name" if batch_names else "project name")
 
     fmt          = args.get("format", "both")
     sheet_length = float(args.get("sheet_length", 2440))
@@ -3510,21 +3630,25 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     hw_lines_all:   list = []
 
     per_cabinet_summary = []
-    resolved = project.resolved()
-    for cname, cfg in resolved:
-        columns_raw = _columns_dict_from_cfg(cfg)
-        c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
-        raw_carcass.extend(c)
-        raw_6mm.extend(b)
-        raw_box.extend(x)
-        raw_false.extend(f)
-        hw_lines_all.extend(hardware_bom_for_cabinet_config(cfg, columns_raw))
+    total_cabinets = 0
+    for project in projects:
+        for cname, cfg in project.resolved():
+            total_cabinets += 1
+            columns_raw = _columns_dict_from_cfg(cfg)
+            c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
+            raw_carcass.extend(c)
+            raw_6mm.extend(b)
+            raw_box.extend(x)
+            raw_false.extend(f)
+            hw_lines_all.extend(hardware_bom_for_cabinet_config(cfg, columns_raw))
 
-        per_cabinet_summary.append({
-            "name": cname,
-            "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
-            "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
-        })
+            per_cabinet_summary.append({
+                # Cabinet names repeat across projects ("left", "a", …) — in a
+                # batch, qualify each with its project so rows stay unambiguous.
+                "name": f"{project.name}/{cname}" if batch_names else cname,
+                "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
+                "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
+            })
 
     # Consolidate identical panels across all cabinets — this is the merge
     # behavior the user picked. Six matching sides across three cabinets
@@ -3537,8 +3661,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     hw_lines       = consolidate_hardware_lines(hw_lines_all)
 
     result = _cutlist_pipeline(
-        name=project.name,
-        out_dir=Path.home() / ".cabinet-mcp" / "cutlists" / project.name,
+        name=out_name,
+        out_dir=Path.home() / ".cabinet-mcp" / "cutlists" / out_name,
         carcass_panels=carcass_panels, box_panels=box_panels,
         panels_6mm=panels_6mm, false_fronts=false_fronts,
         hw_lines=hw_lines,
@@ -3546,11 +3670,13 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         kerf=kerf, optimizer=optimizer, fmt=fmt,
     )
     result = {
-        "project": project.name,
-        "cabinet_count": len(project.cabinets),
+        "project": out_name,
+        "cabinet_count": total_cabinets,
         "per_cabinet": per_cabinet_summary,
         **result,
     }
+    if batch_names:
+        result = {"projects": [p.name for p in projects], **result}
     return _ok(result)
 
 

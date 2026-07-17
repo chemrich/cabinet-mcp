@@ -65,7 +65,7 @@ evaluation.py   ← returns typed Issue objects (no CadQuery required)
 cutlist.py      ← BOM, guillotine optimiser, JSON/CSV export (no CadQuery required)
         │
         ▼
-server.py       ← MCP server (23 tools, stdio or HTTP/SSE)
+server.py       ← MCP server (25 tools, stdio or HTTP/SSE)
 ```
 
 `evals/` (harness + scenarios) imports server handler functions directly — no MCP transport involved — so the full eval suite runs in under 1 second.
@@ -86,16 +86,16 @@ server.py       ← MCP server (23 tools, stdio or HTTP/SSE)
 | `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples — each row may carry an optional third element, a per-opening options dict (`bottom_thickness`, `pull_key`, `hinge_key`, `hinge_side`, `num_doors`, `door_thickness`), normalised by `to_opening`; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
 | `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints; `bottom_thickness=None` resolves by size — boxes > 127 mm (5") tall **and** ≥ 406.4 mm (16") wide default to 12 mm (1/2") bottoms, else 6 mm (constants `HEAVY_BOTTOM_*`); explicit thin bottoms on qualifying boxes draw a `drawer_bottom_thickness` warning from the evaluator |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
-| `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `check_project_consistency()` cross-cabinet warnings |
+| `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `list_saved_projects()` catalogues the store (surfaced via `list_projects` / `load_project` tools); `generate_project_cutlist` accepts `project_names` to batch several saved projects into one merged cutlist; `check_project_consistency()` cross-cabinet warnings |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
 | `cutlist.py` | `consolidate_bom()` (merges by name + dims), `optimize_cutlist(algorithm=)` — opcut FORWARD_GREEDY (primary), rectpack GuillotineBssfSas (optional, `algorithm="rectpack"`), strip-cutting (pure-Python fallback); `generate_sheet_layout_html()` produces a self-contained HTML file with per-sheet SVG layouts, numbered breakdown cut lines with dimensions, and rotated part labels; `generate_sheet_layout_pdf()` produces an A4-landscape PDF with sheet drawings, parts list, and guillotine cut sequence tables; `to_json()`, `to_csv()` |
-| `server.py` | Twenty-three MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
+| `server.py` | Twenty-five MCP tools; `main()` entry point; `--http` flag switches stdio → HTTP/SSE; port auto-increments from 3749; `_cutlist_pipeline()` is the shared post-panel pipeline (per-thickness sheet optimisation, pricing, file output) behind both `generate_cutlist` and `generate_project_cutlist` |
 
 ### Eval harness
 
 Scenarios live in `evals/scenarios.py`. Each `Scenario` has a natural-language `prompt`, a list of `ToolCall`s with `Assertion`s, and tags/difficulty for filtering. Available assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
 
-Baseline: 286 scenarios / 960 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
+Baseline: 288 scenarios / 983 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
 
 ## Known issues
 

@@ -68,7 +68,7 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Presets** — twenty-six pre-validated starting points for kitchen, workshop, bedroom, bathroom, office, entryway, and living-room furniture — [docs/presets.md](docs/presets.md)
 - **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, merged project cutlists
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
-- **MCP server** — twenty-three tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
+- **MCP server** — twenty-five tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
 - **Eval harness** — 283 scenarios / 940 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).
