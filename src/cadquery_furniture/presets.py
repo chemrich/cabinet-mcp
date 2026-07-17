@@ -80,6 +80,8 @@ class CabinetPreset:
             "top_thickness": cfg.top_thickness,
             "shelf_thickness": cfg.shelf_thickness,
             "back_thickness": cfg.back_thickness,
+            "drawer_box_thickness": cfg.drawer_box_thickness,
+            "drawer_box_prefinished": cfg.drawer_box_prefinished,
             "dado_depth": cfg.dado_depth,
             "back_rabbet_width": cfg.back_rabbet_width,
             "back_rabbet_depth": cfg.back_rabbet_depth,
@@ -264,6 +266,7 @@ _p(CabinetPreset(
         drawer_slide="blum_movento_769",
         door_hinge="blum_clip_top_110_full",
         carcass_joinery=CarcassJoinery.POCKET_SCREW,
+        drawer_box_prefinished=True,
     ),
 ))
 
@@ -289,6 +292,7 @@ _p(CabinetPreset(
         drawer_slide="blum_tandem_550h",
         door_hinge="blum_clip_top_110_full",
         carcass_joinery=CarcassJoinery.POCKET_SCREW,
+        drawer_box_prefinished=True,  # no drawers today, but shop default
     ),
 ))
 

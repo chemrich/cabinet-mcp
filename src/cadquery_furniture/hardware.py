@@ -1204,6 +1204,11 @@ PRICE_LIST: dict[str, float] = {
     "sheet_baltic_birch_15mm":  82.00,
     "sheet_baltic_birch_12mm":  68.00,
     "sheet_baltic_birch_6mm":   46.00,
+    # Pre-finished (UV-coated both faces) — drawer box stock
+    "sheet_baltic_birch_prefinished_18mm": 128.00,
+    "sheet_baltic_birch_prefinished_15mm": 110.00,
+    "sheet_baltic_birch_prefinished_12mm":  94.00,
+    "sheet_baltic_birch_prefinished_6mm":   64.00,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
     # Length-suffixed keys (model-length-NNNmm) reflect actual distributor

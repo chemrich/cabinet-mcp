@@ -740,3 +740,37 @@ class TestSharedDrawerBoxThickness:
         save_project(proj)
         (_, resolved), = load_project("boxthick_rt").resolved()
         assert resolved.drawer_box_thickness == 12
+
+
+class TestPrefinishedDrawerBoxes:
+    def test_config_round_trips(self):
+        from cadquery_furniture.project import _config_to_dict, config_from_dict
+        cfg = CabinetConfig(width=700, height=400, depth=550,
+                            drawer_box_prefinished=True)
+        assert config_from_dict(_config_to_dict(cfg)).drawer_box_prefinished is True
+        assert CabinetConfig(width=700, height=400,
+                             depth=550).drawer_box_prefinished is False
+
+    def test_shared_token_applies(self):
+        proj = build_project({
+            "name": "prefin",
+            "shared": {"drawer_box_prefinished": True},
+            "cabinets": [
+                {"name": "a", "config": {"width": 700, "height": 400,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}},
+            ],
+        })
+        (_, resolved), = proj.resolved()
+        assert resolved.drawer_box_prefinished is True
+
+    def test_workshop_presets_default_on(self):
+        from cadquery_furniture.presets import get_preset, PRESETS
+        assert get_preset("workshop_tool_chest").config.drawer_box_prefinished
+        assert get_preset("workshop_wall_cabinet").config.drawer_box_prefinished
+        # Non-workshop presets stay raw stock.
+        assert not get_preset("bedroom_dresser").config.drawer_box_prefinished
+        assert all(
+            not p.config.drawer_box_prefinished
+            for p in PRESETS.values() if p.category != "workshop"
+        )

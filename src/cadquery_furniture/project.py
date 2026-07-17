@@ -45,6 +45,7 @@ _SHARED_FIELDS = (
     "shelf_thickness",
     "back_thickness",
     "drawer_box_thickness",
+    "drawer_box_prefinished",
     "carcass_joinery",
     "drawer_joinery",
     "domino_spec",
@@ -74,6 +75,7 @@ class SharedDesign:
     shelf_thickness:  Optional[float] = None
     back_thickness:   Optional[float] = None
     drawer_box_thickness: Optional[float] = None  # box sides + sub-front/back
+    drawer_box_prefinished: Optional[bool] = None  # pre-finished BB box stock
 
     # Joinery
     carcass_joinery:  Optional[CarcassJoinery]     = None
@@ -303,6 +305,7 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
         "shelf_thickness":  cfg.shelf_thickness,
         "back_thickness":   cfg.back_thickness,
         "drawer_box_thickness": cfg.drawer_box_thickness,
+        "drawer_box_prefinished": cfg.drawer_box_prefinished,
         "dado_depth":         cfg.dado_depth,
         "back_rabbet_width":  cfg.back_rabbet_width,
         "back_rabbet_depth":  cfg.back_rabbet_depth,
