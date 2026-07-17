@@ -1202,6 +1202,7 @@ PRICE_LIST: dict[str, float] = {
     # ── Sheet goods — per 4×8 sheet ──────────────────────────────────────────
     "sheet_baltic_birch_18mm":  95.00,
     "sheet_baltic_birch_15mm":  82.00,
+    "sheet_baltic_birch_12mm":  68.00,
     "sheet_baltic_birch_6mm":   46.00,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
