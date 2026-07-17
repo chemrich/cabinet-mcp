@@ -83,8 +83,8 @@ server.py       ← MCP server (23 tools, stdio or HTTP/SSE)
 |---|---|
 | `hardware.py` | Frozen specs for Blum/Accuride/Salice drawer slides and Blum Clip Top hinges; `HingeSpec.hinges_for_height()` and `hinge_positions()` implement manufacturer placement rules |
 | `joinery.py` | `DrawerJoinerySpec.from_stock()` computes all cut dimensions; `DominoSpec`, `PocketScrewSpec`, `BiscuitSpec`, `DowelSpec` each provide `count_for_span()` and `positions_for_span()` |
-| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
-| `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints |
+| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples — each row may carry an optional third element, a per-opening options dict (`bottom_thickness`, `pull_key`, `hinge_key`, `hinge_side`, `num_doors`, `door_thickness`), normalised by `to_opening`; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
+| `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints; `bottom_thickness=None` resolves by size — boxes > 127 mm (5") tall **and** ≥ 406.4 mm (16") wide default to 12 mm (1/2") bottoms, else 6 mm (constants `HEAVY_BOTTOM_*`); explicit thin bottoms on qualifying boxes draw a `drawer_bottom_thickness` warning from the evaluator |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
 | `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `check_project_consistency()` cross-cabinet warnings |
 | `evaluation.py` | `evaluate_cabinet(cfg) -> list[Issue]`; `Issue` has `severity`, `measured`, `threshold`; CadQuery path adds interference checks |
@@ -95,7 +95,7 @@ server.py       ← MCP server (23 tools, stdio or HTTP/SSE)
 
 Scenarios live in `evals/scenarios.py`. Each `Scenario` has a natural-language `prompt`, a list of `ToolCall`s with `Assertion`s, and tags/difficulty for filtering. Available assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
 
-Baseline: 283 scenarios / 940 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
+Baseline: 286 scenarios / 960 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
 
 ## Known issues
 

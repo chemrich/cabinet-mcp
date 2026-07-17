@@ -62,6 +62,7 @@ class OpeningConfig:
     pull_key:       Optional[str]   = None
     num_doors:      Optional[int]   = None   # 1 or 2; only for door types
     door_thickness: Optional[float] = None
+    bottom_thickness: Optional[float] = None  # drawer box bottom; only for drawers
 
     def __post_init__(self) -> None:
         valid_types = {"drawer", "door", "door_pair", "shelf", "open"}
@@ -171,20 +172,13 @@ class CabinetConfig:
 
     def __post_init__(self) -> None:
         """Normalize openings and column openings to OpeningConfig objects."""
-        self.openings = [
-            op if isinstance(op, OpeningConfig)
-            else OpeningConfig(height_mm=float(op[0]), opening_type=str(op[1]))
-            for op in self.openings
-        ]
+        self.openings = [to_opening(op) for op in self.openings]
         normalized_cols = []
         for col in self.columns:
             if col.openings and not isinstance(col.openings[0], OpeningConfig):
                 normalized_cols.append(ColumnConfig(
                     width_mm=col.width_mm,
-                    openings=tuple(
-                        OpeningConfig(height_mm=float(op[0]), opening_type=str(op[1]))
-                        for op in col.openings
-                    ),
+                    openings=tuple(to_opening(op) for op in col.openings),
                     fixed_shelf_positions=tuple(col.fixed_shelf_positions),
                 ))
             else:
@@ -246,8 +240,21 @@ def stack_from_column(col: dict) -> list:
     return col.get("openings", col.get("drawer_config", []))
 
 
+# Per-opening override keys accepted in the optional third element of a
+# raw ``[height, type, {options}]`` row (and in dict-shaped rows).
+_OPENING_OPTION_KEYS = frozenset({
+    "hinge_key", "hinge_side", "pull_key", "num_doors",
+    "door_thickness", "bottom_thickness",
+})
+
+
 def to_opening(raw) -> OpeningConfig:
-    """Normalize a raw [height, type] list/tuple, dict, or OpeningConfig → OpeningConfig."""
+    """Normalize a raw row, dict, or OpeningConfig → OpeningConfig.
+
+    Raw rows are ``[height, type]`` or ``[height, type, {options}]`` — the
+    optional third element is a dict of per-opening overrides (any of
+    ``_OPENING_OPTION_KEYS``, e.g. ``{"bottom_thickness": 12}`` on a drawer).
+    """
     if isinstance(raw, OpeningConfig):
         return raw
     if isinstance(raw, dict):
@@ -259,8 +266,25 @@ def to_opening(raw) -> OpeningConfig:
             pull_key=raw.get("pull_key"),
             num_doors=raw.get("num_doors"),
             door_thickness=raw.get("door_thickness"),
+            bottom_thickness=raw.get("bottom_thickness"),
         )
-    return OpeningConfig(height_mm=float(raw[0]), opening_type=str(raw[1]))
+    options: dict = {}
+    if len(raw) > 2 and raw[2] is not None:
+        if not isinstance(raw[2], dict):
+            raise ValueError(
+                f"Third element of an opening row must be an options dict, "
+                f"got {raw[2]!r}."
+            )
+        unknown = set(raw[2]) - _OPENING_OPTION_KEYS
+        if unknown:
+            raise ValueError(
+                f"Unknown per-opening option(s) {sorted(unknown)}; "
+                f"valid options: {sorted(_OPENING_OPTION_KEYS)}."
+            )
+        options = raw[2]
+    return OpeningConfig(
+        height_mm=float(raw[0]), opening_type=str(raw[1]), **options
+    )
 
 
 def build_cabinet_config(args: dict) -> CabinetConfig:
@@ -1022,6 +1046,7 @@ def build_multi_bay_cabinet(
                         slide_key=cfg.drawer_slide,
                         applied_face=False,  # faces handled below
                         joinery_style=cfg.drawer_joinery,
+                        bottom_thickness=op.bottom_thickness,
                     )
                     drw_assy, drw_parts = build_drawer(dcfg)
 

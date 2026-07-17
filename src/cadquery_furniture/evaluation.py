@@ -22,7 +22,12 @@ except ImportError:
     cq = None
 
 from .cabinet import CabinetConfig
-from .drawer import DrawerConfig
+from .drawer import (
+    DrawerConfig,
+    HEAVY_BOTTOM_MIN_BOX_HEIGHT,
+    HEAVY_BOTTOM_MIN_BOX_WIDTH,
+    HEAVY_BOTTOM_THICKNESS,
+)
 from .door import DoorConfig
 from .hardware import (
     DrawerSlideSpec,
@@ -208,6 +213,32 @@ def check_drawer_hardware_clearances(
             ),
             value=remaining_below_dado,
             limit=8.0,
+        ))
+
+    # Call out a thin bottom on a big box.  The size-based default already
+    # picks 12 mm here, so this only fires when the caller explicitly
+    # overrode the bottom thinner than the heavy-drawer rule wants.
+    try:
+        heavy_box = (
+            drawer_cfg.box_height > HEAVY_BOTTOM_MIN_BOX_HEIGHT
+            and drawer_cfg.box_width >= HEAVY_BOTTOM_MIN_BOX_WIDTH
+        )
+    except KeyError:
+        heavy_box = False  # bad slide key already reported above
+    if heavy_box and drawer_cfg.bottom_thickness < HEAVY_BOTTOM_THICKNESS:
+        issues.append(Issue(
+            check="drawer_bottom_thickness",
+            severity=Severity.WARNING,
+            message=(
+                f"Drawer box {drawer_cfg.box_width:.0f}mm wide × "
+                f"{drawer_cfg.box_height:.0f}mm tall has a "
+                f"{drawer_cfg.bottom_thickness:.0f}mm bottom — boxes deeper "
+                f"than {HEAVY_BOTTOM_MIN_BOX_HEIGHT:.0f}mm (5\") and at least "
+                f"{HEAVY_BOTTOM_MIN_BOX_WIDTH:.0f}mm (16\") wide default to "
+                f"{HEAVY_BOTTOM_THICKNESS:.0f}mm (1/2\") to resist sag."
+            ),
+            value=drawer_cfg.bottom_thickness,
+            limit=HEAVY_BOTTOM_THICKNESS,
         ))
 
     return issues
@@ -1248,6 +1279,7 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
             opening_height=opening_h,
             opening_depth=cab_cfg.interior_depth,
             slide_key=cab_cfg.drawer_slide,
+            bottom_thickness=op.bottom_thickness,
         )
 
         # Eagerly resolve box_depth — slide_length_for_depth raises ValueError
@@ -1698,6 +1730,7 @@ def evaluate_cabinet(
                 opening_depth=cab_cfg.interior_depth,
                 slide_key=cab_cfg.drawer_slide,
                 pull_key=op.pull_key or cab_cfg.drawer_pull,
+                bottom_thickness=op.bottom_thickness,
             )
             all_issues.extend(check_drawer_hardware_clearances(dcfg))
         elif op.opening_type in ("door", "door_pair") and not door_configs:

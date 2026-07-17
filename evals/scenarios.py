@@ -7967,10 +7967,11 @@ SCENARIOS.append(Scenario(
                     "width": 600, "height": 720, "depth": 550, "num_drawers": 3}}],
             }},
             assertions=[
-                Assertion("panel_count", Op.EQ, 17,
-                          "carcass 3 + 3x(box side/front/back) + back + bottoms + 3 false fronts"),
+                Assertion("panel_count", Op.EQ, 18,
+                          "carcass 3 + 3x(box side/front/back) + back + 2 bottom rows "
+                          "(6mm small + 12mm heavy-default) + 3 false fronts"),
                 Assertion("panels_summary.3.name", Op.EQ, "drawer_box_side"),
-                Assertion("panels_summary.14.name", Op.EQ, "false_front"),
+                Assertion("panels_summary.15.name", Op.EQ, "false_front"),
                 Assertion("hardware_bom", Op.LEN_GTE, 3,
                           "slides + pulls-or-legs + screws all present"),
                 Assertion("files", Op.HAS_KEY, "csv"),
@@ -8005,6 +8006,127 @@ SCENARIOS.append(Scenario(
                 Assertion("panels_summary.3.name", Op.EQ, "back"),
                 Assertion("panels_summary.3.qty", Op.EQ, 2),
                 Assertion("sheet_goods.0.thickness_mm", Op.EQ, 18),
+            ],
+        ),
+    ],
+))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-drawer options & size-based bottom-thickness defaults
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCENARIOS.append(Scenario(
+    name="drawer_bottom_heavy_default_12mm",
+    prompt="Design a 24-inch-wide, 9-inch-deep shop drawer — the bottom should "
+           "default to 1/2 inch.",
+    tags=["drawer", "workshop"],
+    difficulty="standard",
+    description="Boxes taller than 5 in and at least 16 in wide default to a "
+                "12 mm bottom; narrower boxes keep 6 mm.",
+    tool_calls=[
+        ToolCall(
+            tool="design_drawer",
+            args={"opening_width": 609.6, "opening_height": 273,
+                  "opening_depth": 594, "slide_key": "blum_movento_769"},
+            label="wide deep box → 12 mm bottom",
+            assertions=[
+                Assertion("box_height_mm", Op.EQ, 229.0),
+                Assertion("box_width_mm", Op.APPROX, 567.6),
+                Assertion("bottom_thickness_mm", Op.EQ, 12.0),
+                Assertion("bottom_thickness_auto", Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="design_drawer",
+            args={"opening_width": 254, "opening_height": 273,
+                  "opening_depth": 594, "slide_key": "blum_movento_769"},
+            label="narrow box keeps 6 mm",
+            assertions=[
+                Assertion("bottom_thickness_mm", Op.EQ, 6.0),
+                Assertion("bottom_thickness_auto", Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="design_drawer",
+            args={"opening_width": 609.6, "opening_height": 273,
+                  "opening_depth": 594, "slide_key": "blum_movento_769",
+                  "bottom_thickness": 6},
+            label="explicit override beats the rule",
+            assertions=[
+                Assertion("bottom_thickness_mm", Op.EQ, 6),
+                Assertion("bottom_thickness_auto", Op.IS_FALSE),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="per_drawer_options_cutlist_bottom_override",
+    prompt="Cutlist for a wide single-drawer cabinet; force the drawer bottom "
+           "back to 1/4 inch via a per-drawer option.",
+    tags=["drawer", "cutlist"],
+    difficulty="standard",
+    description="drawer_config rows accept a third options dict; "
+                "bottom_thickness routes the bottom panel to the matching "
+                "sheet-thickness group.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_config": [[300, "drawer"]]},
+            label="default: heavy drawer adds a 12 mm sheet group",
+            assertions=[
+                Assertion("sheet_goods.2.thickness_mm", Op.EQ, 12.0),
+                Assertion("sheet_goods.3.thickness_mm", Op.EQ, 6.0),
+                Assertion("sheet_goods.2.price_per_sheet_usd", Op.GT, 0),
+            ],
+        ),
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_config": [[300, "drawer", {"bottom_thickness": 6}]]},
+            label="override collapses back to a single 6 mm group",
+            assertions=[
+                Assertion("sheet_goods.2.thickness_mm", Op.EQ, 6.0),
+                Assertion("sheet_goods", Op.LEN_EQ, 4,
+                          "18 carcass + 15 box + 6 thin + false fronts"),
+            ],
+        ),
+    ],
+))
+
+SCENARIOS.append(Scenario(
+    name="thin_bottom_on_heavy_drawer_warns",
+    prompt="A 26-inch-wide drawer with a 10-inch box and an explicit 1/4-inch "
+           "bottom should draw a warning.",
+    tags=["drawer", "evaluation"],
+    difficulty="standard",
+    description="Explicitly overriding a heavy drawer's bottom thinner than "
+                "12 mm triggers the drawer_bottom_thickness warning; the "
+                "auto default produces none.",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_config": [[300, "drawer", {"bottom_thickness": 6}]]},
+            label="explicit thin bottom warns",
+            assertions=[
+                Assertion("summary", Op.HAS_WARNING),
+                Assertion("summary.errors", Op.EQ, 0),
+                Assertion("issues.0.check", Op.EQ, "drawer_bottom_thickness"),
+                Assertion("issues.0.severity", Op.EQ, "warning"),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_config": [[300, "drawer"]]},
+            label="auto 12 mm default is clean",
+            assertions=[
+                Assertion("summary.warnings", Op.EQ, 0),
+                Assertion("summary.errors", Op.EQ, 0),
+                Assertion("summary.pass", Op.IS_TRUE),
             ],
         ),
     ],

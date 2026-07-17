@@ -226,7 +226,8 @@ def load_project(name: str) -> CabinetProject:
 
 def _opening_to_dict(op: OpeningConfig) -> dict:
     out = {"height_mm": op.height_mm, "opening_type": op.opening_type}
-    for k in ("hinge_key", "hinge_side", "pull_key", "num_doors", "door_thickness"):
+    for k in ("hinge_key", "hinge_side", "pull_key", "num_doors", "door_thickness",
+              "bottom_thickness"):
         v = getattr(op, k)
         if v is not None:
             out[k] = v

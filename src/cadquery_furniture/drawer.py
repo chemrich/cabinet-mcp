@@ -71,6 +71,17 @@ def snap_to_standard_box_height(raw_mm: float) -> float:
     return best if best is not None else raw_mm
 
 
+# ─── Bottom panel thickness defaults ──────────────────────────────────────────
+# Shop practice: a 1/4" bottom is fine for small drawers, but a box both
+# deeper than 5" and 16"+ wide will carry real weight over a wide span, so
+# it defaults to a 1/2" bottom (still dado-captured).  Thresholds compare
+# against *box* dimensions (what physically spans), not the opening.
+DEFAULT_BOTTOM_THICKNESS: float = 6.0     # 1/4" plywood
+HEAVY_BOTTOM_THICKNESS: float = 12.0      # 1/2" plywood
+HEAVY_BOTTOM_MIN_BOX_HEIGHT: float = 127.0  # > 5" deep (box height)
+HEAVY_BOTTOM_MIN_BOX_WIDTH: float = 406.4   # ≥ 16" wide (box width)
+
+
 @dataclass
 class DrawerConfig:
     """Configuration for a single drawer box."""
@@ -83,7 +94,14 @@ class DrawerConfig:
     # Materials
     side_thickness: float = 15.0  # 5/8" for drawer sides
     front_back_thickness: float = 15.0  # 5/8" for sub-front and back
-    bottom_thickness: float = 6.0  # 1/4" plywood
+    # Bottom panel thickness.  ``None`` (the default) resolves by size: boxes
+    # taller than HEAVY_BOTTOM_MIN_BOX_HEIGHT (5") *and* at least
+    # HEAVY_BOTTOM_MIN_BOX_WIDTH (16") wide get HEAVY_BOTTOM_THICKNESS
+    # (12 mm / 1/2") — a 1/4" bottom sags across a wide span under shop
+    # loads even dado-captured on four sides.  Everything else gets
+    # DEFAULT_BOTTOM_THICKNESS (6 mm / 1/4").  Pass an explicit value to
+    # override in either direction.
+    bottom_thickness: Optional[float] = None
 
     # Joinery for bottom panel
     bottom_dado_depth: float = 6.0  # how deep the dado is cut
@@ -121,6 +139,27 @@ class DrawerConfig:
     pull_key: Optional[str] = None
     pull_count: int = 0
     pull_vertical: VerticalPolicy = "center"
+
+    def __post_init__(self) -> None:
+        """Resolve the size-based bottom-thickness default.
+
+        Runs the heavy-bottom rule only when ``bottom_thickness`` was not
+        given.  A bad ``slide_key`` is deliberately swallowed here (falling
+        back to the thin default) so it keeps surfacing where it always has —
+        on first property access — rather than turning construction into the
+        failure point.
+        """
+        if self.bottom_thickness is None:
+            try:
+                heavy = (
+                    self.box_height > HEAVY_BOTTOM_MIN_BOX_HEIGHT
+                    and self.box_width >= HEAVY_BOTTOM_MIN_BOX_WIDTH
+                )
+            except KeyError:
+                heavy = False
+            self.bottom_thickness = (
+                HEAVY_BOTTOM_THICKNESS if heavy else DEFAULT_BOTTOM_THICKNESS
+            )
 
     @property
     def slide(self) -> DrawerSlideSpec:
@@ -427,6 +466,7 @@ def drawers_from_cabinet_config(cab_cfg: CabinetConfig) -> list[tuple["cq.Assemb
                 slide_key=cab_cfg.drawer_slide,
                 pull_key=cab_cfg.drawer_pull,
                 joinery_style=cab_cfg.drawer_joinery,
+                bottom_thickness=op.bottom_thickness,
                 applied_face=False,  # faces handled by the caller / face stack
             )
             drawer_assy, drawer_parts = build_drawer(dcfg)
