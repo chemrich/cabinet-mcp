@@ -84,15 +84,20 @@ Charlie's shop/supplier input and are deliberately not code-fixed.
   nonexistent `conftest.py`; lite CI has no guard asserting CadQuery is actually absent.
 - `evals/scenarios.py`: `count GTE 1` tautology in `project_library_list_and_load`.
 
-## Deferred data (needs Charlie / supplier reality — no code change)
+## Deferred data — resolved post-merge (follow-up PR), one item remaining
 
-- Whether Blum's real constraint is 700 mm max hinge spacing (current behavior: 3 hinges
-  on a 1 m door). If not, relax `max_hinge_spacing` and let the height table govern.
-- Salice Progressa+ 686 mm length/SKU is pattern-derived; the catalog comment itself
-  says 700 mm — confirm orderable lengths before trusting deep Progressa+ builds.
-- 9 mm (3/8") raw + pre-finished sheet prices are absent from PRICE_LIST (mitigated in
-  code: sheet groups now flag `price_missing` instead of silently pricing $0).
-- 9" Blum 563 "B10" SKUs still price anomalously high (pre-existing, data quality).
+- ~~Blum hinge spacing/count~~ — **resolved against Blum's published chart**
+  (ea.blum.com "Number of hinges"): ≤900 → 2, ≤1600 → 3, ≤2000 → 4, >2000 → 5.
+  The 700 mm spacing raise reproduces this chart within a hinge across the practical
+  range — the old 1200/1800 base table was the wrong element, now replaced. Only
+  behavioral change: doors over 2000 mm get 5 hinges (was 4).
+- ~~Salice Progressa+ 686 mm~~ — **confirmed orderable**: the US inch series includes
+  27" (686 mm); cabinetparts.com lists 27" Progressa+ Smove. Part number remains
+  pattern-derived; the misleading "catalog lists 700 mm" comment is corrected.
+- ~~9 mm sheet prices~~ — **added**: raw $56 (3/8" B/BB 5×5, Baker Lumber Jul 2026),
+  pre-finished $78 (interpolated between the 6/12 mm pre-finished premiums).
+- 9" Blum 563 "B10" SKUs still price anomalously high (pre-existing, data quality —
+  genuinely needs supplier confirmation).
 
 ## Explicitly verified clean
 

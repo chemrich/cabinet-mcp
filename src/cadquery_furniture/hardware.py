@@ -34,13 +34,14 @@ Blum Clip Top hinge family:
     Bottom hinge : 100 mm from door bottom
     3rd/4th hinge: evenly distributed in remaining span
 
-  Hinge count by door height (base table):
-    Up to 1 200 mm  → 2 hinges
-    1 201–1 800 mm  → 3 hinges
-    > 1 800 mm      → 4 hinges
-  The base count is then raised until adjacent-hinge spacing ≤
-  ``max_hinge_spacing`` (700 mm default), which governs for most doors
-  above ~900 mm — e.g. a 1 000 mm door gets 3 hinges, not the table's 2.
+  Hinge count by door height (Blum chart, ea.blum.com "Number of hinges"):
+    Up to 900 mm    → 2 hinges
+    901–1 600 mm    → 3 hinges
+    1 601–2 000 mm  → 4 hinges
+    > 2 000 mm      → 5 hinges
+  The count is additionally raised until adjacent-hinge spacing ≤
+  ``max_hinge_spacing`` (700 mm default) — the two rules agree within a
+  hinge across the practical range.
   (Blum also recommends an extra hinge per 25 kg of door weight above 20 kg.)
 
 IMPORTANT: Always verify part numbers and dimensions against the official Blum or
@@ -209,22 +210,29 @@ class HingeSpec:
     def hinges_for_height(self, door_height: float, door_weight_kg: float = 0.0) -> int:
         """Return the recommended number of hinges for a given door height and weight.
 
-        Rules (Blum Clip Top family):
-          ≤ 1 200 mm  → 2 hinges (base)
-          ≤ 1 800 mm  → 3 hinges (base)
-          > 1 800 mm  → 4 hinges (base)
+        Rules (Blum's published chart, ea.blum.com "Number of hinges"):
+          ≤ 900 mm    → 2 hinges (base)
+          ≤ 1 600 mm  → 3 hinges (base)
+          ≤ 2 000 mm  → 4 hinges (base)
+          > 2 000 mm  → 5 hinges (base)
         The base count is then raised, if necessary, until the on-centre
         spacing between adjacent hinges is ≤ ``max_hinge_spacing`` — so the
         spec never recommends a layout that ``check_door_hinge_count`` would
         flag as over-spaced.
         One extra hinge is added for every 25 kg above ``max_door_weight_kg``.
         """
-        if door_height <= 1200:
+        # Blum's published chart (ea.blum.com "Number of hinges"): ≤900 → 2,
+        # ≤1600 → 3, ≤2000 → 4, above → 5.  The 700 mm spacing raise below
+        # reproduces this chart almost exactly — the old 1200/1800 table was
+        # the outlier (2026-07-17 review, resolved against Blum guidance).
+        if door_height <= 900:
             count = 2
-        elif door_height <= 1800:
+        elif door_height <= 1600:
             count = 3
-        else:
+        elif door_height <= 2000:
             count = 4
+        else:
+            count = 5
         # Raise the count until adjacent hinges fall within max_hinge_spacing.
         # Hinges span hinge_inset_bottom … (door_height − hinge_inset_top);
         # with ``count`` hinges the largest gap is span / (count − 1).
@@ -619,7 +627,9 @@ SALICE_PROGRESSA_PLUS = DrawerSlideSpec(
         457: "G5U6S457",    # 18" — pattern-derived
         533: "G5U6S533",    # 21" — confirmed (cabinetparts SHG5U6S533XXF6 base)
         610: "G5U6S610",    # 24" — pattern-derived
-        686: "G5U6S686",    # 27" — pattern-derived (catalog lists 700 mm)
+        686: "G5U6S686",    # 27" — length confirmed orderable (US inch series;
+                            # cabinetparts.com lists 27" Progressa+ Smove), part
+                            # number pattern-derived
         762: "G5U6S762",    # 30" — pattern-derived (marathonhardware SG7E6S700XXB ≈ 700 mm is a nearby length, not this SKU)
     },
 )
@@ -1212,11 +1222,13 @@ PRICE_LIST: dict[str, float] = {
     "sheet_baltic_birch_18mm":  95.00,
     "sheet_baltic_birch_15mm":  82.00,
     "sheet_baltic_birch_12mm":  68.00,
+    "sheet_baltic_birch_9mm":   56.00,  # 3/8" B/BB (Baker Lumber, Jul 2026)
     "sheet_baltic_birch_6mm":   46.00,
     # Pre-finished (UV-coated both faces) — drawer box stock
     "sheet_baltic_birch_prefinished_18mm": 128.00,
     "sheet_baltic_birch_prefinished_15mm": 110.00,
     "sheet_baltic_birch_prefinished_12mm":  94.00,
+    "sheet_baltic_birch_prefinished_9mm":   78.00,
     "sheet_baltic_birch_prefinished_6mm":   64.00,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
