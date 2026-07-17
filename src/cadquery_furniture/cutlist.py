@@ -1049,11 +1049,6 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     from .hardware import get_slide
     from .drawer import DrawerConfig
 
-    try:
-        slide_spec = get_slide(cab_cfg.drawer_slide)
-    except KeyError:
-        return []
-
     interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
 
     def _slides_from_stack(stack, interior_width: float) -> list[HardwareLine]:
@@ -1063,21 +1058,29 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
             opening_h, slot_type = op.height_mm, op.opening_type
             if slot_type != "drawer":
                 continue
+            # Each drawer resolves its own slide (op.slide_key overriding
+            # cab_cfg.drawer_slide) so a per-opening override is billed
+            # under its own SKU; unknown keys skip that drawer only.
+            slide_key = op.slide_key or cab_cfg.drawer_slide
+            try:
+                slide_spec = get_slide(slide_key)
+            except KeyError:
+                continue
             dcfg = DrawerConfig(
                 opening_width=interior_width,
                 opening_height=opening_h,
                 opening_depth=interior_depth,
-                slide_key=cab_cfg.drawer_slide,
+                slide_key=slide_key,
             )
             length = slide_spec.slide_length_for_depth(dcfg.opening_depth)
             pn = slide_spec.part_numbers.get(length, "")
-            sku = f"{cab_cfg.drawer_slide}-{length}mm"
+            sku = f"{slide_key}-{length}mm"
             lines.append(HardwareLine(
                 sku=sku,
                 category="slide",
                 name=slide_spec.name,
                 brand=slide_spec.manufacturer,
-                model_number=pn or cab_cfg.drawer_slide,
+                model_number=pn or slide_key,
                 pieces_needed=2,           # one pair (left + right) per drawer
                 pack_quantity=2 if slide_spec.sold_as_pair else 1,
                 notes=f"{length} mm",

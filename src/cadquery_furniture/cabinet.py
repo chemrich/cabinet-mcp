@@ -63,6 +63,7 @@ class OpeningConfig:
     num_doors:      Optional[int]   = None   # 1 or 2; only for door types
     door_thickness: Optional[float] = None
     bottom_thickness: Optional[float] = None  # drawer box bottom; only for drawers
+    slide_key: Optional[str] = None  # drawer slide override; only for drawers
 
     def __post_init__(self) -> None:
         valid_types = {"drawer", "door", "door_pair", "shelf", "open"}
@@ -252,7 +253,7 @@ def stack_from_column(col: dict) -> list:
 # raw ``[height, type, {options}]`` row (and in dict-shaped rows).
 _OPENING_OPTION_KEYS = frozenset({
     "hinge_key", "hinge_side", "pull_key", "num_doors",
-    "door_thickness", "bottom_thickness",
+    "door_thickness", "bottom_thickness", "slide_key",
 })
 
 
@@ -275,6 +276,7 @@ def to_opening(raw) -> OpeningConfig:
             num_doors=raw.get("num_doors"),
             door_thickness=raw.get("door_thickness"),
             bottom_thickness=raw.get("bottom_thickness"),
+            slide_key=raw.get("slide_key"),
         )
     options: dict = {}
     if len(raw) > 2 and raw[2] is not None:
@@ -1051,7 +1053,7 @@ def build_multi_bay_cabinet(
                         opening_width=cfg.interior_width,
                         opening_height=opening_h,
                         opening_depth=cfg.interior_depth,
-                        slide_key=cfg.drawer_slide,
+                        slide_key=op.slide_key or cfg.drawer_slide,
                         applied_face=False,  # faces handled below
                         joinery_style=cfg.drawer_joinery,
                         side_thickness=cfg.drawer_box_thickness,
@@ -1060,9 +1062,9 @@ def build_multi_bay_cabinet(
                     )
                     drw_assy, drw_parts = build_drawer(dcfg)
 
-                    drw_x = bx + cfg.side_thickness + slide.nominal_side_clearance
+                    drw_x = bx + cfg.side_thickness + dcfg.slide.nominal_side_clearance
                     drw_y = dcfg.front_gap
-                    drw_z = z + slide.min_bottom_clearance
+                    drw_z = z + dcfg.slide.min_bottom_clearance
 
                     assy.add(drw_assy, name=f"bay{bay_idx}_drawer{drw_idx}",
                              loc=cq.Location((drw_x, drw_y, drw_z)),

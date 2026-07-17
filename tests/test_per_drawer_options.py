@@ -39,6 +39,38 @@ class TestOpeningRowParsing:
                          "bottom_thickness": 12})
         assert op.bottom_thickness == 12
 
+    def test_slide_key_option_round_trips(self):
+        op = to_opening([300, "drawer", {"slide_key": "blum_movento_769"}])
+        assert op.slide_key == "blum_movento_769"
+        from cadquery_furniture.project import _opening_to_dict
+        d = _opening_to_dict(op)
+        assert d["slide_key"] == "blum_movento_769"
+        assert to_opening(d).slide_key == "blum_movento_769"
+
+    def test_slide_key_override_reaches_bom(self):
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        cfg = CabinetConfig(
+            width=700, height=764, depth=600,
+            drawer_slide="blum_tandem_550h",
+            openings=[[300, "drawer", {"slide_key": "blum_movento_769"}],
+                      [232, "drawer"], [192, "drawer"]],
+        )
+        lines = slide_lines_for_cabinet_config(cfg)
+        by_name = {l.name: l.pieces_needed for l in lines}
+        assert by_name == {"Blum Movento 769": 2, "Blum Tandem 550H": 4}
+
+    def test_unknown_slide_key_skips_that_drawer_only(self):
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        cfg = CabinetConfig(
+            width=700, height=764, depth=600,
+            drawer_slide="blum_tandem_550h",
+            openings=[[300, "drawer", {"slide_key": "no_such_slide"}],
+                      [232, "drawer"], [192, "drawer"]],
+        )
+        lines = slide_lines_for_cabinet_config(cfg)
+        assert {l.name for l in lines} == {"Blum Tandem 550H"}
+        assert sum(l.pieces_needed for l in lines) == 4
+
     def test_cabinet_config_normalizes_options_row(self):
         cfg = CabinetConfig(
             width=700, height=400, depth=550,
