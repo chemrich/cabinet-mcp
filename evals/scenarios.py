@@ -8306,6 +8306,57 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="prefinished_drawer_boxes",
+    prompt="Quote the drawer boxes in pre-finished Baltic birch — shop "
+           "cabinets skip the finishing step.",
+    tags=["drawer", "cutlist", "workshop"],
+    difficulty="standard",
+    description="drawer_box_prefinished switches box parts + bottoms to "
+                "pre-finished stock with separate sheet groups and pricing; "
+                "workshop presets default it on; describe_design reports it.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_box_prefinished": True,
+                  "drawer_config": [[300, "drawer"]]},
+            label="pre-finished stock gets its own priced groups",
+            assertions=[
+                Assertion("sheet_goods", Op.LEN_EQ, 5,
+                          "18 carcass + 6 back + prefin 15 + prefin 12 + false fronts"),
+                Assertion("sheet_goods.2.material", Op.CONTAINS, "Pre-finished"),
+                Assertion("sheet_goods.2.thickness_mm", Op.EQ, 15.0),
+                Assertion("sheet_goods.2.price_per_sheet_usd", Op.EQ, 110.0),
+                Assertion("sheet_goods.3.material", Op.CONTAINS, "Pre-finished"),
+                Assertion("sheet_goods.3.thickness_mm", Op.EQ, 12.0),
+                Assertion("sheet_goods.1.material", Op.CONTAINS, "Baltic Birch 1/4",
+                          "cabinet back stays raw stock"),
+            ],
+        ),
+        ToolCall(
+            tool="apply_preset",
+            args={"name": "workshop_tool_chest"},
+            label="workshop preset defaults pre-finished on",
+            assertions=[
+                Assertion("config.drawer_box_prefinished", Op.IS_TRUE),
+            ],
+        ),
+        ToolCall(
+            tool="describe_design",
+            args={"width": 700, "height": 400, "depth": 550,
+                  "drawer_box_prefinished": True,
+                  "drawer_config": [[300, "drawer"]]},
+            label="describe reports the stock",
+            assertions=[
+                Assertion("materials.drawer_box_prefinished", Op.IS_TRUE),
+                Assertion("prose", Op.CONTAINS, "pre-finished"),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

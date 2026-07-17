@@ -267,6 +267,7 @@ def describe_design(cfg: CabinetConfig) -> dict:
         "back_thickness_mm":      cfg.back_thickness,
         "shelf_thickness_mm":     cfg.shelf_thickness,
         "drawer_box_thickness_mm": getattr(cfg, "drawer_box_thickness", 15.0),
+        "drawer_box_prefinished": getattr(cfg, "drawer_box_prefinished", False),
         "adj_shelf_holes":        cfg.adj_shelf_holes,
     }
     material_phrase = (
@@ -276,6 +277,8 @@ def describe_design(cfg: CabinetConfig) -> dict:
     )
     if has_drawers:
         material_phrase += f", {_drawer_joinery_name(drawer_joinery)} drawer-box corners"
+        if getattr(cfg, "drawer_box_prefinished", False):
+            material_phrase += " in pre-finished Baltic birch"
     if cfg.adj_shelf_holes:
         material_phrase += ", 32-mm adjustable shelf-pin holes"
     if cfg.fixed_shelf_positions:

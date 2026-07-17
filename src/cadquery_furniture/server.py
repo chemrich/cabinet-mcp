@@ -346,6 +346,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
                     },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -510,6 +514,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
                     },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -604,6 +612,10 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_thickness": {
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
                     "drawer_config": {
                         "type": "array",
@@ -817,6 +829,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
                     },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -934,6 +950,10 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_thickness": {
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1202,6 +1222,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
                     },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1268,6 +1292,10 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_thickness": {
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1409,6 +1437,10 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_thickness": {
                         "type": "number", "default": 15.0,
                         "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
+                    "drawer_box_prefinished": {
+                        "type": "boolean", "default": False,
+                        "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1581,6 +1613,7 @@ async def list_tools() -> list[types.Tool]:
                             "shelf_thickness":  {"type": "number"},
                             "back_thickness":   {"type": "number"},
                             "drawer_box_thickness": {"type": "number"},
+                            "drawer_box_prefinished": {"type": "boolean"},
                             "carcass_joinery":  {"type": "string"},
                             "drawer_joinery":   {"type": "string"},
                             "drawer_slide":     {"type": "string"},
@@ -2452,17 +2485,19 @@ def _raw_panels_for_cabinet(
                 bd = round(dcfg.box_depth, 1)
                 bt = dcfg.side_thickness
                 bottom_w = round(dcfg.bottom_panel_width, 1)
+                box_material = ("baltic_birch_prefinished"
+                                if cfg.drawer_box_prefinished else "baltic_birch")
 
                 raw_box += [
                     CutlistPanel(name="drawer_box_side", length=bd, width=bh,
                                  thickness=bt, quantity=2,
-                                 grain_direction="", material="baltic_birch"),
+                                 grain_direction="", material=box_material),
                     CutlistPanel(name="drawer_box_front", length=bw, width=bh,
                                  thickness=bt, quantity=1,
-                                 grain_direction="", material="baltic_birch"),
+                                 grain_direction="", material=box_material),
                     CutlistPanel(name="drawer_box_back", length=bw, width=bh,
                                  thickness=bt, quantity=1,
-                                 grain_direction="", material="baltic_birch"),
+                                 grain_direction="", material=box_material),
                 ]
                 bottom_label = {6: "1/4 in", 9: "3/8 in", 12: "1/2 in"}.get(
                     int(round(dcfg.bottom_thickness)),
@@ -2475,7 +2510,7 @@ def _raw_panels_for_cabinet(
                     thickness=dcfg.bottom_thickness,
                     quantity=1,
                     grain_direction="",
-                    material="baltic_birch",
+                    material=box_material,
                     notes=f"{bottom_label}, dado-captured",
                 ))
 
@@ -2496,6 +2531,11 @@ def _raw_panels_for_cabinet(
 
 
 _IMPERIAL_SHEET_LABELS = {18: '3/4"', 15: '5/8"', 12: '1/2"', 9: '3/8"', 6: '1/4"'}
+
+_SHEET_MATERIAL_LABELS = {
+    "baltic_birch": "Baltic Birch",
+    "baltic_birch_prefinished": "Pre-finished Baltic Birch",
+}
 
 
 def _cutlist_pipeline(
@@ -2550,18 +2590,19 @@ def _cutlist_pipeline(
         carcass_by_t.setdefault(p.thickness, []).append(p)
     carcass_ts = sorted(carcass_by_t, reverse=True)
 
-    # Drawer-box parts and thin panels (backs + bottoms) pool by thickness:
-    # box stock is configurable (drawer_box_thickness) and bottoms follow
-    # the per-drawer size rule / overrides, so same-thickness parts from
-    # either pool pack — and are priced — on shared sheet stock (e.g. 12 mm
-    # box sides alongside 12 mm heavy drawer bottoms).
-    parts_by_t: dict[float, list[CutlistPanel]] = {}
+    # Drawer-box parts and thin panels (backs + bottoms) pool by
+    # (material, thickness): box stock is configurable (drawer_box_thickness,
+    # drawer_box_prefinished) and bottoms follow the per-drawer size rule /
+    # overrides, so parts sharing both stock and thickness pack — and are
+    # priced — on shared sheets (e.g. 12 mm box sides alongside 12 mm heavy
+    # drawer bottoms), while pre-finished stock never mixes with raw.
+    parts_by_mt: dict[tuple[str, float], list[CutlistPanel]] = {}
     for p in box_panels + panels_6mm:
-        parts_by_t.setdefault(p.thickness, []).append(p)
-    parts_ts = sorted(parts_by_t, reverse=True)
+        parts_by_mt.setdefault((p.material, p.thickness), []).append(p)
+    parts_mts = sorted(parts_by_mt, key=lambda mt: (mt[0], -mt[1]))
 
     opt_carcass_by_t = {t: _opt_group(carcass_by_t[t], t) for t in carcass_ts}
-    opt_parts_by_t = {t: _opt_group(parts_by_t[t], t) for t in parts_ts}
+    opt_parts_by_mt = {mt: _opt_group(parts_by_mt[mt], mt[1]) for mt in parts_mts}
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
@@ -2579,16 +2620,18 @@ def _cutlist_pipeline(
                   "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_info)
         sheet_goods.append(entry)
-    for t in parts_ts:
-        opt_info, _ = opt_parts_by_t[t]
+    for mt in parts_mts:
+        mat, t = mt
+        opt_info, _ = opt_parts_by_mt[mt]
         sheets = opt_info.get("sheets_used", 0)
-        unit_p = price_for(f"sheet_baltic_birch_{int(round(t))}mm")
+        unit_p = price_for(f"sheet_{mat}_{int(round(t))}mm")
         frac   = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
-        label  = (f"Baltic Birch {frac} ({t:.0f} mm)" if frac
-                  else f"Baltic Birch {t:.0f} mm")
+        mat_label = _SHEET_MATERIAL_LABELS.get(mat, mat.replace("_", " ").title())
+        label  = (f"{mat_label} {frac} ({t:.0f} mm)" if frac
+                  else f"{mat_label} {t:.0f} mm")
         entry = {"material": label,
                  "thickness_mm": t,
-                 "panel_count": sum(p.quantity for p in parts_by_t[t]),
+                 "panel_count": sum(p.quantity for p in parts_by_mt[mt]),
                  "price_per_sheet_usd": unit_p,
                  "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_info)
@@ -2626,19 +2669,22 @@ def _cutlist_pipeline(
                 f'{t:.0f}mm Carcass{suffix} — {opt_res.sheets_used} sheets',
                 carcass_by_t[t], opt_res,
             ))
-    for t in parts_ts:
-        _, opt_res = opt_parts_by_t[t]
+    for mt in parts_mts:
+        mat, t = mt
+        _, opt_res = opt_parts_by_mt[mt]
         if opt_res:
             frac = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
             suffix = f" ({frac})" if frac else ""
             box_ids  = {id(p) for p in box_panels}
-            has_box  = any(id(p) in box_ids for p in parts_by_t[t])
-            has_thin = any(id(p) not in box_ids for p in parts_by_t[t])
+            has_box  = any(id(p) in box_ids for p in parts_by_mt[mt])
+            has_thin = any(id(p) not in box_ids for p in parts_by_mt[mt])
             what = ("Drawer Boxes, Backs & Bottoms" if has_box and has_thin
                     else "Drawer Boxes" if has_box else "Backs & Bottoms")
+            if mat == "baltic_birch_prefinished":
+                what = f"Pre-finished {what}"
             layout_groups.append((
                 f'{t:.0f}mm {what}{suffix} — {opt_res.sheets_used} sheets',
-                parts_by_t[t], opt_res,
+                parts_by_mt[mt], opt_res,
             ))
     if layout_groups:
         html = generate_sheet_layout_html(

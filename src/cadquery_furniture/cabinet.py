@@ -112,6 +112,11 @@ class CabinetConfig:
     # Drawer box stock (sides + sub-front/back).  Bottoms are governed by the
     # per-drawer bottom_thickness option / size rule in DrawerConfig.
     drawer_box_thickness: float = 15.0  # 5/8" Baltic birch
+    # Build drawer boxes (incl. bottoms) from pre-finished Baltic birch —
+    # UV-coated both faces, no finishing step after assembly.  Affects the
+    # cutlist material designation and sheet pricing only; geometry is
+    # identical.  Workshop presets default this on.
+    drawer_box_prefinished: bool = False
 
     # Joinery
     dado_depth: float = 9.0  # half thickness dado for shelves/bottom
