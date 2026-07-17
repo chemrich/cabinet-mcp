@@ -1279,6 +1279,8 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
             opening_height=opening_h,
             opening_depth=cab_cfg.interior_depth,
             slide_key=cab_cfg.drawer_slide,
+            side_thickness=cab_cfg.drawer_box_thickness,
+            front_back_thickness=cab_cfg.drawer_box_thickness,
             bottom_thickness=op.bottom_thickness,
         )
 
@@ -1730,6 +1732,8 @@ def evaluate_cabinet(
                 opening_depth=cab_cfg.interior_depth,
                 slide_key=cab_cfg.drawer_slide,
                 pull_key=op.pull_key or cab_cfg.drawer_pull,
+                side_thickness=cab_cfg.drawer_box_thickness,
+                front_back_thickness=cab_cfg.drawer_box_thickness,
                 bottom_thickness=op.bottom_thickness,
             )
             all_issues.extend(check_drawer_hardware_clearances(dcfg))

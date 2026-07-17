@@ -44,6 +44,7 @@ _SHARED_FIELDS = (
     "top_thickness",
     "shelf_thickness",
     "back_thickness",
+    "drawer_box_thickness",
     "carcass_joinery",
     "drawer_joinery",
     "domino_spec",
@@ -72,6 +73,7 @@ class SharedDesign:
     top_thickness:    Optional[float] = None
     shelf_thickness:  Optional[float] = None
     back_thickness:   Optional[float] = None
+    drawer_box_thickness: Optional[float] = None  # box sides + sub-front/back
 
     # Joinery
     carcass_joinery:  Optional[CarcassJoinery]     = None
@@ -300,6 +302,7 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
         "top_thickness":    cfg.top_thickness,
         "shelf_thickness":  cfg.shelf_thickness,
         "back_thickness":   cfg.back_thickness,
+        "drawer_box_thickness": cfg.drawer_box_thickness,
         "dado_depth":         cfg.dado_depth,
         "back_rabbet_width":  cfg.back_rabbet_width,
         "back_rabbet_depth":  cfg.back_rabbet_depth,
@@ -466,13 +469,23 @@ def build_project(payload: dict) -> CabinetProject:
     for entry in payload.get("cabinets", []):
         child_name = str(entry["name"])
         cfg_dict = dict(entry.get("config", {}))
-        explicit_keys = set(cfg_dict.keys())
-        # A child-level pull_preset expands into both pulls (and the door
-        # pull inset) inside config_from_dict, so treat them as explicitly
-        # set too.
-        if "pull_preset" in explicit_keys:
-            explicit_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
-        overrides = frozenset(shared_keys & explicit_keys)
+        if "overrides" in entry:
+            # Round-tripped payloads (project_to_dict / the load_project
+            # tool) carry the explicit override set — honor it instead of
+            # inferring from key presence.  A serialized config names EVERY
+            # CabinetConfig field, so presence-inference would register every
+            # shared token as a child override and shared hardware/materials
+            # would silently stop applying (Movento reverting to the default
+            # Tandem slide, pull presets never expanding).
+            overrides = frozenset(str(k) for k in entry["overrides"] or ())
+        else:
+            explicit_keys = set(cfg_dict.keys())
+            # A child-level pull_preset expands into both pulls (and the door
+            # pull inset) inside config_from_dict, so treat them as explicitly
+            # set too.
+            if "pull_preset" in explicit_keys:
+                explicit_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
+            overrides = frozenset(shared_keys & explicit_keys)
         cfg = config_from_dict(cfg_dict)
         cabinets.append(ProjectCabinet(
             name=child_name,

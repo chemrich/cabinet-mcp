@@ -342,6 +342,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -502,6 +506,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -593,6 +601,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -778,9 +790,12 @@ async def list_tools() -> list[types.Tool]:
                   - files: paths to written CSV and JSON files on disk
                   - optimization: sheets-used and waste% per thickness group (rectpack)
 
-                Drawer box parts use 5/8\" (15 mm) sides/front/back and 1/4\" (6 mm)
-                bottoms captured in a dado. Applied false fronts are listed separately
-                as finished_wood (species to be specified by the user).
+                Drawer box sides/front/back use drawer_box_thickness stock
+                (default 5/8\" / 15 mm) with dado-captured bottoms (1/4\" by
+                default; 1/2\" for boxes over 5\" tall and 16\"+ wide, or per
+                the per-drawer bottom_thickness option). Applied false fronts
+                are listed separately as finished_wood (species to be
+                specified by the user).
             """),
             inputSchema={
                 "type": "object",
@@ -798,6 +813,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -912,6 +931,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1175,6 +1198,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1238,6 +1265,10 @@ async def list_tools() -> list[types.Tool]:
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "shelf_thickness":  {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1375,6 +1406,10 @@ async def list_tools() -> list[types.Tool]:
                     "bottom_thickness": {"type": "number", "default": 18.0},
                     "top_thickness":    {"type": "number", "default": 18.0},
                     "back_thickness":   {"type": "number", "default": 6.0},
+                    "drawer_box_thickness": {
+                        "type": "number", "default": 15.0,
+                        "description": "Drawer box stock (sides + sub-front/back) in mm; bottoms follow the per-drawer size rule.",
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -1545,6 +1580,7 @@ async def list_tools() -> list[types.Tool]:
                             "top_thickness":    {"type": "number"},
                             "shelf_thickness":  {"type": "number"},
                             "back_thickness":   {"type": "number"},
+                            "drawer_box_thickness": {"type": "number"},
                             "carcass_joinery":  {"type": "string"},
                             "drawer_joinery":   {"type": "string"},
                             "drawer_slide":     {"type": "string"},
@@ -2407,6 +2443,8 @@ def _raw_panels_for_cabinet(
                     opening_width=col_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
+                    side_thickness=cfg.drawer_box_thickness,
+                    front_back_thickness=cfg.drawer_box_thickness,
                     bottom_thickness=op.bottom_thickness,
                 )
                 bw = round(dcfg.box_width, 1)
@@ -2505,8 +2543,6 @@ def _cutlist_pipeline(
         return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
                  "unplaced": opt.unplaced}, opt)
 
-    box_t = DrawerConfig.__dataclass_fields__["side_thickness"].default
-
     # Carcass panels can span multiple thicknesses (side vs top/bottom
     # overrides, mixed-thickness projects) — group by panel thickness.
     carcass_by_t: dict[float, list[CutlistPanel]] = {}
@@ -2514,17 +2550,18 @@ def _cutlist_pipeline(
         carcass_by_t.setdefault(p.thickness, []).append(p)
     carcass_ts = sorted(carcass_by_t, reverse=True)
 
-    # Thin panels (backs + drawer bottoms) likewise: bottoms are 6 mm by
-    # default but heavy drawers default to 12 mm and per-drawer overrides
-    # can pick either — each thickness packs onto its own sheet stock.
-    thin_by_t: dict[float, list[CutlistPanel]] = {}
-    for p in panels_6mm:
-        thin_by_t.setdefault(p.thickness, []).append(p)
-    thin_ts = sorted(thin_by_t, reverse=True)
+    # Drawer-box parts and thin panels (backs + bottoms) pool by thickness:
+    # box stock is configurable (drawer_box_thickness) and bottoms follow
+    # the per-drawer size rule / overrides, so same-thickness parts from
+    # either pool pack — and are priced — on shared sheet stock (e.g. 12 mm
+    # box sides alongside 12 mm heavy drawer bottoms).
+    parts_by_t: dict[float, list[CutlistPanel]] = {}
+    for p in box_panels + panels_6mm:
+        parts_by_t.setdefault(p.thickness, []).append(p)
+    parts_ts = sorted(parts_by_t, reverse=True)
 
     opt_carcass_by_t = {t: _opt_group(carcass_by_t[t], t) for t in carcass_ts}
-    opt_box, opt_box_result = _opt_group(box_panels, box_t)
-    opt_thin_by_t = {t: _opt_group(thin_by_t[t], t) for t in thin_ts}
+    opt_parts_by_t = {t: _opt_group(parts_by_t[t], t) for t in parts_ts}
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
@@ -2542,18 +2579,8 @@ def _cutlist_pipeline(
                   "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_info)
         sheet_goods.append(entry)
-    if box_panels:
-        sheets = opt_box.get("sheets_used", 0)
-        unit_p = price_for("sheet_baltic_birch_15mm")
-        entry = {"material": f"Baltic Birch 5/8\" ({box_t:.0f} mm)",
-                 "thickness_mm": box_t,
-                 "panel_count": sum(p.quantity for p in box_panels),
-                 "price_per_sheet_usd": unit_p,
-                 "line_total_usd": round(sheets * unit_p, 2)}
-        entry.update(opt_box)
-        sheet_goods.append(entry)
-    for t in thin_ts:
-        opt_info, _ = opt_thin_by_t[t]
+    for t in parts_ts:
+        opt_info, _ = opt_parts_by_t[t]
         sheets = opt_info.get("sheets_used", 0)
         unit_p = price_for(f"sheet_baltic_birch_{int(round(t))}mm")
         frac   = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
@@ -2561,7 +2588,7 @@ def _cutlist_pipeline(
                   else f"Baltic Birch {t:.0f} mm")
         entry = {"material": label,
                  "thickness_mm": t,
-                 "panel_count": sum(p.quantity for p in thin_by_t[t]),
+                 "panel_count": sum(p.quantity for p in parts_by_t[t]),
                  "price_per_sheet_usd": unit_p,
                  "line_total_usd": round(sheets * unit_p, 2)}
         entry.update(opt_info)
@@ -2599,19 +2626,19 @@ def _cutlist_pipeline(
                 f'{t:.0f}mm Carcass{suffix} — {opt_res.sheets_used} sheets',
                 carcass_by_t[t], opt_res,
             ))
-    if opt_box_result and box_panels:
-        layout_groups.append((
-            f'15mm Drawer Boxes (5/8") — {opt_box_result.sheets_used} sheets',
-            box_panels, opt_box_result,
-        ))
-    for t in thin_ts:
-        _, opt_res = opt_thin_by_t[t]
+    for t in parts_ts:
+        _, opt_res = opt_parts_by_t[t]
         if opt_res:
             frac = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
             suffix = f" ({frac})" if frac else ""
+            box_ids  = {id(p) for p in box_panels}
+            has_box  = any(id(p) in box_ids for p in parts_by_t[t])
+            has_thin = any(id(p) not in box_ids for p in parts_by_t[t])
+            what = ("Drawer Boxes, Backs & Bottoms" if has_box and has_thin
+                    else "Drawer Boxes" if has_box else "Backs & Bottoms")
             layout_groups.append((
-                f'{t:.0f}mm Backs & Bottoms{suffix} — {opt_res.sheets_used} sheets',
-                thin_by_t[t], opt_res,
+                f'{t:.0f}mm {what}{suffix} — {opt_res.sheets_used} sheets',
+                parts_by_t[t], opt_res,
             ))
     if layout_groups:
         html = generate_sheet_layout_html(
