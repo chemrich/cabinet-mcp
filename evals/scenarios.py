@@ -8357,6 +8357,48 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="per_drawer_slide_override",
+    prompt="Tandem slides throughout, except the heavy bottom drawer keeps "
+           "Movento — bill each under its own SKU.",
+    tags=["drawer", "cutlist", "hardware"],
+    difficulty="standard",
+    description="slide_key per-opening option: mixed slide models in one "
+                "cabinet produce separate hardware BOM lines and evaluate "
+                "against the correct spec.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"width": 700, "height": 764, "depth": 600,
+                  "drawer_slide": "blum_tandem_550h",
+                  "drawer_config": [
+                      [300, "drawer", {"slide_key": "blum_movento_769"}],
+                      [232, "drawer"], [192, "drawer"]]},
+            label="mixed slides bill separately",
+            assertions=[
+                Assertion("hardware_bom.0.name", Op.EQ, "Blum Movento 769"),
+                Assertion("hardware_bom.0.pieces_needed", Op.EQ, 2),
+                Assertion("hardware_bom.1.name", Op.EQ, "Blum Tandem 550H"),
+                Assertion("hardware_bom.1.pieces_needed", Op.EQ, 4),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 700, "height": 764, "depth": 600,
+                  "drawer_slide": "blum_tandem_550h",
+                  "drawer_config": [
+                      [300, "drawer", {"slide_key": "blum_movento_769"}],
+                      [232, "drawer"], [192, "drawer"]]},
+            label="mixed-slide cabinet evaluates clean",
+            assertions=[
+                Assertion("summary.errors", Op.EQ, 0),
+                Assertion("summary.pass", Op.IS_TRUE),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

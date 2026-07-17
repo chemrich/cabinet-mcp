@@ -83,7 +83,7 @@ server.py       ← MCP server (25 tools, stdio or HTTP/SSE)
 |---|---|
 | `hardware.py` | Frozen specs for Blum/Accuride/Salice drawer slides and Blum Clip Top hinges; `HingeSpec.hinges_for_height()` and `hinge_positions()` implement manufacturer placement rules |
 | `joinery.py` | `DrawerJoinerySpec.from_stock()` computes all cut dimensions; `DominoSpec`, `PocketScrewSpec`, `BiscuitSpec`, `DowelSpec` each provide `count_for_span()` and `positions_for_span()` |
-| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples — each row may carry an optional third element, a per-opening options dict (`bottom_thickness`, `pull_key`, `hinge_key`, `hinge_side`, `num_doors`, `door_thickness`), normalised by `to_opening`; `drawer_box_thickness` (default 15 mm) sets box side/front-back stock and `drawer_box_prefinished` (default False; True on workshop presets) switches boxes+bottoms to pre-finished Baltic birch in the cutlist — both are also `SharedDesign` tokens; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
+| `cabinet.py` | `CabinetConfig` with `drawer_config` list of `(height_mm, opening_type)` tuples — each row may carry an optional third element, a per-opening options dict (`bottom_thickness`, `slide_key`, `pull_key`, `hinge_key`, `hinge_side`, `num_doors`, `door_thickness`), normalised by `to_opening`; `drawer_box_thickness` (default 15 mm) sets box side/front-back stock and `drawer_box_prefinished` (default False; True on workshop presets) switches boxes+bottoms to pre-finished Baltic birch in the cutlist — both are also `SharedDesign` tokens; `carcass_joinery` field selects method; `build_multi_bay_cabinet` accepts `furniture_top=True` for "furniture top, flush bottom" overlay style |
 | `drawer.py` | `DrawerConfig` computes box dimensions from opening + slide clearances; `joinery_style` applies corner joints; `bottom_thickness=None` resolves by size — boxes > 127 mm (5") tall **and** ≥ 406.4 mm (16") wide default to 12 mm (1/2") bottoms, else 6 mm (constants `HEAVY_BOTTOM_*`); explicit thin bottoms on qualifying boxes draw a `drawer_bottom_thickness` warning from the evaluator |
 | `door.py` | `DoorConfig` for single doors and matched pairs; full/half/inset overlay; hinge cup borings via CadQuery |
 | `project.py` | `CabinetProject` bundles multiple `CabinetConfig`s with a `SharedDesign` token block; child `overrides` win back over shared tokens; JSON persistence under `~/.cabinet-mcp/projects/` (names validated as filename stems); `list_saved_projects()` catalogues the store (surfaced via `list_projects` / `load_project` tools); `generate_project_cutlist` accepts `project_names` to batch several saved projects into one merged cutlist; `check_project_consistency()` cross-cabinet warnings |
@@ -95,7 +95,7 @@ server.py       ← MCP server (25 tools, stdio or HTTP/SSE)
 
 Scenarios live in `evals/scenarios.py`. Each `Scenario` has a natural-language `prompt`, a list of `ToolCall`s with `Assertion`s, and tags/difficulty for filtering. Available assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
 
-Baseline: 290 scenarios / 1003 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
+Baseline: 291 scenarios / 1009 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
 
 ## Known issues
 

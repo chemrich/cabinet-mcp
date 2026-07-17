@@ -313,8 +313,9 @@ async def list_tools() -> list[types.Tool]:
                 bottom to top. slot_type options: "drawer", "door", "door_pair",
                 "shelf", "open". A row may carry an optional third element — a
                 per-opening options dict (e.g. [273, "drawer",
-                {"bottom_thickness": 6}]) overriding bottom_thickness, pull_key,
-                hinge_key, hinge_side, num_doors, or door_thickness.
+                {"bottom_thickness": 6, "slide_key": "blum_movento_769"}])
+                overriding bottom_thickness, slide_key, pull_key, hinge_key,
+                hinge_side, num_doors, or door_thickness.
 
                 Drawer bottoms default by size: boxes taller than 5" and at
                 least 16" wide get 12 mm (1/2") bottoms, everything else 6 mm
@@ -368,8 +369,8 @@ async def list_tools() -> list[types.Tool]:
                         "description": (
                             "Stack of [height_mm, slot_type] pairs from bottom up. "
                             "An optional third element per row is a per-opening "
-                            "options dict (bottom_thickness, pull_key, hinge_key, "
-                            "hinge_side, num_doors, door_thickness)."
+                            "options dict (bottom_thickness, slide_key, pull_key, "
+                            "hinge_key, hinge_side, num_doors, door_thickness)."
                         ),
                         "default": [],
                     },
@@ -2476,6 +2477,7 @@ def _raw_panels_for_cabinet(
                     opening_width=col_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
+                    slide_key=op.slide_key or cfg.drawer_slide,
                     side_thickness=cfg.drawer_box_thickness,
                     front_back_thickness=cfg.drawer_box_thickness,
                     bottom_thickness=op.bottom_thickness,
@@ -3423,7 +3425,7 @@ async def _tool_design_pulls(args: dict) -> list[types.TextContent]:
                     opening_width=interior_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
-                    slide_key=cab_cfg.drawer_slide,
+                    slide_key=op.slide_key or cab_cfg.drawer_slide,
                     pull_key=pull_key,
                     pull_vertical=drawer_pull_vertical,
                 )

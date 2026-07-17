@@ -463,7 +463,7 @@ def drawers_from_cabinet_config(cab_cfg: CabinetConfig) -> list[tuple["cq.Assemb
                 opening_width=cab_cfg.interior_width,
                 opening_height=opening_height,
                 opening_depth=cab_cfg.interior_depth,
-                slide_key=cab_cfg.drawer_slide,
+                slide_key=op.slide_key or cab_cfg.drawer_slide,
                 pull_key=cab_cfg.drawer_pull,
                 joinery_style=cab_cfg.drawer_joinery,
                 side_thickness=cab_cfg.drawer_box_thickness,
