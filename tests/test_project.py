@@ -657,6 +657,52 @@ class TestProjectLibrary:
         assert sides and sides[0]["qty"] == 12
 
 
+class TestRoundTripOverrides:
+    def test_serialized_payload_keeps_shared_tokens_applying(self):
+        # Regression: project_to_dict serializes EVERY config field, so
+        # build_project's key-presence override inference used to register
+        # every shared token as a child override — shared hardware silently
+        # stopped applying on the round trip (Movento → default Tandem,
+        # pull preset never expanding). The explicit "overrides" list in the
+        # serialized payload must win over inference.
+        proj = build_project({
+            "name": "rt_tokens",
+            "shared": {"drawer_slide": "blum_movento_769",
+                       "pull_preset": "industrial_black"},
+            "cabinets": [
+                {"name": "a", "config": {"width": 700, "height": 400,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}},
+            ],
+        })
+        (_, before), = proj.resolved()
+        assert before.drawer_slide == "blum_movento_769"
+        assert before.drawer_pull is not None
+
+        rebuilt = build_project(project_to_dict(proj))
+        assert rebuilt.cabinets[0].overrides == frozenset()
+        (_, after), = rebuilt.resolved()
+        assert after.drawer_slide == "blum_movento_769"
+        assert after.drawer_pull == before.drawer_pull
+
+    def test_real_child_override_survives_round_trip(self):
+        proj = build_project({
+            "name": "rt_child_override",
+            "shared": {"drawer_slide": "blum_movento_769"},
+            "cabinets": [
+                {"name": "a", "config": {"width": 700, "height": 400,
+                                         "depth": 550,
+                                         "drawer_slide": "blum_tandem_550h",
+                                         "drawer_config": [[300, "drawer"]]}},
+            ],
+        })
+        assert "drawer_slide" in proj.cabinets[0].overrides
+        rebuilt = build_project(project_to_dict(proj))
+        assert "drawer_slide" in rebuilt.cabinets[0].overrides
+        (_, after), = rebuilt.resolved()
+        assert after.drawer_slide == "blum_tandem_550h"
+
+
 class TestSharedDrawerBoxThickness:
     def test_config_field_defaults_and_round_trips(self):
         cfg = CabinetConfig(width=700, height=400, depth=550)

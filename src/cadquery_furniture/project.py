@@ -469,13 +469,23 @@ def build_project(payload: dict) -> CabinetProject:
     for entry in payload.get("cabinets", []):
         child_name = str(entry["name"])
         cfg_dict = dict(entry.get("config", {}))
-        explicit_keys = set(cfg_dict.keys())
-        # A child-level pull_preset expands into both pulls (and the door
-        # pull inset) inside config_from_dict, so treat them as explicitly
-        # set too.
-        if "pull_preset" in explicit_keys:
-            explicit_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
-        overrides = frozenset(shared_keys & explicit_keys)
+        if "overrides" in entry:
+            # Round-tripped payloads (project_to_dict / the load_project
+            # tool) carry the explicit override set — honor it instead of
+            # inferring from key presence.  A serialized config names EVERY
+            # CabinetConfig field, so presence-inference would register every
+            # shared token as a child override and shared hardware/materials
+            # would silently stop applying (Movento reverting to the default
+            # Tandem slide, pull presets never expanding).
+            overrides = frozenset(str(k) for k in entry["overrides"] or ())
+        else:
+            explicit_keys = set(cfg_dict.keys())
+            # A child-level pull_preset expands into both pulls (and the door
+            # pull inset) inside config_from_dict, so treat them as explicitly
+            # set too.
+            if "pull_preset" in explicit_keys:
+                explicit_keys |= {"drawer_pull", "door_pull", "door_pull_inset_mm"}
+            overrides = frozenset(shared_keys & explicit_keys)
         cfg = config_from_dict(cfg_dict)
         cabinets.append(ProjectCabinet(
             name=child_name,
