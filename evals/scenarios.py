@@ -752,7 +752,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550, "format": "both"},
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550, "format": "both"},
             label="basic cutlist",
             assertions=[
                 Assertion("panel_count", Op.GTE, 3),
@@ -772,7 +772,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 900, "height": 720, "depth": 550,
                 "sheet_length": 1525, "sheet_width": 1525,
                 "format": "json",
@@ -800,7 +800,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550},
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550},
             label="single-sheet cabinet",
             assertions=[
                 Assertion("sheets_used",     Op.EQ,      1),
@@ -825,7 +825,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 900, "height": 2100, "depth": 600,
                 "drawer_config": [[200, "shelf"], [200, "shelf"], [200, "shelf"]],
             },
@@ -856,7 +856,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 900, "height": 2500, "depth": 600},
+            args={"name": "eval_cutlist", "width": 900, "height": 2500, "depth": 600},
             label="wardrobe with oversized sides",
             assertions=[
                 Assertion("unplaced_panels", Op.CONTAINS,  "side"),
@@ -879,7 +879,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550, "kerf": 2.5},
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550, "kerf": 2.5},
             label="custom kerf cutlist",
             assertions=[
                 Assertion("sheets_used",       Op.GTE,     1),
@@ -945,7 +945,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 600, "height": 720, "depth": 550,
                 "drawer_config": [[150, "drawer"], [150, "drawer"], [350, "drawer"]],
                 "format": "both",
@@ -1197,7 +1197,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 900, "height": 750, "depth": 550,
                 "format": "both",
             },
@@ -3093,7 +3093,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"format": "json"},
+            args={"name": "eval_cutlist", "format": "json"},
             label="dresser cutlist (chained)",
             context_args={"width": "w", "height": "h", "depth": "d"},
             assertions=[
@@ -3321,7 +3321,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"format": "json"},
+            args={"name": "eval_cutlist", "format": "json"},
             label="cutlist from chained dimensions",
             context_args={"width": "w", "height": "h", "depth": "d"},
             assertions=[
@@ -3411,7 +3411,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"format": "json"},
+            args={"name": "eval_cutlist", "format": "json"},
             label="cutlist for 800 mm cabinet (chained)",
             context_args={"width": "w", "height": "h", "depth": "d"},
             assertions=[
@@ -4126,7 +4126,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1200, "height": 500, "depth": 450, "side_thickness": 18,
+            args={"name": "eval_cutlist", "width": 1200, "height": 500, "depth": 450, "side_thickness": 18,
                   "drawer_config": [[142, "drawer"], [142, "drawer"], [142, "drawer"]]},
             label="cut list",
             assertions=[
@@ -4357,7 +4357,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 900, "height": 1200, "depth": 550,
                 "side_thickness": 18,
                 "drawer_config": [
@@ -4560,7 +4560,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550, "side_thickness": 18,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550, "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
             assertions=[
@@ -4667,7 +4667,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1200, "height": 500, "depth": 450, "side_thickness": 18,
+            args={"name": "eval_cutlist", "width": 1200, "height": 500, "depth": 450, "side_thickness": 18,
                   "drawer_config": [[142, "drawer"], [142, "drawer"], [142, "drawer"]]},
             label="cut list",
             assertions=[Assertion("panel_count", Op.GTE, 3)],
@@ -4804,7 +4804,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 900, "height": 1200, "depth": 550, "side_thickness": 18,
+            args={"name": "eval_cutlist", "width": 900, "height": 1200, "depth": 550, "side_thickness": 18,
                   "drawer_config": [
                       [170, "drawer"], [170, "drawer"], [170, "drawer"],
                       [170, "drawer"], [170, "drawer"], [170, "drawer"],
@@ -4871,7 +4871,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550, "side_thickness": 18,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550, "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
             assertions=[Assertion("sheets_used", Op.GTE, 1)],
@@ -5477,7 +5477,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 1600, "height": 800, "depth": 450,
                 "side_thickness": 19,
                 "drawer_config": [[250, "drawer"], [250, "drawer"], [250, "drawer"]],
@@ -5653,7 +5653,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={
+            args={"name": "eval_cutlist", 
                 "width": 450, "height": 600, "depth": 400,
                 "side_thickness": 19,
                 "drawer_config": [[200, "drawer"], [328, "door"]],
@@ -5785,7 +5785,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1600, "height": 800, "depth": 450,
+            args={"name": "eval_cutlist", "width": 1600, "height": 800, "depth": 450,
                   "side_thickness": 19,
                   "drawer_config": [[250, "drawer"], [250, "drawer"], [250, "drawer"]]},
             label="cut list",
@@ -5911,7 +5911,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1800, "height": 900, "depth": 500,
+            args={"name": "eval_cutlist", "width": 1800, "height": 900, "depth": 500,
                   "side_thickness": 19,
                   "drawer_config": [[250, "drawer"], [250, "drawer"], [328, "drawer"]]},
             label="cut list",
@@ -6078,7 +6078,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1800, "height": 900, "depth": 500,
+            args={"name": "eval_cutlist", "width": 1800, "height": 900, "depth": 500,
                   "side_thickness": 19,
                   "drawer_config": [[276, "drawer"], [276, "drawer"], [276, "drawer"]]},
             label="cut list",
@@ -6165,7 +6165,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550, "side_thickness": 18},
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550, "side_thickness": 18},
             assertions=[
                 Assertion("panel_count", Op.GTE, 3),
                 Assertion("sheets_used", Op.GTE, 1),
@@ -6182,7 +6182,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18},
             assertions=[
                 Assertion("sheets_used", Op.GTE, 1),
@@ -6315,7 +6315,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18},
             assertions=[
                 Assertion("panel_count", Op.GTE, 3),
@@ -6429,7 +6429,7 @@ _s(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 900, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 900, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             assertions=[
@@ -6550,7 +6550,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
@@ -6579,7 +6579,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 900, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 900, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
@@ -6604,7 +6604,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"side_thickness": 18},
+            args={"name": "eval_cutlist", "side_thickness": 18},
             label="cut list from preset",
             context_args={"width": "cmkr_w", "height": "cmkr_h",
                           "depth": "cmkr_d", "drawer_config": "cmkr_dc"},
@@ -6664,7 +6664,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[171, "drawer"], [171, "drawer"],
                                     [171, "drawer"], [171, "drawer"]]},
@@ -6741,7 +6741,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"side_thickness": 18},
+            args={"name": "eval_cutlist", "side_thickness": 18},
             label="cut list",
             context_args={"width": "cmp_w", "height": "cmp_h",
                           "depth": "cmp_d", "drawer_config": "cmp_dc"},
@@ -6778,7 +6778,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[171, "drawer"], [171, "drawer"],
                                     [171, "drawer"], [171, "drawer"]]},
@@ -6847,7 +6847,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"side_thickness": 18},
+            args={"name": "eval_cutlist", "side_thickness": 18},
             label="cut list",
             context_args={"width": "cmwk_w", "height": "cmwk_h",
                           "depth": "cmwk_d", "drawer_config": "cmwk_dc"},
@@ -7000,7 +7000,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 1800, "height": 900, "depth": 700, "side_thickness": 18},
+            args={"name": "eval_cutlist", "width": 1800, "height": 900, "depth": 700, "side_thickness": 18},
             label="cut list for island",
             assertions=[Assertion("panel_count", Op.GTE, 3)],
         ),
@@ -7033,7 +7033,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
@@ -7094,7 +7094,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 900, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 900, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="optimised cut list",
@@ -7136,7 +7136,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
@@ -7209,7 +7209,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"side_thickness": 18},
+            args={"name": "eval_cutlist", "side_thickness": 18},
             label="cut list",
             context_args={"width": "cmwc_w", "height": "cmwc_h",
                           "depth": "cmwc_d", "drawer_config": "cmwc_dc"},
@@ -7242,7 +7242,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 600, "height": 720, "depth": 550,
+            args={"name": "eval_cutlist", "width": 600, "height": 720, "depth": 550,
                   "side_thickness": 18,
                   "drawer_config": [[228, "drawer"], [228, "drawer"], [228, "drawer"]]},
             label="cut list",
@@ -7355,7 +7355,7 @@ _s(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"side_thickness": 18},
+            args={"name": "eval_cutlist", "side_thickness": 18},
             label="cut list",
             context_args={"width": "cmpfp_w", "height": "cmpfp_h",
                           "depth": "cmpfp_d", "drawer_config": "cmpfp_dc"},
@@ -8073,7 +8073,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 700, "height": 400, "depth": 550,
+            args={"name": "eval_cutlist", "width": 700, "height": 400, "depth": 550,
                   "drawer_config": [[300, "drawer"]]},
             label="default: heavy drawer adds a 12 mm sheet group",
             assertions=[
@@ -8084,7 +8084,7 @@ SCENARIOS.append(Scenario(
         ),
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 700, "height": 400, "depth": 550,
+            args={"name": "eval_cutlist", "width": 700, "height": 400, "depth": 550,
                   "drawer_config": [[300, "drawer", {"bottom_thickness": 6}]]},
             label="override collapses back to a single 6 mm group",
             assertions=[
@@ -8165,7 +8165,6 @@ SCENARIOS.append(Scenario(
             args={},
             label="catalogue contains the save",
             assertions=[
-                Assertion("count", Op.GTE, 1),
                 Assertion("names", Op.CONTAINS, "eval_lib_round_trip"),
             ],
         ),
@@ -8258,7 +8257,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 700, "height": 400, "depth": 550,
+            args={"name": "eval_cutlist", "width": 700, "height": 400, "depth": 550,
                   "drawer_box_thickness": 12,
                   "drawer_config": [[300, "drawer"]]},
             label="12 mm boxes pool with the 12 mm heavy bottom",
@@ -8318,7 +8317,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 700, "height": 400, "depth": 550,
+            args={"name": "eval_cutlist", "width": 700, "height": 400, "depth": 550,
                   "drawer_box_prefinished": True,
                   "drawer_config": [[300, "drawer"]]},
             label="pre-finished stock gets its own priced groups",
@@ -8369,7 +8368,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="generate_cutlist",
-            args={"width": 700, "height": 764, "depth": 600,
+            args={"name": "eval_cutlist", "width": 700, "height": 764, "depth": 600,
                   "drawer_slide": "blum_tandem_550h",
                   "drawer_config": [
                       [300, "drawer", {"slide_key": "blum_movento_769"}],

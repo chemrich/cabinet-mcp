@@ -15,6 +15,7 @@ All dimensions in millimeters. The cabinet is oriented with:
 - Origin at front-bottom-left exterior corner
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -72,6 +73,21 @@ class OpeningConfig:
                 f"opening_type must be one of {sorted(valid_types)}, "
                 f"got {self.opening_type!r}."
             )
+        if not math.isfinite(self.height_mm) or self.height_mm <= 0:
+            raise ValueError(
+                f"height_mm must be a positive finite number, "
+                f"got {self.height_mm!r}."
+            )
+        # Explicit per-opening overrides must be physically meaningful; a NaN
+        # or non-positive thickness silently disables downstream checks.
+        for fname in ("bottom_thickness", "door_thickness"):
+            v = getattr(self, fname)
+            if v is not None and (not math.isfinite(v) or v <= 0):
+                raise ValueError(
+                    f"{fname} must be a positive finite number, got {v!r}."
+                )
+        if self.num_doors is not None and self.num_doors not in (1, 2):
+            raise ValueError(f"num_doors must be 1 or 2, got {self.num_doors!r}.")
 
 
 @dataclass(frozen=True)
@@ -182,17 +198,16 @@ class CabinetConfig:
     def __post_init__(self) -> None:
         """Normalize openings and column openings to OpeningConfig objects."""
         self.openings = [to_opening(op) for op in self.openings]
-        normalized_cols = []
-        for col in self.columns:
-            if col.openings and not isinstance(col.openings[0], OpeningConfig):
-                normalized_cols.append(ColumnConfig(
-                    width_mm=col.width_mm,
-                    openings=tuple(to_opening(op) for op in col.openings),
-                    fixed_shelf_positions=tuple(col.fixed_shelf_positions),
-                ))
-            else:
-                normalized_cols.append(col)
-        self.columns = normalized_cols
+        # Normalize per element — to_opening is a no-op for OpeningConfig, so
+        # mixed tuples (OpeningConfig first, raw rows after) normalize too.
+        self.columns = [
+            ColumnConfig(
+                width_mm=col.width_mm,
+                openings=tuple(to_opening(op) for op in col.openings),
+                fixed_shelf_positions=tuple(col.fixed_shelf_positions),
+            )
+            for col in self.columns
+        ]
 
     # Derived / computed
     @property
@@ -267,16 +282,13 @@ def to_opening(raw) -> OpeningConfig:
     if isinstance(raw, OpeningConfig):
         return raw
     if isinstance(raw, dict):
+        options = _coerce_opening_options(
+            {k: raw.get(k) for k in _OPENING_OPTION_KEYS}
+        )
         return OpeningConfig(
             height_mm=float(raw["height_mm"]),
             opening_type=str(raw.get("opening_type", raw.get("slot_type", "open"))),
-            hinge_key=raw.get("hinge_key"),
-            hinge_side=raw.get("hinge_side"),
-            pull_key=raw.get("pull_key"),
-            num_doors=raw.get("num_doors"),
-            door_thickness=raw.get("door_thickness"),
-            bottom_thickness=raw.get("bottom_thickness"),
-            slide_key=raw.get("slide_key"),
+            **options,
         )
     options: dict = {}
     if len(raw) > 2 and raw[2] is not None:
@@ -291,10 +303,29 @@ def to_opening(raw) -> OpeningConfig:
                 f"Unknown per-opening option(s) {sorted(unknown)}; "
                 f"valid options: {sorted(_OPENING_OPTION_KEYS)}."
             )
-        options = raw[2]
+        options = _coerce_opening_options(raw[2])
     return OpeningConfig(
         height_mm=float(raw[0]), opening_type=str(raw[1]), **options
     )
+
+
+def _coerce_opening_options(options: dict) -> dict:
+    """Coerce per-opening option values to their expected types.
+
+    MCP clients send JSON, where a numeric option can arrive as a string
+    ("12" for bottom_thickness); without coercion that crashes deep in the
+    cutlist instead of failing at input validation.
+    """
+    out = dict(options)
+    for k in ("bottom_thickness", "door_thickness"):
+        if out.get(k) is not None:
+            out[k] = float(out[k])
+    if out.get("num_doors") is not None:
+        out["num_doors"] = int(out["num_doors"])
+    for k in ("hinge_key", "hinge_side", "pull_key", "slide_key"):
+        if out.get(k) is not None:
+            out[k] = str(out[k])
+    return out
 
 
 def build_cabinet_config(args: dict) -> CabinetConfig:
@@ -1043,7 +1074,6 @@ def build_multi_bay_cabinet(
             if not cfg.openings:
                 continue
 
-            slide = get_slide(cfg.drawer_slide)
             z = cfg.bottom_thickness  # drawers sit above the bottom panel
 
             for drw_idx, op in enumerate(cfg.openings):
@@ -1186,7 +1216,10 @@ def build_multi_bay_cabinet(
                     face_z_top = z_face_end   if is_last  else z_acc + opening_h - face_gap / 2
                     face_h = face_z_top - face_z_bot
 
-                    if slot_type == "door_pair":
+                    # Honor a per-opening num_doors override — the hinge BOM
+                    # already bills by it, so rendering must agree.
+                    n_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
+                    if n_doors == 2:
                         door_w = (face_w - door_gap_centre) / 2
                         for i, dx in enumerate(
                             [face_x, face_x + door_w + door_gap_centre]
@@ -1335,7 +1368,8 @@ def build_multi_bay_cabinet(
                     face_z_top = z_face_end   if is_last  else z_acc + opening_h - face_gap / 2
                     face_h     = face_z_top - face_z_bot
 
-                    if slot_type == "door_pair":
+                    n_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
+                    if n_doors == 2:
                         # Pair: left leaf hinges left (outer), right leaf hinges right (outer).
                         # Pulls go on the latch (inner) edges regardless of cfg.door_hinge_side.
                         door_w = (face_w - door_gap_centre) / 2

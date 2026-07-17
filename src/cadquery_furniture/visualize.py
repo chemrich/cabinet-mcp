@@ -777,7 +777,10 @@ def _build_html(
     # inject the remainder as markup.  Escape "</" → "<\/" (a valid JS string
     # escape) in every embed so no value can break out of the script.
     def _js_str(obj) -> str:
-        return json.dumps(obj).replace("</", "<\\/")
+        # "</" blocks </script> breakout; "<!--" blocks the script-data
+        # double-escaped parser state (an embedded "<!--<script>" would stop
+        # the real </script> from closing the block).
+        return json.dumps(obj).replace("</", "<\\/").replace("<!--", "<\\u0021--")
 
     finishes_json = _js_str(WOOD_FINISHES)
     initial_finish_json = _js_str(finish if params else None)

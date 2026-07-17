@@ -13,7 +13,7 @@ See [ATTRIBUTIONS.md](../ATTRIBUTIONS.md) for the datasheet and distributor sour
 | `blum_tandem_550h` | Blum Tandem 550H | Undermount | 30 kg | Partial |
 | `blum_tandem_plus_563h` | Blum Tandem Plus 563H | Undermount | 45 kg | Full |
 | `blum_movento_760h` | Blum Movento 760H | Undermount | 40 kg | Full |
-| `blum_movento_769` | Blum Movento 769 | Undermount | 77 kg | Full |
+| `blum_movento_769` | Blum Movento 769 | Undermount | 70 kg | Full |
 | `accuride_3832` | Accuride 3832 | Side-mount | 45 kg | Full |
 | `salice_futura` | Salice Futura | Undermount | 45 kg | Full |
 | `salice_progressa_plus` | Salice Progressa+ | Undermount | 54 kg | Full |

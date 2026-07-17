@@ -11,7 +11,7 @@ This is the established shape for a broad review of this repo (used for PR #21).
 
 ```bash
 uv run pytest tests/ -q          # capture the actual passed/skipped counts NOW
-uv run python -m evals           # evals baseline is 291 scenarios / 1009 assertions (per CLAUDE.md)
+uv run python -m evals           # evals baseline is 291 scenarios / 1008 assertions (per CLAUDE.md)
 ```
 **Record whatever numbers this run prints** — the test count grows as tests are added, so the baseline is "what the suite reports on the pre-change tree," not a fixed figure. Every later "green" is measured against these captured numbers, not a hardcoded one.
 
@@ -26,7 +26,7 @@ Launch one agent per disjoint file group so their edits never collide. A workabl
 - server/security: `server.py`
 - visualizer: `visualize.py`
 - data/describe: `project.py`, `presets.py`, `pulls.py`, `describe.py`, `furniture_refs.py`
-- evals/CI infra: `evals/`, `conftest.py`, `pyproject.toml`, `.github/`, `.claude/`
+- evals/CI infra: `evals/`, `pyproject.toml`, `.github/`, `.claude/` (plus `conftest.py` if one exists)
 
 Tell each agent to read CLAUDE.md first (it lists already-fixed issues — don't re-report those), **substantiate every finding with a concrete trace or `uv run python -c` repro**, and return severity-tagged findings (critical/major/minor/nit) with file:line, evidence, and a one-line fix.
 

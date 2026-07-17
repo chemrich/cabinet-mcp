@@ -8,7 +8,7 @@
 | `kitchen_base_door_2_drawer` | kitchen | 600 × 720 × 550 | Deep door at bottom, two drawers above |
 | `kitchen_base_door_pair_wide` | kitchen | 900 × 720 × 550 | Door pair + 2 drawers, half-overlay hinges |
 | `kitchen_tall_pantry` | kitchen | 600 × 2100 × 550 | Two door pairs + shelf section, BLUMOTION |
-| `workshop_tool_chest` | workshop | 600 × 900 × 550 | 6 × 144 mm drawers, Movento 769 (77 kg), pocket-screw |
+| `workshop_tool_chest` | workshop | 600 × 900 × 550 | 6 × 144 mm drawers, Movento 769 (70 kg), pocket-screw |
 | `workshop_wall_cabinet` | workshop | 600 × 720 × 300 | Door pair + adjustable shelves, shallow depth |
 | `bedroom_dresser` | bedroom | 900 × 1100 × 550 | 6-drawer, Tandem+ full-extension |
 | `armoire_2col` | bedroom | 1118 × 1703 × 533 | Multi-column: 2×3 drawers + full-width door section; see below |

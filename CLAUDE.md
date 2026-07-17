@@ -95,7 +95,7 @@ server.py       ← MCP server (25 tools, stdio or HTTP/SSE)
 
 Scenarios live in `evals/scenarios.py`. Each `Scenario` has a natural-language `prompt`, a list of `ToolCall`s with `Assertion`s, and tags/difficulty for filtering. Available assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
 
-Baseline: 291 scenarios / 1009 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
+Baseline: 291 scenarios / 1008 assertions / 100% pass rate. Run the eval suite after any non-trivial change.
 
 ## Known issues
 

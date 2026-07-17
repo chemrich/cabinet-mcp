@@ -49,6 +49,7 @@ Usage::
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import re
@@ -2620,6 +2621,8 @@ def _cutlist_pipeline(
                   "panel_count": sum(p.quantity for p in carcass_by_t[t]),
                   "price_per_sheet_usd": unit_p,
                   "line_total_usd": round(sheets * unit_p, 2)}
+        if not unit_p:
+            entry["price_missing"] = True  # no PRICE_LIST entry for this stock
         entry.update(opt_info)
         sheet_goods.append(entry)
     for mt in parts_mts:
@@ -2636,6 +2639,8 @@ def _cutlist_pipeline(
                  "panel_count": sum(p.quantity for p in parts_by_mt[mt]),
                  "price_per_sheet_usd": unit_p,
                  "line_total_usd": round(sheets * unit_p, 2)}
+        if not unit_p:
+            entry["price_missing"] = True  # no PRICE_LIST entry for this stock
         entry.update(opt_info)
         sheet_goods.append(entry)
     if false_fronts:
@@ -2746,8 +2751,13 @@ def _cutlist_pipeline(
     # thickness cabinet — identical to the historical single-group values).
     carcass_summaries = [s for s, _ in opt_carcass_by_t.values() if s]
     if carcass_summaries:
-        result["sheets_used"]     = sum(s["sheets_used"] for s in carcass_summaries)
-        result["waste_pct"]       = carcass_summaries[0]["waste_pct"]
+        result["sheets_used"] = sum(s["sheets_used"] for s in carcass_summaries)
+        # Sheet-weighted average — a single group's waste_pct misrepresents
+        # mixed-thickness carcass runs.
+        total_sheets = sum(s["sheets_used"] for s in carcass_summaries) or 1
+        result["waste_pct"] = round(
+            sum(s["waste_pct"] * s["sheets_used"] for s in carcass_summaries)
+            / total_sheets, 1)
         result["unplaced_panels"] = [u for s in carcass_summaries for u in s["unplaced"]]
 
     if optimizer == "rectpack" or (optimizer == "auto" and not _OPCUT_AVAILABLE and _RECTPACK_AVAILABLE):
@@ -2822,7 +2832,8 @@ async def _tool_compare_joinery(args: dict) -> list[types.TextContent]:
         if style == DrawerJoineryStyle.QQQ:
             entry["note"] = (
                 f"All cuts = side_thickness ÷ 2 = {t_s / 2:.1f} mm. "
-                "True 18 mm stock required for nominal 18 mm settings."
+                f"True {t_s:.0f} mm stock required for nominal "
+                f"{t_s:.0f} mm settings."
             )
         if style == DrawerJoineryStyle.DRAWER_LOCK:
             entry["lock_step_depth_x_mm"] = spec.lock_step_depth_x
@@ -2947,30 +2958,21 @@ def _cabinet_assembly(
                 hinge_side = "right"
             else:
                 hinge_side = cfg.door_hinge_side
-            bay_configs.append(CabinetConfig(
+            # dataclasses.replace carries EVERY cabinet-level field into the
+            # bay config (drawer_box_thickness/prefinished, leg/shelf-pin/dado
+            # params, joinery specs, …) — a hand-picked field list here once
+            # silently dropped the box-stock options on the visualize path.
+            # The stack is passed through in the user's order: cutlist and
+            # evaluation consume it unsorted, so rendering must agree.
+            bay_configs.append(dataclasses.replace(
+                cfg,
                 width=float(col["width_mm"]) + 2 * side_t,
-                height=cfg.height,
-                depth=cfg.depth,
-                side_thickness=side_t,
-                bottom_thickness=cfg.bottom_thickness,
-                top_thickness=cfg.top_thickness,
-                back_thickness=cfg.back_thickness,
-                shelf_thickness=cfg.shelf_thickness,
-                drawer_slide=cfg.drawer_slide,
-                drawer_pull=cfg.drawer_pull,
-                door_pull=cfg.door_pull,
-                door_hinge=cfg.door_hinge,
                 door_hinge_side=hinge_side,
-                door_pull_inset_mm=cfg.door_pull_inset_mm,
-                drawer_joinery=cfg.drawer_joinery,
-                carcass_joinery=cfg.carcass_joinery,
+                columns=[],
                 fixed_shelf_positions=[
                     float(z) for z in col.get("fixed_shelf_positions", [])
                 ],
-                openings=[
-                    _to_opening(r)
-                    for r in _sort_drawer_config(_stack_from_column(col))
-                ],
+                openings=[_to_opening(r) for r in _stack_from_column(col)],
             ))
         total_width = cfg.width
         info = {"width": total_width, "height": cfg.height, "depth": cfg.depth,
@@ -3591,9 +3593,11 @@ async def _tool_list_projects(args: dict) -> list[types.TextContent]:
     from .project import list_saved_projects, project_dir
 
     entries = list_saved_projects()
+    names = [e["name"] for e in entries if "error" not in e]
     return _ok({
-        "count": len(entries),
-        "names": [e["name"] for e in entries if "error" not in e],
+        "count": len(names),
+        "unreadable": len(entries) - len(names),
+        "names": names,
         "projects": entries,
         "directory": str(project_dir()),
     })
@@ -3678,13 +3682,34 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     # Batch mode: 'project_names' loads several saved projects and merges
     # them into one cutlist run; otherwise resolve the single project from
     # 'project_name' / inline 'project' as before.
-    batch_names = args.get("project_names") or []
+    batch_names = list(dict.fromkeys(
+        str(n) for n in (args.get("project_names") or [])
+    ))  # de-dupe, order-preserving — a repeated name would double-count panels
+    result_notes: list[str] = []
     if batch_names:
-        from .project import load_project
-        projects = [load_project(str(n)) for n in batch_names]
-        out_name = str(args.get("batch_name")
-                       or "-".join(p.name for p in projects))
+        from .project import load_project, project_path
+        projects = [load_project(n) for n in batch_names]
+        explicit_batch_name = args.get("batch_name")
+        if explicit_batch_name:
+            out_name = str(explicit_batch_name)
+            # Reusing a saved project's name would silently overwrite that
+            # project's own cutlist files under ~/.cabinet-mcp/cutlists/.
+            if project_path(out_name).exists() and out_name not in batch_names:
+                result_notes.append(
+                    f"batch_name {out_name!r} matches a saved project — its "
+                    f"cutlist files in ~/.cabinet-mcp/cutlists/{out_name}/ "
+                    f"are overwritten by this batch."
+                )
+        else:
+            out_name = "-".join(p.name for p in projects)
+            if len(out_name) > _MAX_STEM_LEN:
+                out_name = out_name[:_MAX_STEM_LEN].rstrip(".- ")
     else:
+        if args.get("batch_name"):
+            return _err(
+                "'batch_name' only applies to batch mode — pass 'project_names' "
+                "with it, or omit it for a single project."
+            )
         projects = [_project_from_args(args)]
         out_name = projects[0].name
     # Inline project payloads and batch names skip save_project's validation,
@@ -3752,6 +3777,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     }
     if batch_names:
         result = {"projects": [p.name for p in projects], **result}
+    if result_notes:
+        result["notes"] = result_notes
     return _ok(result)
 
 

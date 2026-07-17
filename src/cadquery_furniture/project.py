@@ -222,7 +222,14 @@ def load_project(name: str) -> CabinetProject:
             f"Project {name!r} not found at {path}. "
             "Run design_project first or pass the inline 'project' payload."
         )
-    return project_from_dict(json.loads(path.read_text()))
+    try:
+        return project_from_dict(json.loads(path.read_text()))
+    except (ValueError, KeyError, TypeError) as exc:
+        # Name the project and file — in a batch the bare JSON error gives
+        # no clue which snapshot is broken.
+        raise ValueError(
+            f"Project {name!r} snapshot at {path} is unreadable: {exc}"
+        ) from exc
 
 
 def list_saved_projects() -> list[dict]:
@@ -240,9 +247,12 @@ def list_saved_projects() -> list[dict]:
     if not d.exists():
         return entries
     for path in sorted(d.glob("*.json")):
-        modified = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
-            timespec="seconds"
-        )
+        try:
+            modified = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                timespec="seconds"
+            )
+        except OSError:
+            modified = None  # dangling symlink / raced deletion
         try:
             data = json.loads(path.read_text())
             cabinets = data.get("cabinets", [])
@@ -370,6 +380,13 @@ def _shared_to_dict(shared: SharedDesign) -> dict:
 def shared_from_dict(d: dict | None) -> SharedDesign:
     if not d:
         return SharedDesign()
+    valid = set(_SHARED_FIELDS) | {"pull_preset"}
+    unknown = set(d) - valid
+    if unknown:
+        raise ValueError(
+            f"Unknown shared design token(s) {sorted(unknown)}; "
+            f"valid tokens: {sorted(valid)}."
+        )
     kwargs: dict[str, Any] = {}
     for k, v in d.items():
         if k == "carcass_joinery" and isinstance(v, str):
@@ -450,6 +467,13 @@ def build_project(payload: dict) -> CabinetProject:
     For each child cabinet, any key explicitly set in ``config`` and also
     present on ``shared`` is recorded as an override — so the child's value
     wins even though the shared tokens are merged in.
+
+    When a cabinet entry carries an explicit ``overrides`` list (round-tripped
+    payloads from ``project_to_dict`` / the load_project tool always do), that
+    list is EXHAUSTIVE: it replaces key-presence inference entirely, so a
+    shared token not named in it is applied even if the child config also
+    spells out a value for that field.  To pin a child value in such a
+    payload, add the field name to its ``overrides`` list.
     """
     name = str(payload["name"])
     shared = shared_from_dict(payload.get("shared"))

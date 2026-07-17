@@ -27,6 +27,10 @@ jobs:
           enable-cache: true
       - name: Install (lite)
         run: uv sync --no-group full
+      - name: Assert lite is lite
+        # If a dep change ever pulls CadQuery into the lite env, this job
+        # would silently test the full paths — fail loudly instead.
+        run: uv run --no-group full python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('cadquery') is None else 1)"
       - name: Tests
         run: uv run --no-group full pytest tests/ -q
       - name: Evals

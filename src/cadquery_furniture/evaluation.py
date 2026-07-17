@@ -185,7 +185,16 @@ def check_drawer_hardware_clearances(
 ) -> list[Issue]:
     """Validate drawer dimensions against slide hardware specs."""
     issues = []
-    slide = drawer_cfg.slide
+    try:
+        slide = drawer_cfg.slide
+    except KeyError as exc:
+        # An unknown slide key is an input problem, not a crash: report it
+        # as an ERROR issue and skip the hardware checks for this drawer.
+        return [Issue(
+            check="slide_unknown",
+            severity=Severity.ERROR,
+            message=f"Unknown drawer slide {drawer_cfg.slide_key!r}: {exc}",
+        )]
 
     # Use the slide's own validation for side clearance, height, and width limits.
     hw_issues = slide.validate_drawer_dims(
@@ -218,13 +227,12 @@ def check_drawer_hardware_clearances(
     # Call out a thin bottom on a big box.  The size-based default already
     # picks 12 mm here, so this only fires when the caller explicitly
     # overrode the bottom thinner than the heavy-drawer rule wants.
-    try:
-        heavy_box = (
-            drawer_cfg.box_height > HEAVY_BOTTOM_MIN_BOX_HEIGHT
-            and drawer_cfg.box_width >= HEAVY_BOTTOM_MIN_BOX_WIDTH
-        )
-    except KeyError:
-        heavy_box = False  # bad slide key already reported above
+    # (A bad slide key can't reach here — the guard at the top of this
+    # function returns early, so box dimensions always resolve.)
+    heavy_box = (
+        drawer_cfg.box_height > HEAVY_BOTTOM_MIN_BOX_HEIGHT
+        and drawer_cfg.box_width >= HEAVY_BOTTOM_MIN_BOX_WIDTH
+    )
     if heavy_box and drawer_cfg.bottom_thickness < HEAVY_BOTTOM_THICKNESS:
         issues.append(Issue(
             check="drawer_bottom_thickness",
@@ -1265,7 +1273,6 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
     if not cab_cfg.openings:
         return issues
 
-    slide = get_slide(cab_cfg.drawer_slide)
     MIN_REAR_CLEARANCE = 10.0  # mm — space needed for rear mounting bracket
 
     for idx, op in enumerate(cab_cfg.openings):
@@ -1283,7 +1290,16 @@ def check_drawer_carcass_clearances(cab_cfg: CabinetConfig) -> list[Issue]:
             front_back_thickness=cab_cfg.drawer_box_thickness,
             bottom_thickness=op.bottom_thickness,
         )
-        slide = dcfg.slide
+        try:
+            slide = dcfg.slide
+        except KeyError as exc:
+            issues.append(Issue(
+                check="slide_unknown",
+                severity=Severity.ERROR,
+                message=f"{label}: unknown drawer slide {dcfg.slide_key!r}: {exc}",
+                part_a=label,
+            ))
+            continue
 
         # Eagerly resolve box_depth — slide_length_for_depth raises ValueError
         # if the cabinet is too shallow for any available slide.
@@ -1741,7 +1757,7 @@ def evaluate_cabinet(
         elif op.opening_type in ("door", "door_pair") and not door_configs:
             # Auto-generate door check from opening data when caller didn't
             # provide explicit door_configs — covers multi-column designs.
-            num_doors = 2 if op.opening_type == "door_pair" else 1
+            num_doors = op.num_doors or (2 if op.opening_type == "door_pair" else 1)
             dcfg_door = DoorConfig(
                 opening_width=opening_width,
                 opening_height=op.height_mm,
@@ -1783,8 +1799,12 @@ def evaluate_cabinet(
         all_issues.extend(check_interference(assembly))
 
     if drawer_assemblies and assembly is not None:
-        slide = get_slide(cab_cfg.drawer_slide)
         for drawer_assy, drawer_cfg in drawer_assemblies:
+            # Each drawer may run on its own slide (per-opening slide_key).
+            try:
+                slide = drawer_cfg.slide
+            except KeyError:
+                continue  # already reported by the pure-Python checks
             all_issues.extend(check_drawer_in_opening(
                 drawer_assy,
                 opening_width=drawer_cfg.opening_width,

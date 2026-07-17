@@ -113,8 +113,8 @@ class DoorConfig:
         -------------------
         The door covers the opening *and* overlaps the cabinet sides:
           single : opening_width + 2 × overlay
-          pair   : (opening_width + gap_between) / 2 + overlay − gap_between / 2
-                 = opening_width / 2 + overlay
+          pair   : opening_width / 2 + overlay − gap_between / 2
+          (two leaves plus the centre gap span opening_width + 2 × overlay)
 
         Inset
         -----
@@ -341,13 +341,20 @@ def doors_from_cabinet_config(
     for op in cab_cfg.openings:
         opening_height = op.height_mm
         if op.opening_type in ("door", "door_pair"):
-            num_doors = 2 if op.opening_type == "door_pair" else 1
+            # Per-opening overrides win over cabinet-level defaults — same
+            # resolution the evaluator and hinge/pull BOM walkers apply.
+            num_doors = op.num_doors or (2 if op.opening_type == "door_pair" else 1)
             dcfg = DoorConfig(
                 opening_width=cab_cfg.interior_width,
                 opening_height=opening_height,
                 num_doors=num_doors,
-                hinge_key=getattr(cab_cfg, "door_hinge", "blum_clip_top_110_full"),
-                pull_key=getattr(cab_cfg, "door_pull", None),
+                hinge_key=op.hinge_key
+                or getattr(cab_cfg, "door_hinge", "blum_clip_top_110_full"),
+                pull_key=op.pull_key or getattr(cab_cfg, "door_pull", None),
+                hinge_side=op.hinge_side
+                or getattr(cab_cfg, "door_hinge_side", "left"),
+                **({"door_thickness": op.door_thickness}
+                   if op.door_thickness is not None else {}),
             )
             if num_doors == 1:
                 assy, parts = build_door(dcfg)
