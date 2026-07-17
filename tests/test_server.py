@@ -392,7 +392,10 @@ class TestDesignDrawer:
 
 class TestGenerateCutlist:
     def _cutlist(self, **kwargs):
-        args = {"width": 600, "height": 720, "depth": 550, **kwargs}
+        # Always name the output: the tool's default stem ("cabinet") would
+        # overwrite a user's real ~/.cabinet-mcp/cutlists/cabinet_* files.
+        args = {"width": 600, "height": 720, "depth": 550,
+                "name": "test_cutlist", **kwargs}
         return parse(run(_tool_generate_cutlist(args)))
 
     def test_returns_panel_count(self):

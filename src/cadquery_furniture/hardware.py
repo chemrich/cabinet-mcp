@@ -34,10 +34,13 @@ Blum Clip Top hinge family:
     Bottom hinge : 100 mm from door bottom
     3rd/4th hinge: evenly distributed in remaining span
 
-  Hinge count by door height:
+  Hinge count by door height (base table):
     Up to 1 200 mm  → 2 hinges
     1 201–1 800 mm  → 3 hinges
     > 1 800 mm      → 4 hinges
+  The base count is then raised until adjacent-hinge spacing ≤
+  ``max_hinge_spacing`` (700 mm default), which governs for most doors
+  above ~900 mm — e.g. a 1 000 mm door gets 3 hinges, not the table's 2.
   (Blum also recommends an extra hinge per 25 kg of door weight above 20 kg.)
 
 IMPORTANT: Always verify part numbers and dimensions against the official Blum or
@@ -149,6 +152,12 @@ class DrawerSlideSpec:
         if self.max_drawer_width > 0 and drawer_width > self.max_drawer_width:
             issues.append(
                 f"Drawer width {drawer_width:.1f}mm > maximum {self.max_drawer_width}mm for {self.name}"
+            )
+        shortest = min(self.available_lengths)
+        if drawer_depth < shortest:
+            issues.append(
+                f"Drawer depth {drawer_depth:.1f}mm < shortest {self.name} slide "
+                f"({shortest}mm) — box must be at least as deep as the slide"
             )
         return issues
 
@@ -465,7 +474,7 @@ BLUM_MOVENTO_760H = DrawerSlideSpec(
 )
 
 
-# ── Blum Movento 769 (full extension, heavy duty, 77 kg) ─────────────────────
+# ── Blum Movento 769 (full extension, heavy duty, 70 kg dynamic) ─────────────
 
 BLUM_MOVENTO_769 = DrawerSlideSpec(
     # Heavy-duty Movento. 170 lb static / 155 lb dynamic load (~77/70 kg).
@@ -486,7 +495,7 @@ BLUM_MOVENTO_769 = DrawerSlideSpec(
     min_top_clearance=3.0,
     min_bottom_clearance=15.0,
     available_lengths=(457, 533, 610, 686, 762),  # 18"–30"
-    max_load_kg=77,
+    max_load_kg=70,  # dynamic rating; 77 kg is the static figure
     min_drawer_height=68,
     max_drawer_width=1200,
     rear_bracket_inset=2.0,
@@ -544,7 +553,7 @@ SALICE_FUTURA = DrawerSlideSpec(
     min_top_clearance=3.0,
     min_bottom_clearance=13.0,
     available_lengths=(305, 381, 457, 533),
-    max_load_kg=45,
+    max_load_kg=34,  # dynamic rating; 45 kg is the static figure
     min_drawer_height=79,           # taller slide body than Blum Tandem
     max_drawer_width=0,
     rear_bracket_inset=0.0,         # Salice clips mount flush to back
@@ -571,7 +580,7 @@ SALICE_FUTURA_SMOVE = DrawerSlideSpec(
     min_top_clearance=3.0,
     min_bottom_clearance=13.0,
     available_lengths=(305, 381, 457, 533),
-    max_load_kg=45,
+    max_load_kg=34,  # dynamic rating; 45 kg is the static figure
     min_drawer_height=79,
     max_drawer_width=0,
     rear_bracket_inset=0.0,

@@ -21,6 +21,7 @@ The module has no CadQuery dependency and runs in pure-Python environments.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from typing import Callable
@@ -100,23 +101,35 @@ def auto_fix_cabinet(cfg: CabinetConfig, issues: list[Issue] | None = None) -> A
 
 # ── Individual fixers ────────────────────────────────────────────────────────
 
-def _min_opening_height(cfg: CabinetConfig, opening_type: str) -> float:
+def _min_opening_height(cfg: CabinetConfig, op) -> float:
     """Smallest opening height that keeps a slot within hardware limits.
 
-    Only drawer slots have a meaningful floor: the slide's minimum box height
-    plus the deductions ``box_height`` applies (bottom clearance + vertical
-    gap).  Non-drawer slots (door/shelf/open) return 0 — they have no lower
-    bound imposed by this fixer.
+    Only drawer slots have a meaningful floor: the smallest *achievable* box
+    height at or above the slide's minimum, plus the deductions ``box_height``
+    applies (bottom clearance + vertical gap).  With standard-height snapping
+    (the default), the raw height snaps DOWN — so the floor must be the
+    smallest STANDARD height ≥ the slide minimum, or a clamped opening yields
+    a box that snaps below the minimum and the "fixed" config still fails
+    evaluation (e.g. Salice min 79 → snap 76).  Non-drawer slots
+    (door/shelf/open) return 0 — no lower bound imposed by this fixer.
     """
-    if opening_type != "drawer":
+    if op.opening_type != "drawer":
         return 0.0
-    slide = DrawerConfig(
+    probe = DrawerConfig(
         opening_width=cfg.interior_width,
         opening_height=1.0,  # placeholder; only slide-derived constants are read
         opening_depth=cfg.interior_depth,
-        slide_key=cfg.drawer_slide,
-    ).slide
-    return slide.min_drawer_height + slide.min_bottom_clearance + DrawerConfig.vertical_gap
+        slide_key=op.slide_key or cfg.drawer_slide,
+    )
+    slide = probe.slide
+    box_floor = slide.min_drawer_height
+    if probe.use_standard_height:
+        from .drawer import STANDARD_BOX_HEIGHTS
+        achievable = [h for h in STANDARD_BOX_HEIGHTS if h >= box_floor]
+        if achievable:
+            box_floor = min(achievable)
+        # else: taller than every standard size — raw height governs.
+    return box_floor + slide.min_bottom_clearance + DrawerConfig.vertical_gap
 
 
 def _fix_cumulative_heights(
@@ -145,14 +158,13 @@ def _fix_cumulative_heights(
     if not cfg.openings:
         return cfg, []
 
-    from .cabinet import OpeningConfig
     interior = cfg.interior_height
     total    = sum(op.height_mm for op in cfg.openings)
     if abs(total - interior) < 0.01:
         return cfg, []
 
     target = interior - _FILL_EPSILON_MM
-    mins = [_min_opening_height(cfg, op.opening_type) for op in cfg.openings]
+    mins = [_min_opening_height(cfg, op) for op in cfg.openings]
     notes: list[str] = []
 
     if total > interior:
@@ -197,13 +209,10 @@ def _fix_cumulative_heights(
             f"{[f'{int(h)}mm {op.opening_type}' for h, op in zip(heights, cfg.openings)]}."
         )
 
+    # dataclasses.replace keeps EVERY per-opening field — a hand-written
+    # field list here silently stripped slide_key/bottom_thickness once.
     cfg.openings = [
-        OpeningConfig(
-            height_mm=h, opening_type=op.opening_type,
-            hinge_key=op.hinge_key, hinge_side=op.hinge_side,
-            pull_key=op.pull_key, num_doors=op.num_doors,
-            door_thickness=op.door_thickness,
-        )
+        dataclasses.replace(op, height_mm=h)
         for h, op in zip(heights, cfg.openings)
     ]
     return cfg, notes

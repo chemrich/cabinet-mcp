@@ -1,6 +1,6 @@
 ---
 name: run-evals
-description: Run the cabinet-mcp eval suite and interpret results. Use whenever you finish a non-trivial change, want to check the 283-scenario / 940-assertion baseline, filter evals by tag/difficulty/name, or debug a failing scenario. The eval harness calls tool handlers directly (no MCP transport) and runs in ~1 second.
+description: Run the cabinet-mcp eval suite and interpret results. Use whenever you finish a non-trivial change, want to check the eval baseline (current counts live in CLAUDE.md and this skill's body), filter evals by tag/difficulty/name, or debug a failing scenario. The eval harness calls tool handlers directly (no MCP transport) and runs in ~1 second.
 ---
 
 # Running the eval suite
@@ -24,7 +24,7 @@ uv run python -m evals --list          # print the catalogue without running
 
 ## Baseline
 
-Green is **291 scenarios / 1009 assertions / 100%**. Exit code 0 on all-pass, 1 on any failure. If your change moves the assertion count, that's expected only when you added/removed assertions — otherwise investigate.
+Green is **291 scenarios / 1008 assertions / 100%**. Exit code 0 on all-pass, 1 on any failure. If your change moves the assertion count, that's expected only when you added/removed assertions — otherwise investigate.
 
 ## Reading a failure
 

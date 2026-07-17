@@ -24,6 +24,7 @@ import csv
 import json
 import io
 import math
+import zlib
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -75,8 +76,13 @@ _PALETTE = [
 
 
 def _panel_colour(name: str) -> str:
-    """Return a fill colour hex string for a panel name."""
-    return _PALETTE[hash(name) % len(_PALETTE)]
+    """Return a fill colour hex string for a panel name.
+
+    crc32, not ``hash()`` — Python string hashing is salted per process, so
+    colors would change on every regeneration and HTML/PDF from different
+    runs would disagree.
+    """
+    return _PALETTE[zlib.crc32(name.encode("utf-8")) % len(_PALETTE)]
 
 
 def _panel_colour_dark(hex_col: str, factor: float = 0.65) -> str:
@@ -294,7 +300,7 @@ def to_json(
                 "length": p.length,
                 "width": p.width,
                 "quantity": p.quantity,
-                "can_rotate": p.grain_direction == "",  # no grain = can rotate
+                "can_rotate": p.grain_direction in ("", None),  # matches optimizers
             }
             for p in panels
         ],
@@ -454,6 +460,20 @@ def optimize_cutlist(
 
     if stock_sheet is None:
         stock_sheet = SHEET_4x8_3_4
+
+    # A panel of the wrong thickness on this sheet is always an upstream
+    # grouping bug (the server pools by material+thickness before calling) —
+    # packing it silently would produce a cutting plan for the wrong stock.
+    mismatched = [
+        p.name for p in panels
+        if abs(p.thickness - stock_sheet.thickness) > 0.01
+    ]
+    if mismatched:
+        raise ValueError(
+            f"Panel thickness mismatch for {stock_sheet.thickness:.0f} mm "
+            f"stock sheet {stock_sheet.name!r}: {sorted(set(mismatched))}. "
+            f"Group panels by thickness before optimizing."
+        )
 
     if not panels:
         return OptimizationResult(
@@ -997,7 +1017,7 @@ def pull_lines_for_cabinet_config(
                     opening_width=interior_width,
                     opening_height=opening_h,
                     opening_depth=interior_depth,
-                    slide_key=cab_cfg.drawer_slide,
+                    slide_key=op.slide_key or cab_cfg.drawer_slide,
                     pull_key=pull_key_override or cab_cfg.drawer_pull,
                 )
                 line = pull_line_from_drawer(dcfg)
@@ -1060,19 +1080,15 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 continue
             # Each drawer resolves its own slide (op.slide_key overriding
             # cab_cfg.drawer_slide) so a per-opening override is billed
-            # under its own SKU; unknown keys skip that drawer only.
+            # under its own SKU; a drawer whose slide is unknown or doesn't
+            # fit the depth is skipped alone — evaluation reports the
+            # problem, and one bad drawer must not sink the whole BOM.
             slide_key = op.slide_key or cab_cfg.drawer_slide
             try:
                 slide_spec = get_slide(slide_key)
-            except KeyError:
+                length = slide_spec.slide_length_for_depth(interior_depth)
+            except (KeyError, ValueError):
                 continue
-            dcfg = DrawerConfig(
-                opening_width=interior_width,
-                opening_height=opening_h,
-                opening_depth=interior_depth,
-                slide_key=slide_key,
-            )
-            length = slide_spec.slide_length_for_depth(dcfg.opening_depth)
             pn = slide_spec.part_numbers.get(length, "")
             sku = f"{slide_key}-{length}mm"
             lines.append(HardwareLine(
@@ -1380,7 +1396,9 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
         if line.sku in out:
             merged = out[line.sku]
             merged.pieces_needed += line.pieces_needed
-            if line.notes:
+            # Dedup identical notes — 21 drawers on one slide model should
+            # read "533 mm" once, not 21 times.
+            if line.notes and line.notes not in merged.notes.split(", "):
                 merged.notes = (
                     f"{merged.notes}, {line.notes}" if merged.notes else line.notes
                 )
@@ -1717,7 +1735,7 @@ def generate_sheet_layout_html(
                 f'<h3>Sheet {si + 1} of {sheets_count} '
                 f'<span class="dim">'
                 f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
-                f'— {opt.stock_sheet.name}</span></h3>'
+                f'— {_esc(opt.stock_sheet.name)}</span></h3>'
                 f'{_sheet_svg(opt.stock_sheet, by_sheet[si])}'
                 f'</div>'
             )

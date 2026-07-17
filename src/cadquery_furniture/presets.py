@@ -70,40 +70,32 @@ class CabinetPreset:
 
     def config_dict(self) -> dict[str, Any]:
         """Full config as a flat dict — suitable for passing to design_cabinet / apply_preset."""
-        cfg = self.config
-        result: dict[str, Any] = {
-            "width": cfg.width,
-            "height": cfg.height,
-            "depth": cfg.depth,
-            "side_thickness": cfg.side_thickness,
-            "bottom_thickness": cfg.bottom_thickness,
-            "top_thickness": cfg.top_thickness,
-            "shelf_thickness": cfg.shelf_thickness,
-            "back_thickness": cfg.back_thickness,
-            "drawer_box_thickness": cfg.drawer_box_thickness,
-            "drawer_box_prefinished": cfg.drawer_box_prefinished,
-            "dado_depth": cfg.dado_depth,
-            "back_rabbet_width": cfg.back_rabbet_width,
-            "back_rabbet_depth": cfg.back_rabbet_depth,
-            "drawer_config": [[op.height_mm, op.opening_type] for op in cfg.openings],
-            "carcass_joinery": cfg.carcass_joinery.value,
-            "fixed_shelf_positions": list(cfg.fixed_shelf_positions),
-            "adj_shelf_holes": cfg.adj_shelf_holes,
-            "drawer_slide": cfg.drawer_slide,
-            "door_hinge": cfg.door_hinge,
-            "drawer_pull": cfg.drawer_pull,
-            "door_pull": cfg.door_pull,
-            "door_hinge_side": cfg.door_hinge_side,
-            "door_pull_inset_mm": cfg.door_pull_inset_mm,
-        }
-        if cfg.columns:
-            result["columns"] = [
-                {
-                    "width_mm": col.width_mm,
-                    "drawer_config": [[op.height_mm, op.opening_type] for op in col.openings],
-                }
-                for col in cfg.columns
-            ]
+        # project._config_to_dict is the one complete CabinetConfig
+        # serializer (openings as dicts with per-opening options, columns,
+        # joinery specs, leg/shelf-pin params) — reusing it means a new
+        # CabinetConfig field can never silently fall out of presets.
+        # Deferred import: presets ← project would otherwise be circular.
+        from .project import _config_to_dict
+
+        def _rows(openings: list[dict]) -> list[list]:
+            # Historical row shape: [height, type] pairs, with per-opening
+            # options (if any) as the optional third element.
+            rows = []
+            for op_d in openings:
+                op_d = dict(op_d)
+                h = op_d.pop("height_mm")
+                t = op_d.pop("opening_type")
+                rows.append([h, t, op_d] if op_d else [h, t])
+            return rows
+
+        result = _config_to_dict(self.config)
+        result["drawer_config"] = _rows(result.pop("openings"))
+        result["columns"] = [
+            {**col, "drawer_config": _rows(col.pop("openings"))}
+            for col in result.pop("columns")
+        ]
+        if not result["columns"]:
+            del result["columns"]
         return result
 
 
@@ -230,6 +222,9 @@ _p(CabinetPreset(
             (700, "door_pair"),   # upper door pair
         ],
         adj_shelf_holes=True,
+        # Pin rows must span the full 2100 mm carcass ("holes throughout") —
+        # the CabinetConfig default end_z (640) covers only base cabinets.
+        shelf_pin_end_z=2000.0,
         drawer_slide="blum_tandem_550h",
         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
@@ -244,7 +239,7 @@ _p(CabinetPreset(
     display_name="Workshop Tool Chest — 6 Drawer",
     description=(
         "Heavy-duty 600×900 mm tool chest with six equal-height drawers. "
-        "Blum Movento 769 heavy-duty slides rated 77 kg each. "
+        "Blum Movento 769 heavy-duty slides rated 70 kg each. "
         "Pocket-screw carcass for fast shop assembly."
     ),
     category="workshop",
@@ -559,6 +554,10 @@ _p(CabinetPreset(
             (125,  "drawer"),
         ],
         adj_shelf_holes=True,
+        # Pin rows cover the door compartment (spans 268–1882 mm above the
+        # base drawers), not the CabinetConfig default 80–640 base range.
+        shelf_pin_start_z=350.0,
+        shelf_pin_end_z=1800.0,
         drawer_slide="blum_tandem_550h",
         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
@@ -819,6 +818,9 @@ _p(CabinetPreset(
             (175,  "drawer"),
         ],
         adj_shelf_holes=True,
+        # Pin rows span the full 1514 mm door compartment (18–1532 mm), not
+        # the CabinetConfig default 640 mm base-cabinet range.
+        shelf_pin_end_z=1450.0,
         drawer_slide="blum_tandem_550h",
         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,

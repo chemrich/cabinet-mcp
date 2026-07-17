@@ -83,7 +83,9 @@ class TestBlumTandemPlus563H:
 
 class TestBlumMovento769:
     def test_heavy_duty_capacity(self):
-        assert BLUM_MOVENTO_769.max_load_kg >= 75
+        # 2026-07-17 review: max_load_kg is the DYNAMIC rating (70 kg); the
+        # old assertion encoded the 77 kg static figure.
+        assert BLUM_MOVENTO_769.max_load_kg == 70
 
     def test_longer_lengths_than_760h(self):
         assert max(BLUM_MOVENTO_769.available_lengths) > max(BLUM_MOVENTO_760H.available_lengths)

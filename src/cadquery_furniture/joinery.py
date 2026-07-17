@@ -173,23 +173,25 @@ class DrawerJoinerySpec:
 
     @property
     def glue_area_corner(self) -> float:
-        """Approximate glue contact area at one corner (mm²).
+        """Approximate glue contact width at one corner, per mm of box height
+        (mm² per mm).  Multiply by drawer height for total corner glue area.
 
-        Used for rough structural comparison between styles.
-        Butt joint: just the end-grain face of the front/back against the side.
-        QQQ / half-lap: the interlocking faces add long-grain area.
+        Every style returns the same unit so the values are comparable:
+        butt is the bare end-grain face width; the interlocking styles add
+        their extra mating faces.
         """
         if self.style == DrawerJoineryStyle.BUTT:
             # End face of front/back against side inside face
-            return self.front_back_thickness * 1  # per-mm of height; caller scales by height
+            return self.front_back_thickness
         elif self.style == DrawerJoineryStyle.QQQ:
             # Tongue face (long grain) + shoulder face (cross grain)
-            return self.side_dado_depth_x * self.side_dado_depth_y * 2
+            return self.side_dado_depth_x + self.side_dado_depth_y
         elif self.style == DrawerJoineryStyle.HALF_LAP:
-            return self.side_dado_depth_x * self.front_back_thickness
+            # Lap face + shoulder
+            return self.side_dado_depth_x + self.front_back_thickness / 2
         elif self.style == DrawerJoineryStyle.DRAWER_LOCK:
             # L-tongue has two contact faces
-            return (self.side_dado_depth_x + self.lock_step_depth_x) * self.side_dado_depth_y
+            return self.side_dado_depth_x + self.lock_step_depth_x + self.side_dado_depth_y
         return 0.0
 
     @classmethod
@@ -213,6 +215,22 @@ class DrawerJoinerySpec:
         """
         t_s = side_thickness
         t_fb = front_back_thickness
+
+        if t_s <= 0 or t_fb <= 0:
+            raise ValueError(
+                f"Stock thicknesses must be positive, got side={t_s}, "
+                f"front/back={t_fb}."
+            )
+        # QQQ's tongue/pocket is sized from the side stock (t_s/2 both ways);
+        # the sub-front must be thick enough to carry that channel and still
+        # leave a positive outer-face rabbet (t_fb − t_s/2 > 0).
+        if style == DrawerJoineryStyle.QQQ and t_fb <= t_s / 2:
+            raise ValueError(
+                f"QQQ joinery needs front/back stock thicker than half the "
+                f"side stock: side={t_s} requires front/back > {t_s / 2}, "
+                f"got {t_fb}. Use thicker sub-front stock or a different "
+                f"joinery style."
+            )
 
         if style == DrawerJoineryStyle.BUTT:
             return cls(
