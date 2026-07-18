@@ -197,6 +197,31 @@ class TestCutlistRobustness:
             )
 
 
+class TestFollowUps:
+    """Post-review follow-ups: deferred-data resolutions + remaining nits."""
+
+    def test_blum_hinge_chart(self):
+        from cadquery_furniture.hardware import BLUM_CLIP_TOP_110_FULL as h
+        # Blum's published chart (ea.blum.com "Number of hinges").
+        assert [h.hinges_for_height(x) for x in (900, 901, 1600, 1601, 2000, 2001)] \
+            == [2, 3, 3, 4, 4, 5]
+
+    def test_9mm_sheet_prices_present(self):
+        from cadquery_furniture.hardware import price_for
+        assert price_for("sheet_baltic_birch_9mm") == 56.0
+        assert price_for("sheet_baltic_birch_prefinished_9mm") == 78.0
+
+    def test_multi_column_preset_summary_shows_columns(self):
+        from cadquery_furniture.presets import get_preset
+        s = get_preset("armoire_2col").summary()
+        assert len(s["columns"]) == 2
+        assert s["columns"][0]["opening_stack"], "column stacks must be populated"
+
+    def test_progressa_inch_series_kept(self):
+        from cadquery_furniture.hardware import get_slide
+        assert 686 in get_slide("salice_progressa_plus").available_lengths
+
+
 class TestPresetIntegrity:
     def test_config_dict_round_trips_every_preset(self):
         # Guard: config_dict → build_cabinet_config must reproduce the

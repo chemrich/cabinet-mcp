@@ -46,7 +46,7 @@ class CabinetPreset:
     def summary(self) -> dict[str, Any]:
         """Compact summary for list_presets — no interior geometry computed."""
         cfg = self.config
-        return {
+        out = {
             "name": self.name,
             "display_name": self.display_name,
             "description": self.description,
@@ -67,6 +67,20 @@ class CabinetPreset:
             "carcass_joinery": cfg.carcass_joinery.value,
             "adj_shelf_holes": cfg.adj_shelf_holes,
         }
+        if cfg.columns:
+            # Multi-column presets have empty cfg.openings — surface each
+            # column's stack so list_presets isn't blank for them.
+            out["columns"] = [
+                {
+                    "width_mm": col.width_mm,
+                    "opening_stack": [
+                        {"height_mm": op.height_mm, "type": op.opening_type}
+                        for op in col.openings
+                    ],
+                }
+                for col in cfg.columns
+            ]
+        return out
 
     def config_dict(self) -> dict[str, Any]:
         """Full config as a flat dict — suitable for passing to design_cabinet / apply_preset."""
