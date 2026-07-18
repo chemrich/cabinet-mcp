@@ -96,8 +96,10 @@ Charlie's shop/supplier input and are deliberately not code-fixed.
   pattern-derived; the misleading "catalog lists 700 mm" comment is corrected.
 - ~~9 mm sheet prices~~ — **added**: raw $56 (3/8" B/BB 5×5, Baker Lumber Jul 2026),
   pre-finished $78 (interpolated between the 6/12 mm pre-finished premiums).
-- 9" Blum 563 "B10" SKUs still price anomalously high (pre-existing, data quality —
-  genuinely needs supplier confirmation).
+- ~~9" Blum 563 "B10" price anomaly~~ — **confirmed real** (Charlie, 2026-07-18):
+  WWE and multiple vendors agree the 9" runs ~$5 over the longer lengths; part
+  number correct, not a kit — a low-volume specialty length that simply prices
+  higher. PRICE_LIST values stand as-is. No deferred data items remain.
 
 ## Explicitly verified clean
 

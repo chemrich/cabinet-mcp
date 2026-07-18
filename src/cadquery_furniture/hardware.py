@@ -383,6 +383,9 @@ BLUM_TANDEM_PLUS_563H = DrawerSlideSpec(
     #   (slides.html, May 2026 pricing) confirm SKUs 563H2290B10, 563H3050B,
     #   563H3810B, 563H4570B, 563H5330B at $27.00 / $22.26 / $22.26 / $21.33 /
     #   $21.99 per pair.
+    # The 9" price premium over longer lengths is CONFIRMED REAL (Charlie,
+    #   Jul 2026: WWE + multiple vendors agree; part number correct, not a
+    #   kit — low-volume specialty length). Not a data error; do not "fix".
     name="Blum Tandem Plus 563H",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
@@ -416,6 +419,8 @@ BLUM_TANDEM_PLUS_563F = DrawerSlideSpec(
     # Source: Woodworker Express listings (slides.html, May 2026 pricing)
     #   SKUs 563F2290B10, 563F3050B, 563F3810B, 563F4570B, 563F5330B at
     #   $28.27 / $23.75 / $23.75 / $24.11 / $24.81 per pair.
+    # 9" premium confirmed real across vendors (see 563H note) — not a kit,
+    #   not a data error.
     name="Blum Tandem Plus 563F (face-frame)",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
