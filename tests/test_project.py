@@ -637,7 +637,11 @@ class TestProjectLibrary:
             assert c1.width == c2.width
             assert c1.drawer_slide == c2.drawer_slide
 
-    def test_batch_cutlist_merges_projects(self, tmp_path, monkeypatch):
+    def test_batch_cutlist_keeps_projects_distinct(self, tmp_path, monkeypatch):
+        # Behavior change (batch project identity feature): panels
+        # consolidate WITHIN a project but stay separate, project-tagged
+        # rows across projects — the combined BOM must show whose panel is
+        # whose. Sheet optimization still pools everything.
         from cadquery_furniture.server import _tool_generate_project_cutlist
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_a")))
@@ -651,10 +655,95 @@ class TestProjectLibrary:
         assert data["projects"] == ["lib_a", "lib_b"]
         assert data["cabinet_count"] == 6
         assert data["per_cabinet"][0]["name"].startswith("lib_a/")
-        # Identical panels merge across projects: each project has 3 identical
-        # cabinets, so sides consolidate to one row of 12 across the batch.
+        # 3 identical cabinets per project → one qty-6 side row PER project.
         sides = [p for p in data["panels_summary"] if p["name"] == "side"]
-        assert sides and sides[0]["qty"] == 12
+        assert [(s["project"], s["qty"]) for s in sides] == \
+            [("lib_a", 6), ("lib_b", 6)]
+        # Hardware consolidates globally but carries the per-project split.
+        legs = [h for h in data["hardware_bom"] if h["category"] == "leg"]
+        assert legs and legs[0]["by_project"] == {"lib_a": 12, "lib_b": 12}
+        # Layout HTML colours by project and legends the batch.
+        html = (tmp_path / ".cabinet-mcp" / "cutlists" / "lib_a-lib_b"
+                / "lib_a-lib_b_layout.html").read_text()
+        assert "Projects: " in html and "lib_a" in html and "lib_b" in html
+        # CSV gains the Project column in batch mode.
+        assert data["cutlist_csv"].splitlines()[0].startswith("Project,")
+
+    def test_single_project_output_unchanged(self, tmp_path, monkeypatch):
+        # No batch → no source tags: CSV header, panels_summary keys, and
+        # hardware rows keep their historical shape.
+        from cadquery_furniture.server import _tool_generate_project_cutlist
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="lib_solo")))
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        data = json.loads(_run(_tool_generate_project_cutlist(
+            {"project_name": "lib_solo"}
+        ))[0].text)
+        assert data["cutlist_csv"].splitlines()[0].startswith("Name,")
+        assert all("project" not in p for p in data["panels_summary"])
+        assert all("by_project" not in h for h in data["hardware_bom"])
+
+    def test_list_saved_projects_query_filter(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path, monkeypatch)
+        payload = _sample_payload(name="shop_bench_run")
+        payload["notes"] = "Workshop wall of benches"
+        save_project(build_project(payload))
+        save_project(build_project(_sample_payload(name="hall_console")))
+        assert [e["name"] for e in list_saved_projects(query="shop")] == \
+            ["shop_bench_run"]
+        assert [e["name"] for e in list_saved_projects(query="BENCHES")] == \
+            ["shop_bench_run"]  # matches notes, case-insensitive
+        assert len(list_saved_projects()) == 2
+
+    def test_dev_artifacts_hidden_unless_asked_or_queried(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="real_project")))
+        for dev in ("eval_thing", "test_thing", "smoke_thing"):
+            save_project(build_project(_sample_payload(name=dev)))
+        # "_"-prefixed names predate name validation and exist only as
+        # legacy files on disk — write one directly, as those were.
+        (tmp_path / "_probe.json").write_text('{"name": "_probe", "cabinets": []}')
+        assert [e["name"] for e in list_saved_projects()] == ["real_project"]
+        assert len(list_saved_projects(include_all=True)) == 5
+        # An explicit query searches everything.
+        assert [e["name"] for e in list_saved_projects(query="eval_thing")] == \
+            ["eval_thing"]
+
+    def test_sort_recent_and_name(self, tmp_path, monkeypatch):
+        import os, time
+        from cadquery_furniture.project import list_saved_projects, project_path
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="older")))
+        save_project(build_project(_sample_payload(name="newer")))
+        past = time.time() - 3600
+        os.utime(project_path("older"), (past, past))
+        assert [e["name"] for e in list_saved_projects()] == ["newer", "older"]
+        assert [e["name"] for e in list_saved_projects(sort="name")] == \
+            ["newer", "older"]  # alphabetical happens to match here
+        save_project(build_project(_sample_payload(name="aaa_last_saved")))
+        assert list_saved_projects()[0]["name"] == "aaa_last_saved"
+        assert list_saved_projects(sort="name")[0]["name"] == "aaa_last_saved"
+
+    def test_rename_and_delete(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import (
+            delete_project, list_saved_projects, load_project, rename_project,
+        )
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="draft")))
+        rename_project("draft", "final")
+        assert load_project("final").name == "final"  # embedded name updated
+        with pytest.raises(FileNotFoundError):
+            load_project("draft")
+        # Refuses to clobber an existing project.
+        save_project(build_project(_sample_payload(name="other")))
+        with pytest.raises(ValueError, match="already exists"):
+            rename_project("final", "other")
+        delete_project("final")
+        assert [e["name"] for e in list_saved_projects()] == ["other"]
+        with pytest.raises(FileNotFoundError):
+            delete_project("final")
 
 
 class TestRoundTripOverrides:

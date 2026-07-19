@@ -232,13 +232,36 @@ def load_project(name: str) -> CabinetProject:
         ) from exc
 
 
-def list_saved_projects() -> list[dict]:
+# Name prefixes that mark dev/test artifacts (eval scenarios, smoke runs,
+# lite-mode probes). list_saved_projects hides these by default so the
+# human-facing catalogue isn't buried in tooling debris.
+_DEV_NAME_PREFIXES = ("eval_", "test_", "smoke_", "_")
+
+
+def list_saved_projects(
+    query: str | None = None,
+    include_all: bool = False,
+    sort: str = "recent",
+) -> list[dict]:
     """Lightweight metadata for every saved project under :func:`project_dir`.
 
     Reads each ``*.json`` snapshot without building full config objects so a
     catalogue listing stays cheap and a single corrupt file can't sink the
     whole listing — unreadable files come back as an entry with an ``error``
     field instead.
+
+    ``query`` filters case-insensitively over project name, notes, and
+    cabinet names ("shop" finds the miter station via its notes). Unreadable
+    entries are kept only when their filename matches, so a corrupt file
+    can't hide from a direct-name search.
+
+    Dev artifacts (names starting with ``eval_``/``test_``/``smoke_``/``_``)
+    are hidden unless ``include_all`` is true — except when a ``query`` is
+    given, which searches everything (an explicit search must be able to
+    find anything).
+
+    ``sort``: ``"recent"`` (default, newest ``modified`` first) or
+    ``"name"`` (alphabetical).
     """
     from datetime import datetime
 
@@ -276,7 +299,64 @@ def list_saved_projects() -> list[dict]:
                 "modified": modified,
                 "path": str(path),
             })
+
+    if query:
+        q = query.lower().strip()
+
+        def _matches(e: dict) -> bool:
+            haystack = " ".join((
+                e.get("name", ""),
+                e.get("notes", ""),
+                " ".join(e.get("cabinet_names", ())),
+            )).lower()
+            return q in haystack
+
+        entries = [e for e in entries if _matches(e)]
+    elif not include_all:
+        entries = [
+            e for e in entries
+            if not e.get("name", "").startswith(_DEV_NAME_PREFIXES)
+        ]
+
+    if sort == "name":
+        entries.sort(key=lambda e: e.get("name", "").lower())
+    else:  # "recent" — newest first; entries without a timestamp sink
+        entries.sort(key=lambda e: e.get("modified") or "", reverse=True)
     return entries
+
+
+def rename_project(old_name: str, new_name: str) -> Path:
+    """Rename a saved project (file stem AND embedded ``name`` field).
+
+    Both names are validated by :func:`project_path`. Refuses to overwrite
+    an existing project. Generated cutlists/visualizations keep their old
+    stems — they are output artifacts, not part of the project record.
+    """
+    old_path = project_path(old_name)
+    new_path = project_path(new_name)
+    if not old_path.exists():
+        raise FileNotFoundError(
+            f"Project {old_name!r} not found at {old_path}."
+        )
+    if new_path.exists():
+        raise ValueError(
+            f"Project {new_name!r} already exists at {new_path}; "
+            "delete it first or pick another name."
+        )
+    data = json.loads(old_path.read_text())
+    data["name"] = new_name
+    new_path.write_text(json.dumps(data, indent=2))
+    old_path.unlink()
+    return new_path
+
+
+def delete_project(name: str) -> Path:
+    """Permanently delete a saved project snapshot. Returns the removed path."""
+    path = project_path(name)
+    if not path.exists():
+        raise FileNotFoundError(f"Project {name!r} not found at {path}.")
+    path.unlink()
+    return path
 
 
 # ─── Dict <-> object conversion ───────────────────────────────────────────────

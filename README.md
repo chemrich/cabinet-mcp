@@ -37,6 +37,24 @@ A design session ends in things you can actually build from:
 
 *One 2440 × 1220 sheet of the desk's 18 mm carcass panels — the dashed red line is guillotine cut #1, and the tabs switch between the three sheet thicknesses.*
 
+## Your shop, remembered
+
+Every design you finish is saved as a named project — and the library is part of the conversation:
+
+> What have I designed recently?
+
+> Open the miter-saw station — I want to swap the drawer slides.
+
+> Rename triple_sideboard to dining-room-credenza. And delete the old draft.
+
+Listings come back newest-first with the details that matter (cabinet count, run width, your notes), search covers names *and* notes ("shop" finds your bench run), and test clutter stays hidden until you ask for it.
+
+**Combining projects is one sentence.** When the designs are right, you skip straight to the shopping list:
+
+> One cutlist for the miter station plus the kids desk. Call it fall-build.
+
+That single request buys plywood once for both builds: panels from every project pack onto **shared sheets** for minimum waste, but nothing loses its identity — each project gets its own color on every cut sheet (color-blind-safe palette, with a legend), the parts list and CSV carry a Project column, and each hardware line shows the split, like legs: `miter_station ×12, kids-desk ×8`. One purchase per SKU, zero mystery about whose parts are whose. Out the other end: cutlist CSV/JSON, hardware BOM with pack math and prices, and layout HTML + PDF ready for the saw.
+
 ## Install options
 
 | Command | What you get |
@@ -66,10 +84,10 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Joinery** — four drawer corner joints and five carcass methods, all parametric — [docs/joinery.md](docs/joinery.md)
 - **Proportions** — graduated drawers and asymmetric column widths via named ratios — [docs/proportions.md](docs/proportions.md)
 - **Presets** — twenty-six pre-validated starting points for kitchen, workshop, bedroom, bathroom, office, entryway, and living-room furniture — [docs/presets.md](docs/presets.md)
-- **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, merged project cutlists
+- **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, a saved-project library (query, rename, delete), and multi-project batch cutlists with per-project colors and labels
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
-- **MCP server** — twenty-five tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
-- **Eval harness** — 283 scenarios / 940 assertions across eight domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
+- **MCP server** — twenty-seven tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
+- **Eval harness** — 290+ scenarios / 1,000+ assertions across domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)
 
 For the module layout and data flow, see [docs/architecture.md](docs/architecture.md).
 

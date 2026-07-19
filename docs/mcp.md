@@ -1,6 +1,6 @@
 # MCP server
 
-`server.py` exposes the full pipeline as twenty-five MCP tools. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
+`server.py` exposes the full pipeline as twenty-seven MCP tools. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
 
 ## Tools
 
@@ -26,10 +26,12 @@
 | `identify_furniture_type` | Map a natural-language furniture name to the closest preset / opening layout |
 | `list_pull_presets` | Named pull bundles (drawer pull + door pull + orientation) |
 | `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabinet-mcp/projects/<name>.json` |
-| `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times |
+| `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times; `query=` substring filter, newest-first sort, dev-artifact hiding |
 | `load_project` | Load a saved project's durable payload back for continued editing or reuse |
+| `rename_project` | Rename a snapshot (file stem + embedded name); refuses to overwrite |
+| `delete_project` | Permanently delete a saved snapshot (confirm with the user first) |
 | `evaluate_project` | Per-cabinet evaluation plus cross-cabinet consistency checks |
-| `generate_project_cutlist` | Merged cutlist/BOM for one project — or several saved projects batched via `project_names` |
+| `generate_project_cutlist` | Merged cutlist/BOM for one project — or several saved projects batched via `project_names`, with per-project colours, labels, and hardware breakdowns |
 | `visualize_project` | All cabinets in one 3D scene at their run offsets |
 
 ## Recommended workflow

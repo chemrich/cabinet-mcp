@@ -1653,11 +1653,78 @@ async def list_tools() -> list[types.Tool]:
                 last-modified time. Use this to discover what can be loaded
                 with load_project or batched with generate_project_cutlist.
 
+                Pass 'query' to filter: case-insensitive substring match
+                over project name, notes, and cabinet names — e.g.
+                query="shop" finds shop-bench projects via their notes.
+
+                Sorted newest-first by default (sort="name" for
+                alphabetical). Dev artifacts (names starting with eval_/
+                test_/smoke_/_) are hidden unless include_all=true — a
+                'query' always searches everything.
+
                 A single cabinet is saved as a one-cabinet project via
                 design_project, so this is the catalogue of all durable
                 designs, not just multi-cabinet runs.
             """),
-            inputSchema={"type": "object", "properties": {}},
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Case-insensitive substring filter over name, "
+                            "notes, and cabinet names. Omit for all projects."
+                        ),
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["recent", "name"],
+                        "default": "recent",
+                        "description": "recent = newest modified first.",
+                    },
+                    "include_all": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Include dev artifacts (eval_/test_/smoke_/_ "
+                            "prefixed names) in the listing."
+                        ),
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="rename_project",
+            description=textwrap.dedent("""\
+                Rename a saved project — updates both the snapshot filename
+                and the embedded project name. Refuses to overwrite an
+                existing project. Previously generated cutlist/visualization
+                files keep their old stems (they are output artifacts).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Current project name."},
+                    "new_name": {"type": "string", "description": "New project name."},
+                },
+                "required": ["name", "new_name"],
+            },
+        ),
+        types.Tool(
+            name="delete_project",
+            description=textwrap.dedent("""\
+                PERMANENTLY delete a saved project snapshot from
+                ~/.cabinet-mcp/projects/. There is no undo — confirm with
+                the user before deleting anything they might still want.
+                Generated cutlist/visualization files are not touched.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Project name to delete."},
+                },
+                "required": ["name"],
+            },
         ),
         types.Tool(
             name="load_project",
@@ -1723,6 +1790,14 @@ async def list_tools() -> list[types.Tool]:
                 ONE merged cutlist, sheet optimization, and hardware BOM.
                 Output files land in ~/.cabinet-mcp/cutlists/<name>/ (for a
                 batch, <name> is 'batch_name' or the joined project names).
+
+                Batches keep per-project identity: identical panels from
+                different projects stay separate rows tagged with their
+                project (sheet optimization still pools everything, so no
+                material is wasted), the layout HTML/PDF colours panels by
+                project with a legend, CSV/parts tables gain a Project
+                column, and hardware BOM lines carry a by_project piece
+                breakdown.
             """),
             inputSchema={
                 "type": "object",
@@ -1864,6 +1939,10 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_design_project(arguments)
         elif name == "list_projects":
             return await _tool_list_projects(arguments)
+        elif name == "rename_project":
+            return await _tool_rename_project(arguments)
+        elif name == "delete_project":
+            return await _tool_delete_project(arguments)
         elif name == "load_project":
             return await _tool_load_project(arguments)
         elif name == "evaluate_project":
@@ -2719,7 +2798,8 @@ def _cutlist_pipeline(
         "sheet_goods": sheet_goods,
         "panels_summary": [
             {"name": p.name, "length_mm": p.length, "width_mm": p.width,
-             "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material}
+             "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material,
+             **({"project": p.source} if p.source else {})}
             for p in all_panels
         ],
         "hardware_bom": [
@@ -2729,6 +2809,7 @@ def _cutlist_pipeline(
                 "brand": h.brand,
                 "model_number": h.model_number,
                 "pieces_needed": h.pieces_needed,
+                **({"by_project": dict(h.source_counts)} if h.source_counts else {}),
                 "pack_quantity": h.pack_quantity,
                 "packs_to_order": h.packs_to_order,
                 "leftover": h.leftover,
@@ -3592,14 +3673,63 @@ async def _tool_design_project(args: dict) -> list[types.TextContent]:
 async def _tool_list_projects(args: dict) -> list[types.TextContent]:
     from .project import list_saved_projects, project_dir
 
-    entries = list_saved_projects()
+    query = args.get("query")
+    include_all = bool(args.get("include_all", False))
+    sort = str(args.get("sort", "recent"))
+    entries = list_saved_projects(
+        query=str(query) if query else None,
+        include_all=include_all,
+        sort=sort,
+    )
     names = [e["name"] for e in entries if "error" not in e]
-    return _ok({
+    result = {
         "count": len(names),
         "unreadable": len(entries) - len(names),
         "names": names,
         "projects": entries,
         "directory": str(project_dir()),
+        "sort": sort,
+    }
+    if query:
+        result["query"] = str(query)
+    elif not include_all:
+        result["note"] = (
+            "Dev artifacts (eval_/test_/smoke_/_ names) hidden; pass "
+            "include_all=true or a query to see them."
+        )
+    return _ok(result)
+
+
+async def _tool_rename_project(args: dict) -> list[types.TextContent]:
+    from .project import rename_project
+
+    name = args.get("name")
+    new_name = args.get("new_name")
+    if not name or not new_name:
+        return _err("Provide both 'name' and 'new_name'.")
+    path = rename_project(str(name), str(new_name))
+    return _ok({
+        "renamed": str(name),
+        "to": str(new_name),
+        "path": str(path),
+        "note": (
+            "Previously generated cutlists/visualizations keep the old "
+            "stem; regenerate to pick up the new name."
+        ),
+    })
+
+
+async def _tool_delete_project(args: dict) -> list[types.TextContent]:
+    from .project import delete_project
+
+    name = args.get("name")
+    if not name:
+        return _err("Provide 'name' (see list_projects).")
+    path = delete_project(str(name))
+    return _ok({
+        "deleted": str(name),
+        "path": str(path),
+        "note": "Snapshot removed permanently; output files were not touched.",
     })
 
 
@@ -3736,11 +3866,19 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
             total_cabinets += 1
             columns_raw = _columns_dict_from_cfg(cfg)
             c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
+            hw = hardware_bom_for_cabinet_config(cfg, columns_raw)
+            if batch_names:
+                # Tag provenance so panels stay project-distinct rows through
+                # consolidation and the layout colours/labels by project.
+                for panel in (*c, *b, *x, *f):
+                    panel.source = project.name
+                for line in hw:
+                    line.source = project.name
             raw_carcass.extend(c)
             raw_6mm.extend(b)
             raw_box.extend(x)
             raw_false.extend(f)
-            hw_lines_all.extend(hardware_bom_for_cabinet_config(cfg, columns_raw))
+            hw_lines_all.extend(hw)
 
             per_cabinet_summary.append({
                 # Cabinet names repeat across projects ("left", "a", …) — in a

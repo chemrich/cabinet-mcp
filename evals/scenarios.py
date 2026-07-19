@@ -8162,10 +8162,19 @@ SCENARIOS.append(Scenario(
         ),
         ToolCall(
             tool="list_projects",
-            args={},
-            label="catalogue contains the save",
+            args={"include_all": True},
+            label="catalogue contains the save (eval_ names need include_all)",
             assertions=[
                 Assertion("names", Op.CONTAINS, "eval_lib_round_trip"),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={},
+            label="default listing hides dev artifacts",
+            assertions=[
+                Assertion("note", Op.CONTAINS, "hidden"),
+                Assertion("sort", Op.EQ, "recent"),
             ],
         ),
         ToolCall(
@@ -8226,8 +8235,10 @@ SCENARIOS.append(Scenario(
                 Assertion("per_cabinet.0.name", Op.EQ, "eval_batch_a/a"),
                 Assertion("per_cabinet.1.name", Op.EQ, "eval_batch_b/a"),
                 Assertion("panels_summary.0.name", Op.EQ, "side"),
-                Assertion("panels_summary.0.qty", Op.EQ, 4,
-                          "identical sides merge across the two projects"),
+                # Batch project identity: identical sides stay separate,
+                # project-tagged rows (qty 2 each) instead of merging to 4.
+                Assertion("panels_summary.0.qty", Op.EQ, 2),
+                Assertion("panels_summary.0.project", Op.EQ, "eval_batch_a"),
                 Assertion("files", Op.HAS_KEY, "csv"),
                 Assertion("cost_estimate", Op.HAS_KEY, "grand_total_usd"),
             ],
@@ -8240,6 +8251,16 @@ SCENARIOS.append(Scenario(
             assertions=[
                 Assertion("project", Op.EQ, "eval_batch_custom"),
                 Assertion("cabinet_count", Op.EQ, 2),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={"query": "eval_batch_a"},
+            label="query filters the catalogue",
+            assertions=[
+                Assertion("names", Op.CONTAINS, "eval_batch_a"),
+                Assertion("count", Op.EQ, 1),
+                Assertion("query", Op.EQ, "eval_batch_a"),
             ],
         ),
     ],
@@ -8393,6 +8414,64 @@ SCENARIOS.append(Scenario(
                 Assertion("summary.errors", Op.EQ, 0),
                 Assertion("summary.pass", Op.IS_TRUE),
             ],
+        ),
+    ],
+))
+
+
+SCENARIOS.append(Scenario(
+    name="project_rename_and_delete_lifecycle",
+    prompt="Rename a saved project, then delete it — the catalogue tracks "
+           "both operations.",
+    tags=["project", "workflow"],
+    difficulty="standard",
+    description="rename_project moves the snapshot and embedded name; "
+                "delete_project removes it; query search sees the changes.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_lifecycle_a", "cabinets": [
+                {"name": "a", "config": {"width": 600, "height": 720,
+                                         "depth": 550,
+                                         "drawer_config": [[300, "drawer"]]}}]},
+            label="save",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="rename_project",
+            args={"name": "eval_lifecycle_a", "new_name": "eval_lifecycle_b"},
+            label="rename",
+            assertions=[
+                Assertion("renamed", Op.EQ, "eval_lifecycle_a"),
+                Assertion("to", Op.EQ, "eval_lifecycle_b"),
+            ],
+        ),
+        ToolCall(
+            tool="load_project",
+            args={"name": "eval_lifecycle_b"},
+            label="loads under the new name with updated embedded name",
+            assertions=[
+                Assertion("name", Op.EQ, "eval_lifecycle_b"),
+                Assertion("project.name", Op.EQ, "eval_lifecycle_b"),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={"query": "eval_lifecycle_a"},
+            label="old name is gone",
+            assertions=[Assertion("count", Op.EQ, 0)],
+        ),
+        ToolCall(
+            tool="delete_project",
+            args={"name": "eval_lifecycle_b"},
+            label="delete",
+            assertions=[Assertion("deleted", Op.EQ, "eval_lifecycle_b")],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={"query": "eval_lifecycle_b"},
+            label="deleted project no longer listed",
+            assertions=[Assertion("count", Op.EQ, 0)],
         ),
     ],
 ))
