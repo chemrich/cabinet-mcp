@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -97,6 +97,39 @@ class SharedDesign:
 
 
 @dataclass(frozen=True)
+class WorktopSpec:
+    """A desk/counter surface that spans part of the project run.
+
+    The slab is positioned in run coordinates: ``x_offset_mm`` is its left
+    edge measured from the left face of the first cabinet, using whatever
+    ``gap_mm`` the run is rendered with. ``surface_height_mm`` is the
+    finished top-of-slab height above the FLOOR (feet included), so the
+    number matches how a desk or counter height is actually specified.
+
+    ``leg_count`` renders simple round support legs from the floor to the
+    slab underside: 4 = one per corner, 2 = front corners only (rear edge
+    carried by cleats into the flanking cabinets), 0 = no legs (slab rests
+    on the cabinets themselves).
+    """
+    width_mm: float
+    depth_mm: float
+    thickness_mm: float = 19.0
+    surface_height_mm: float = 736.6   # 29" — standard desk height
+    x_offset_mm: float = 0.0
+    # Front-edge shift relative to the cabinet fronts (y=0). Negative pushes
+    # the slab proud of the carcass — e.g. -19 lands it on the face plane.
+    y_offset_mm: float = 0.0
+    leg_count: int = 0
+    leg_diameter_mm: float = 50.0
+    leg_inset_mm: float = 60.0
+    material: str = "finished_wood"
+
+    @property
+    def leg_height_mm(self) -> float:
+        return self.surface_height_mm - self.thickness_mm
+
+
+@dataclass(frozen=True)
 class ProjectCabinet:
     """One cabinet slot inside a project.
 
@@ -128,6 +161,9 @@ class CabinetProject:
     # ``forked_at`` is an ISO-8601 timestamp of the fork.
     forked_from: Optional[str] = None
     forked_at:   Optional[str] = None
+    # Optional desk/counter surface spanning part of the run. Stored as a
+    # top-level snapshot key, so older readers ignore it safely.
+    worktop: Optional[WorktopSpec] = None
 
     def resolved(self) -> tuple[tuple[str, CabinetConfig], ...]:
         """Return ``((name, merged_config), ...)`` with shared tokens applied."""
@@ -425,6 +461,9 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
 
     - ``notes`` — replaces the notes string.
     - ``wall_width_mm`` — replaces the wall constraint; ``None`` clears it.
+    - ``worktop`` — shallow-merged into the stored worktop spec (creating
+      one if absent — ``width_mm``/``depth_mm`` required then); ``None``
+      removes the worktop entirely.
     - ``shared`` — shallow-merged into the shared token block; a ``None``
       value removes that token (children fall back to their own values).
     - ``cabinets`` — list of per-cabinet patches matched by ``name``:
@@ -457,6 +496,22 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
         else:
             out["wall_width_mm"] = float(wall)
             changes.append(f"wall_width_mm = {float(wall)}")
+
+    if "worktop" in patch:
+        wpatch = patch["worktop"]
+        if wpatch is None:
+            if "worktop" in out:
+                del out["worktop"]
+                changes.append("worktop removed")
+        else:
+            existed = "worktop" in out
+            merged = {**(out.get("worktop") or {}), **dict(wpatch)}
+            # A None value inside the patch reverts that field to its default.
+            merged = {k: v for k, v in merged.items() if v is not None}
+            # Validate now so a bad patch fails before anything is written.
+            worktop_from_dict(merged)
+            out["worktop"] = merged
+            changes.append("worktop updated" if existed else "worktop added")
 
     if "shared" in patch and patch["shared"]:
         shared = dict(out.get("shared") or {})
@@ -702,6 +757,39 @@ def shared_from_dict(d: dict | None) -> SharedDesign:
     return SharedDesign(**kwargs)
 
 
+def _worktop_to_dict(spec: WorktopSpec) -> dict:
+    return asdict(spec)
+
+
+def worktop_from_dict(d: dict | None) -> Optional[WorktopSpec]:
+    """Build a :class:`WorktopSpec` from a payload dict (``None`` passes through).
+
+    ``width_mm`` and ``depth_mm`` are required; everything else defaults.
+    Unknown keys are rejected so a typo'd field name fails loudly instead of
+    silently falling back to a default.
+    """
+    if d is None:
+        return None
+    known = {f.name for f in fields(WorktopSpec)}
+    unknown = set(d) - known
+    if unknown:
+        raise ValueError(
+            f"Unknown worktop field(s) {sorted(unknown)}. Known: {sorted(known)}."
+        )
+    for req in ("width_mm", "depth_mm"):
+        if d.get(req) is None:
+            raise ValueError(f"worktop requires '{req}'.")
+    kwargs: dict[str, Any] = {k: v for k, v in d.items() if v is not None}
+    if "leg_count" in kwargs:
+        kwargs["leg_count"] = int(kwargs["leg_count"])
+    if "material" in kwargs:
+        kwargs["material"] = str(kwargs["material"])
+    for k in kwargs:
+        if k not in ("leg_count", "material"):
+            kwargs[k] = float(kwargs[k])
+    return WorktopSpec(**kwargs)
+
+
 def project_to_dict(project: CabinetProject) -> dict:
     out = {
         "name": project.name,
@@ -722,6 +810,8 @@ def project_to_dict(project: CabinetProject) -> dict:
         out["forked_from"] = project.forked_from
         if project.forked_at is not None:
             out["forked_at"] = project.forked_at
+    if project.worktop is not None:
+        out["worktop"] = _worktop_to_dict(project.worktop)
     return out
 
 
@@ -746,6 +836,7 @@ def project_from_dict(d: dict) -> CabinetProject:
         wall_width_mm=float(wall_raw) if wall_raw is not None else None,
         forked_from=str(fork_raw) if fork_raw is not None else None,
         forked_at=str(at_raw) if at_raw is not None else None,
+        worktop=worktop_from_dict(d.get("worktop")),
     )
 
 
@@ -834,6 +925,7 @@ def build_project(payload: dict) -> CabinetProject:
         wall_width_mm=wall_width_mm,
         forked_from=str(fork_raw) if fork_raw is not None else None,
         forked_at=str(at_raw) if at_raw is not None else None,
+        worktop=worktop_from_dict(payload.get("worktop")),
     )
 
 

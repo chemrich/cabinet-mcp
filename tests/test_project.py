@@ -863,3 +863,88 @@ class TestPrefinishedDrawerBoxes:
             not p.config.drawer_box_prefinished
             for p in PRESETS.values() if p.category != "workshop"
         )
+
+
+# ─── Worktop slab ─────────────────────────────────────────────────────────────
+
+
+class TestWorktop:
+    def _payload_with_worktop(self, name="desk_run"):
+        p = _sample_payload(name=name)
+        p["worktop"] = {
+            "width_mm": 1219.2, "depth_mm": 457.2, "thickness_mm": 19,
+            "surface_height_mm": 660.4, "x_offset_mm": 381,
+            "y_offset_mm": -18, "leg_count": 4,
+        }
+        return p
+
+    def test_round_trip_survives(self):
+        proj = build_project(self._payload_with_worktop())
+        assert proj.worktop is not None
+        loaded = project_from_dict(project_to_dict(proj))
+        assert loaded.worktop == proj.worktop
+        assert loaded.worktop.leg_height_mm == pytest.approx(660.4 - 19)
+
+    def test_absent_worktop_stays_absent(self):
+        proj = build_project(_sample_payload())
+        assert proj.worktop is None
+        d = project_to_dict(proj)
+        assert "worktop" not in d
+        assert project_from_dict(d).worktop is None
+
+    def test_defaults_and_validation(self):
+        from cadquery_furniture.project import worktop_from_dict
+        spec = worktop_from_dict({"width_mm": 1000, "depth_mm": 500})
+        assert spec.thickness_mm == 19.0
+        assert spec.surface_height_mm == pytest.approx(736.6)
+        assert spec.leg_count == 0
+        with pytest.raises(ValueError, match="width_mm"):
+            worktop_from_dict({"depth_mm": 500})
+        with pytest.raises(ValueError, match="Unknown worktop field"):
+            worktop_from_dict({"width_mm": 1000, "depth_mm": 500, "hieght": 700})
+
+    def test_patch_add_update_clear(self):
+        from cadquery_furniture.project import apply_project_patch
+        base = project_to_dict(build_project(_sample_payload(name="p")))
+
+        patched, changes = apply_project_patch(
+            base, {"worktop": {"width_mm": 900, "depth_mm": 450}})
+        assert patched["worktop"]["width_mm"] == 900
+        assert "worktop added" in changes
+
+        patched2, changes2 = apply_project_patch(
+            patched, {"worktop": {"leg_count": 2}})
+        assert patched2["worktop"]["leg_count"] == 2
+        assert patched2["worktop"]["width_mm"] == 900  # shallow merge keeps rest
+        assert "worktop updated" in changes2
+
+        patched3, changes3 = apply_project_patch(patched2, {"worktop": None})
+        assert "worktop" not in patched3
+        assert "worktop removed" in changes3
+
+        # Creating a worktop via patch without the required dims fails loudly
+        # and leaves nothing half-written.
+        with pytest.raises(ValueError):
+            apply_project_patch(base, {"worktop": {"thickness_mm": 25}})
+
+    def test_cutlist_includes_worktop_panel(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        out = _run(_tool_generate_project_cutlist(
+            {"project": self._payload_with_worktop(name="desk_cut")}))
+        data = json.loads(out[0].text)
+        rows = [p for p in data["panels_summary"] if p["name"] == "worktop"]
+        assert len(rows) == 1, data["panels_summary"]
+        assert rows[0]["qty"] == 1
+        assert rows[0]["length_mm"] == pytest.approx(1219.2)
+        assert rows[0]["width_mm"] == pytest.approx(457.2)
+
+    def test_design_project_tool_echoes_worktop(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
+        out = _run(_tool_design_project(self._payload_with_worktop(name="desk_echo")))
+        data = json.loads(out[0].text)
+        assert data["worktop"]["surface_height_mm"] == pytest.approx(660.4)
+        assert load_project("desk_echo").worktop.leg_count == 4

@@ -360,7 +360,7 @@ const BOX_RE  = /^bay\\d+_drawer\\d+(?:_\\d+)?$/;
 // adjustable feet (foot_{n}) — keeps its own material.  The pull check is
 // anchored so a cabinet whose name merely contains 'pull' still gets its
 // finish; the /_\\d+/ tolerates GLTFLoader dedup suffixes.
-const HARDWARE_RE = /^(bay\\d+_(?:door)?pull\\d+|foot)(?:_\\d+)*$/;
+const HARDWARE_RE = /^(bay\\d+_(?:door)?pull\\d+|foot|worktop_leg\\d+)(?:_\\d+)*$/;
 function classifyWood(root) {
   root.traverse(obj => {
     if (!obj.isMesh) return;

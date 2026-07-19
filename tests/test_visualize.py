@@ -331,3 +331,41 @@ class TestVisualizeProject:
         from cadquery_furniture.server import _tool_visualize_project
         with pytest.raises(ValueError, match="project_name"):
             asyncio.get_event_loop().run_until_complete(_tool_visualize_project({}))
+
+    def test_worktop_rendered_with_legs(self, tmp_path, monkeypatch):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_project
+
+        payload = {
+            "name": "viz_worktop",
+            "cabinets": [
+                {"name": "left",  "config": {"width": 381, "height": 1168, "depth": 457,
+                                             "drawer_config": [[300, "drawer"], [832, "drawer"]]}},
+                {"name": "right", "config": {"width": 381, "height": 1168, "depth": 457,
+                                             "drawer_config": [[300, "drawer"], [832, "drawer"]]}},
+            ],
+            "worktop": {
+                "width_mm": 1219.2, "depth_mm": 457.2, "thickness_mm": 19,
+                "surface_height_mm": 660.4, "x_offset_mm": 381,
+                "y_offset_mm": -18, "leg_count": 4,
+            },
+        }
+        out = asyncio.get_event_loop().run_until_complete(
+            _tool_visualize_project({
+                "project": payload,
+                "gap_mm": 1219.2,
+                "furniture_top": True,
+                "open_browser": False,
+                "output_dir": str(tmp_path),
+            }))
+        data = json.loads(out[0].text)
+
+        assert data["worktop"]["surface_height_mm"] == pytest.approx(660.4)
+        # GLB node names live in the JSON chunk — slab and all four legs present.
+        glb = Path(data["glb"]).read_bytes()
+        assert b'"worktop"' in glb
+        for i in range(4):
+            assert f'"worktop_leg{i}"'.encode() in glb
+        # furniture_top adds the top front cap strip per cabinet.
+        assert glb.count(b'top_front_cap') >= 2

@@ -91,7 +91,7 @@ class TestHardwareClassification:
         # A cabinet named 'pull*' must keep its finish — the hardware check is
         # anchored to real pull/foot node names, not a bare /pull/i substring.
         js = _js()
-        assert r"const HARDWARE_RE = /^(bay\d+_(?:door)?pull\d+|foot)(?:_\d+)*$/;" in js
+        assert r"const HARDWARE_RE = /^(bay\d+_(?:door)?pull\d+|foot|worktop_leg\d+)(?:_\d+)*$/;" in js
         assert "if (/pull/i.test(nm))" not in js
 
     def test_grain_lcg_uses_imul(self):
