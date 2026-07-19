@@ -7879,7 +7879,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="design_project",
-            args=dict(_PROJECT_TRIO),
+            args=dict(_PROJECT_TRIO, overwrite=True),
             assertions=[
                 Assertion("cabinet_count", Op.EQ, 3),
                 Assertion("total_run_width_mm", Op.APPROX, 3657),
@@ -8149,7 +8149,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="design_project",
-            args={"name": "eval_lib_round_trip", "cabinets": [
+            args={"name": "eval_lib_round_trip", "overwrite": True, "cabinets": [
                 {"name": "a", "config": {
                     "width": 700, "height": 400, "depth": 550,
                     "drawer_config": [[300, "drawer", {"bottom_thickness": 6}]]}},
@@ -8206,7 +8206,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="design_project",
-            args={"name": "eval_batch_a", "cabinets": [
+            args={"name": "eval_batch_a", "overwrite": True, "cabinets": [
                 {"name": "a", "config": {"width": 600, "height": 720,
                                          "depth": 550,
                                          "drawer_config": [[300, "drawer"]]}},
@@ -8216,7 +8216,7 @@ SCENARIOS.append(Scenario(
         ),
         ToolCall(
             tool="design_project",
-            args={"name": "eval_batch_b", "cabinets": [
+            args={"name": "eval_batch_b", "overwrite": True, "cabinets": [
                 {"name": "a", "config": {"width": 600, "height": 720,
                                          "depth": 550,
                                          "openings": [[684, "door"]]}},
@@ -8306,6 +8306,7 @@ SCENARIOS.append(Scenario(
         ToolCall(
             tool="design_project",
             args={"name": "eval_boxthick",
+                  "overwrite": True,
                   "shared": {"drawer_box_thickness": 12},
                   "cabinets": [{"name": "a", "config": {
                       "width": 700, "height": 400, "depth": 550,
@@ -8430,7 +8431,7 @@ SCENARIOS.append(Scenario(
     tool_calls=[
         ToolCall(
             tool="design_project",
-            args={"name": "eval_lifecycle_a", "cabinets": [
+            args={"name": "eval_lifecycle_a", "overwrite": True, "cabinets": [
                 {"name": "a", "config": {"width": 600, "height": 720,
                                          "depth": 550,
                                          "drawer_config": [[300, "drawer"]]}}]},
@@ -8472,6 +8473,148 @@ SCENARIOS.append(Scenario(
             args={"query": "eval_lifecycle_b"},
             label="deleted project no longer listed",
             assertions=[Assertion("count", Op.EQ, 0)],
+        ),
+    ],
+))
+
+
+SCENARIOS.append(Scenario(
+    name="project_fork_with_lineage",
+    prompt="Duplicate a saved project to explore a design change — the fork "
+           "records where it came from and the original is untouched.",
+    tags=["project", "workflow"],
+    difficulty="standard",
+    description="duplicate_project copies the snapshot, stamps forked_from/"
+                "forked_at lineage, and leaves the source alone; the fork "
+                "shows its lineage in load_project and list_projects.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_fork_src", "overwrite": True,
+                  "notes": "source build",
+                  "cabinets": [
+                      {"name": "a", "config": {"width": 600, "height": 720,
+                                               "depth": 550,
+                                               "drawer_config": [[300, "drawer"]]}}]},
+            label="save the source project",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="duplicate_project",
+            args={"name": "eval_fork_src", "new_name": "eval_fork_dst",
+                  "notes": "fork for experiments"},
+            label="fork it",
+            assertions=[
+                Assertion("name", Op.EQ, "eval_fork_dst"),
+                Assertion("forked_from", Op.EQ, "eval_fork_src"),
+                Assertion("forked_at", Op.HAS_KEY, None),
+                Assertion("cabinet_count", Op.EQ, 1),
+            ],
+        ),
+        ToolCall(
+            tool="update_project",
+            args={"name": "eval_fork_dst",
+                  "cabinets": [{"name": "a", "config": {"height": 780}}]},
+            label="edit the fork",
+            assertions=[
+                Assertion("changes", Op.LEN_GTE, 1),
+                Assertion("cabinets.0.exterior_mm.height", Op.EQ, 780),
+                Assertion("forked_from", Op.EQ, "eval_fork_src"),
+            ],
+        ),
+        ToolCall(
+            tool="load_project",
+            args={"name": "eval_fork_src"},
+            label="original untouched by the fork's edit",
+            assertions=[
+                Assertion("resolved.0.exterior_mm.height", Op.EQ, 720),
+                Assertion("project.notes", Op.EQ, "source build"),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={"query": "eval_fork_dst"},
+            label="catalogue shows the lineage",
+            assertions=[
+                Assertion("count", Op.EQ, 1),
+                Assertion("projects.0.forked_from", Op.EQ, "eval_fork_src"),
+            ],
+        ),
+        ToolCall(
+            tool="delete_project", args={"name": "eval_fork_dst"},
+            label="cleanup fork",
+            assertions=[Assertion("deleted", Op.EQ, "eval_fork_dst")],
+        ),
+        ToolCall(
+            tool="delete_project", args={"name": "eval_fork_src"},
+            label="cleanup source",
+            assertions=[Assertion("deleted", Op.EQ, "eval_fork_src")],
+        ),
+    ],
+))
+
+
+SCENARIOS.append(Scenario(
+    name="project_delta_update",
+    prompt="Change one cabinet's slide and add a cabinet to a saved project "
+           "without re-submitting the whole design.",
+    tags=["project", "workflow"],
+    difficulty="advanced",
+    description="update_project shallow-merges patches: a per-cabinet config "
+                "key colliding with an active shared token is auto-pinned as "
+                "an override (round-tripped override lists are exhaustive), "
+                "while untouched cabinets keep following the shared token.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_delta", "overwrite": True,
+                  "shared": {"drawer_slide": "blum_tandem_550h"},
+                  "cabinets": [
+                      {"name": "a", "config": {"width": 600, "height": 720,
+                                               "depth": 550,
+                                               "drawer_config": [[300, "drawer"]]}},
+                      {"name": "b", "config": {"width": 400, "height": 720,
+                                               "depth": 550,
+                                               "drawer_config": [[300, "drawer"]]}}]},
+            label="save two cabinets on a shared slide",
+            assertions=[Assertion("cabinet_count", Op.EQ, 2)],
+        ),
+        ToolCall(
+            tool="update_project",
+            args={"name": "eval_delta",
+                  "shared": {"drawer_slide": "blum_movento_769"},
+                  "cabinets": [
+                      {"name": "a",
+                       "config": {"drawer_slide": "blum_tandem_550h"}},
+                      {"name": "c", "add": True,
+                       "config": {"width": 300, "height": 720, "depth": 550,
+                                  "drawer_config": [[300, "drawer"]]}}]},
+            label="retoken shared slide, pin cabinet a, add cabinet c",
+            assertions=[
+                Assertion("cabinet_count", Op.EQ, 3),
+                Assertion("changes", Op.LEN_GTE, 3),
+                # a pinned its patched slide as an override…
+                Assertion("cabinets.0.drawer_slide", Op.EQ, "blum_tandem_550h"),
+                Assertion("cabinets.0.overrides", Op.CONTAINS, "drawer_slide"),
+                # …while b follows the retokened shared slide
+                Assertion("cabinets.1.drawer_slide", Op.EQ, "blum_movento_769"),
+                Assertion("cabinets.2.name", Op.EQ, "c"),
+            ],
+        ),
+        ToolCall(
+            tool="load_project",
+            args={"name": "eval_delta"},
+            label="the patch persisted",
+            assertions=[
+                Assertion("cabinet_count", Op.EQ, 3),
+                Assertion("resolved.0.drawer_slide", Op.EQ, "blum_tandem_550h"),
+                Assertion("resolved.1.drawer_slide", Op.EQ, "blum_movento_769"),
+            ],
+        ),
+        ToolCall(
+            tool="delete_project", args={"name": "eval_delta"},
+            label="cleanup",
+            assertions=[Assertion("deleted", Op.EQ, "eval_delta")],
         ),
     ],
 ))

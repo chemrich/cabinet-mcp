@@ -1593,6 +1593,10 @@ async def list_tools() -> list[types.Tool]:
                 ~/.cabinet-mcp/projects/<name>.json so evaluate_project and
                 generate_project_cutlist can be called by project name later.
 
+                If the name is already taken, the call is refused unless
+                overwrite=true — use update_project for a delta edit of the
+                existing design, or duplicate_project to fork it first.
+
                 Returns per-cabinet resolved configs plus a divergence note for
                 any shared token a child overrode.
             """),
@@ -1600,6 +1604,14 @@ async def list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Project name; used as the filename stem."},
+                    "overwrite": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Replace an existing saved project of the same "
+                            "name. Without it, a name collision is an error."
+                        ),
+                    },
                     "notes": {"type": "string", "description": "Optional human-readable notes."},
                     "wall_width_mm": {
                         "type": "number",
@@ -1643,6 +1655,66 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["name", "cabinets"],
+            },
+        ),
+        types.Tool(
+            name="update_project",
+            description=textwrap.dedent("""\
+                Delta-edit a saved project without re-submitting the whole
+                payload. Loads the snapshot, applies the patch, validates the
+                result exactly like a design_project submission, and saves.
+
+                Patch fields (all optional except 'name'):
+                - notes: replaces the notes string.
+                - wall_width_mm: replaces the wall constraint; null clears it.
+                - shared: shallow-merged into the shared token block; a null
+                  value removes that token.
+                - cabinets: per-cabinet patches matched by 'name'. 'config'
+                  is shallow-merged into that cabinet's stored config (null
+                  removes a key, reverting it to the shared token / default);
+                  patched keys that collide with an active shared token are
+                  auto-pinned as overrides so the patch sticks. 'new_name'
+                  renames the cabinet, 'remove': true drops it, 'add': true
+                  appends a new cabinet (config required).
+
+                Note config merging is SHALLOW: to change one drawer, pass
+                that cabinet's full 'columns' (or 'openings' / 'drawer_config')
+                value back with the row edited — load_project returns the
+                current value to edit.
+
+                Returns the same per-cabinet summary as design_project plus a
+                change log.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Saved project to update (see list_projects)."},
+                    "notes": {"type": "string"},
+                    "wall_width_mm": {"type": ["number", "null"]},
+                    "shared": {
+                        "type": "object",
+                        "description": "Shared-token deltas; null values clear a token.",
+                    },
+                    "cabinets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name":     {"type": "string"},
+                                "config":   {"type": "object"},
+                                "overrides": {
+                                    "type": "array", "items": {"type": "string"},
+                                    "description": "Full replacement of the cabinet's override list (advanced).",
+                                },
+                                "new_name": {"type": "string"},
+                                "remove":   {"type": "boolean"},
+                                "add":      {"type": "boolean"},
+                            },
+                            "required": ["name"],
+                        },
+                    },
+                },
+                "required": ["name"],
             },
         ),
         types.Tool(
@@ -1706,6 +1778,27 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "name": {"type": "string", "description": "Current project name."},
                     "new_name": {"type": "string", "description": "New project name."},
+                },
+                "required": ["name", "new_name"],
+            },
+        ),
+        types.Tool(
+            name="duplicate_project",
+            description=textwrap.dedent("""\
+                Fork a saved project: copy the snapshot under a new name so
+                design changes can be explored without touching the original
+                (like branching in git). The copy records its lineage —
+                'forked_from' + 'forked_at' appear in load_project and
+                list_projects output. Refuses to overwrite an existing
+                project. Pass 'notes' to replace the copied notes (the
+                original's notes often describe that build's final decisions).
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name":     {"type": "string", "description": "Source project (see list_projects)."},
+                    "new_name": {"type": "string", "description": "Name for the fork; must not already exist."},
+                    "notes":    {"type": "string", "description": "Optional replacement notes for the fork."},
                 },
                 "required": ["name", "new_name"],
             },
@@ -1937,10 +2030,14 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_list_pull_presets(arguments)
         elif name == "design_project":
             return await _tool_design_project(arguments)
+        elif name == "update_project":
+            return await _tool_update_project(arguments)
         elif name == "list_projects":
             return await _tool_list_projects(arguments)
         elif name == "rename_project":
             return await _tool_rename_project(arguments)
+        elif name == "duplicate_project":
+            return await _tool_duplicate_project(arguments)
         elif name == "delete_project":
             return await _tool_delete_project(arguments)
         elif name == "load_project":
@@ -3636,11 +3733,9 @@ def _columns_dict_from_cfg(cfg: CabinetConfig) -> list | None:
     return out
 
 
-async def _tool_design_project(args: dict) -> list[types.TextContent]:
-    from .project import build_project, save_project, check_project_consistency
-
-    project = build_project(args)
-    path = save_project(project)
+def _project_summary(project, path) -> dict:
+    """Per-cabinet resolved summary shared by design/update project handlers."""
+    from .project import check_project_consistency
 
     resolved = project.resolved()
     per_cabinet = []
@@ -3657,17 +3752,66 @@ async def _tool_design_project(args: dict) -> list[types.TextContent]:
             "overrides":       sorted(pc.overrides),
         })
 
-    total_run_mm = sum(cfg.width for _, cfg in resolved)
-    consistency  = check_project_consistency(project)
-
-    return _ok({
+    out = {
         "name": project.name,
         "cabinet_count": len(resolved),
-        "total_run_width_mm": round(total_run_mm, 1),
+        "total_run_width_mm": round(sum(cfg.width for _, cfg in resolved), 1),
         "cabinets": per_cabinet,
-        "consistency_issues": consistency,
+        "consistency_issues": check_project_consistency(project),
         "saved_to": str(path),
-    })
+    }
+    if project.forked_from is not None:
+        out["forked_from"] = project.forked_from
+    return out
+
+
+async def _tool_design_project(args: dict) -> list[types.TextContent]:
+    from .project import build_project, save_project, project_path
+
+    name = str(args.get("name") or "")
+    if name and not args.get("overwrite", False) and project_path(name).exists():
+        return _err(
+            f"Project '{name}' already exists. Pass overwrite=true to replace "
+            "it, use update_project for a delta edit, or duplicate_project to "
+            "fork it under a new name."
+        )
+
+    project = build_project(args)
+    path = save_project(project)
+    return _ok(_project_summary(project, path))
+
+
+async def _tool_update_project(args: dict) -> list[types.TextContent]:
+    from .project import update_saved_project, project_path
+
+    project, changes = update_saved_project(args)
+    if not changes:
+        return _ok({
+            "name": project.name,
+            "changes": [],
+            "note": "Patch was empty — nothing to change; project untouched.",
+        })
+    result = _project_summary(project, project_path(project.name))
+    result["changes"] = changes
+    return _ok(result)
+
+
+async def _tool_duplicate_project(args: dict) -> list[types.TextContent]:
+    from .project import duplicate_project, load_project
+
+    name = str(args.get("name") or "")
+    new_name = str(args.get("new_name") or "")
+    if not name or not new_name:
+        return _err("Provide 'name' (source) and 'new_name' (the fork).")
+    path = duplicate_project(name, new_name, notes=args.get("notes"))
+    project = load_project(new_name)
+    result = _project_summary(project, path)
+    result["forked_at"] = project.forked_at
+    result["note"] = (
+        f"'{new_name}' is an independent copy of '{name}' — edit it with "
+        "update_project (or design_project overwrite=true); the original is untouched."
+    )
+    return _ok(result)
 
 
 async def _tool_list_projects(args: dict) -> list[types.TextContent]:

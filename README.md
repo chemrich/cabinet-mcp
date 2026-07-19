@@ -47,7 +47,11 @@ Every design you finish is saved as a named project — and the library is part 
 
 > Rename triple_sideboard to dining-room-credenza. And delete the old draft.
 
+> Fork the credenza as credenza-walnut — I want to try a walnut version without touching the original.
+
 Listings come back newest-first with the details that matter (cabinet count, run width, your notes), search covers names *and* notes ("shop" finds your bench run), and test clutter stays hidden until you ask for it.
+
+**Designs evolve safely.** Small changes patch a saved project in place ("make the top drawer 150 mm") without re-describing the whole design. Bigger experiments start with a fork — the copy remembers where it came from (`forked_from` shows up in listings), the original stays untouched, and a finished design can't be overwritten by accident: replacing a saved name has to be asked for explicitly.
 
 **Combining projects is one sentence.** When the designs are right, you skip straight to the shopping list:
 
@@ -84,7 +88,7 @@ The parametric core, evaluation engine, and cutlist BOM all work in lite mode (n
 - **Joinery** — four drawer corner joints and five carcass methods, all parametric — [docs/joinery.md](docs/joinery.md)
 - **Proportions** — graduated drawers and asymmetric column widths via named ratios — [docs/proportions.md](docs/proportions.md)
 - **Presets** — twenty-six pre-validated starting points for kitchen, workshop, bedroom, bathroom, office, entryway, and living-room furniture — [docs/presets.md](docs/presets.md)
-- **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, a saved-project library (query, rename, delete), and multi-project batch cutlists with per-project colors and labels
+- **Multi-cabinet projects** — shared design tokens across a run of cabinets, cross-cabinet consistency checks, a saved-project library (query, rename, delete, fork with lineage, delta edits), and multi-project batch cutlists with per-project colors and labels
 - **Auto-repair** — single-pass fixer for common stack/rabbet errors
 - **MCP server** — twenty-seven tools over stdio or HTTP/SSE — [docs/mcp.md](docs/mcp.md)
 - **Eval harness** — 290+ scenarios / 1,000+ assertions across domain tags (kitchen, workshop, bedroom/bathroom, furniture maker, cabinet maker, homeowner, and more), runs in under a second — [docs/evals.md](docs/evals.md)

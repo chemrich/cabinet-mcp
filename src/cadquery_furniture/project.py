@@ -123,6 +123,11 @@ class CabinetProject:
     # Available wall run in mm. When set, consistency checks flag a total
     # cabinet run wider than the wall (error) and report leftover gap (info).
     wall_width_mm: Optional[float] = None
+    # Fork lineage — set by duplicate_project. ``forked_from`` names the
+    # source project (which may since have been renamed or deleted);
+    # ``forked_at`` is an ISO-8601 timestamp of the fork.
+    forked_from: Optional[str] = None
+    forked_at:   Optional[str] = None
 
     def resolved(self) -> tuple[tuple[str, CabinetConfig], ...]:
         """Return ``((name, merged_config), ...)`` with shared tokens applied."""
@@ -291,6 +296,10 @@ def list_saved_projects(
                 "notes": data.get("notes", ""),
                 "modified": modified,
                 "path": str(path),
+                **(
+                    {"forked_from": data["forked_from"]}
+                    if data.get("forked_from") else {}
+                ),
             })
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             entries.append({
@@ -357,6 +366,213 @@ def delete_project(name: str) -> Path:
         raise FileNotFoundError(f"Project {name!r} not found at {path}.")
     path.unlink()
     return path
+
+
+def duplicate_project(name: str, new_name: str, notes: str | None = None) -> Path:
+    """Fork a saved project under a new name.
+
+    Copies the snapshot verbatim, stamps ``forked_from``/``forked_at``
+    lineage into the copy, and refuses to overwrite an existing project.
+    ``notes`` replaces the copied notes when given (the original's notes
+    often describe decisions specific to that build). The source project
+    is never touched.
+    """
+    from datetime import datetime
+
+    src_path = project_path(name)
+    dst_path = project_path(new_name)
+    if not src_path.exists():
+        raise FileNotFoundError(f"Project {name!r} not found at {src_path}.")
+    if dst_path.exists():
+        raise ValueError(
+            f"Project {new_name!r} already exists at {dst_path}; "
+            "delete it first or pick another name."
+        )
+    data = json.loads(src_path.read_text())
+    data["name"] = new_name
+    data["forked_from"] = name
+    data["forked_at"] = datetime.now().isoformat(timespec="seconds")
+    if notes is not None:
+        data["notes"] = notes
+    dst_path.write_text(json.dumps(data, indent=2))
+    return dst_path
+
+
+# Config keys whose child-level value only survives project resolution when
+# the key is also listed in the cabinet's ``overrides`` set (see build_project:
+# round-tripped overrides lists are exhaustive). A shared pull_preset expands
+# into the pull fields at merge time, so those count too.
+_PULL_EXPANSION_KEYS = ("drawer_pull", "door_pull", "door_pull_inset_mm")
+
+
+def _shared_override_keys(shared_dict: dict) -> set[str]:
+    """Keys a cabinet-config patch must pin via ``overrides`` to stick."""
+    keys = {
+        k for k in _SHARED_FIELDS + ("pull_preset",)
+        if shared_dict.get(k) is not None
+    }
+    if shared_dict.get("pull_preset") is not None:
+        keys |= set(_PULL_EXPANSION_KEYS)
+    return keys
+
+
+def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
+    """Apply an update_project delta to a stored project payload.
+
+    Pure function: returns ``(patched_payload, change_log)`` without touching
+    disk. ``base`` is a snapshot dict (the ``project_to_dict`` shape);
+    ``patch`` carries any of:
+
+    - ``notes`` — replaces the notes string.
+    - ``wall_width_mm`` — replaces the wall constraint; ``None`` clears it.
+    - ``shared`` — shallow-merged into the shared token block; a ``None``
+      value removes that token (children fall back to their own values).
+    - ``cabinets`` — list of per-cabinet patches matched by ``name``:
+        - ``config``: shallow-merged into the stored config; a ``None``
+          value removes the key (reverting it to the shared token or the
+          CabinetConfig default at resolve time). Patched keys that collide
+          with an active shared token are added to the cabinet's
+          ``overrides`` so the patched value survives resolution.
+        - ``overrides``: full replacement of the override list (skips the
+          automatic addition above).
+        - ``new_name``: renames the cabinet within the project.
+        - ``remove: true``: drops the cabinet (the project must keep at
+          least one).
+        - ``add: true``: appends a new cabinet (``config`` required; the
+          name must not already exist). Overrides are inferred from the
+          config keys, as for a fresh design_project child.
+    """
+    out = json.loads(json.dumps(base))  # deep copy; payloads are plain JSON
+    changes: list[str] = []
+
+    if "notes" in patch:
+        out["notes"] = str(patch["notes"])
+        changes.append("notes replaced")
+
+    if "wall_width_mm" in patch:
+        wall = patch["wall_width_mm"]
+        if wall is None:
+            out.pop("wall_width_mm", None)
+            changes.append("wall_width_mm cleared")
+        else:
+            out["wall_width_mm"] = float(wall)
+            changes.append(f"wall_width_mm = {float(wall)}")
+
+    if "shared" in patch and patch["shared"]:
+        shared = dict(out.get("shared") or {})
+        for key, value in patch["shared"].items():
+            if value is None:
+                if key in shared:
+                    del shared[key]
+                    changes.append(f"shared.{key} cleared")
+            else:
+                old = shared.get(key)
+                shared[key] = value
+                changes.append(
+                    f"shared.{key} = {value!r}" if old is None
+                    else f"shared.{key}: {old!r} -> {value!r}"
+                )
+        out["shared"] = shared
+
+    shared_keys = _shared_override_keys(out.get("shared") or {})
+    stored = {c["name"]: c for c in out.get("cabinets", [])}
+
+    for cpatch in patch.get("cabinets", []) or []:
+        cname = str(cpatch.get("name", ""))
+        if cpatch.get("add"):
+            if cname in stored:
+                raise ValueError(
+                    f"Cannot add cabinet {cname!r}: the name already exists. "
+                    "Use a config patch to edit it, or pick another name."
+                )
+            if not cpatch.get("config"):
+                raise ValueError(f"Adding cabinet {cname!r} requires a 'config'.")
+            entry = {"name": cname, "config": dict(cpatch["config"])}
+            # No 'overrides' key — build_project infers them from the config
+            # keys, exactly like a fresh design_project child entry.
+            out["cabinets"].append(entry)
+            stored[cname] = entry
+            changes.append(f"cabinet {cname!r} added")
+            continue
+
+        if cname not in stored:
+            raise ValueError(
+                f"No cabinet named {cname!r} in this project. "
+                f"Cabinets: {sorted(stored)}."
+            )
+        entry = stored[cname]
+
+        if cpatch.get("remove"):
+            out["cabinets"] = [c for c in out["cabinets"] if c is not entry]
+            del stored[cname]
+            if not out["cabinets"]:
+                raise ValueError(
+                    f"Cannot remove {cname!r}: a project needs at least one cabinet."
+                )
+            changes.append(f"cabinet {cname!r} removed")
+            continue
+
+        overrides = set(entry.get("overrides", []))
+        explicit_overrides = "overrides" in cpatch
+
+        for key, value in (cpatch.get("config") or {}).items():
+            cfg = entry.setdefault("config", {})
+            if value is None:
+                if key in cfg:
+                    del cfg[key]
+                    overrides.discard(key)
+                    changes.append(f"{cname}.config.{key} cleared")
+            else:
+                old = cfg.get(key)
+                cfg[key] = value
+                if not explicit_overrides and key in shared_keys:
+                    overrides.add(key)
+                if isinstance(old, (int, float, str, bool)) and old != value:
+                    changes.append(f"{cname}.config.{key}: {old!r} -> {value!r}")
+                else:
+                    changes.append(f"{cname}.config.{key} set")
+
+        if explicit_overrides:
+            overrides = set(str(k) for k in cpatch["overrides"] or ())
+            changes.append(f"{cname}.overrides replaced")
+        if "overrides" in entry or overrides:
+            entry["overrides"] = sorted(overrides)
+
+        new_cname = cpatch.get("new_name")
+        if new_cname and str(new_cname) != cname:
+            new_cname = str(new_cname)
+            if new_cname in stored:
+                raise ValueError(
+                    f"Cannot rename cabinet {cname!r} to {new_cname!r}: "
+                    "the name already exists."
+                )
+            entry["name"] = new_cname
+            stored[new_cname] = stored.pop(cname)
+            changes.append(f"cabinet {cname!r} renamed to {new_cname!r}")
+
+    return out, changes
+
+
+def update_saved_project(patch: dict) -> tuple["CabinetProject", list[str]]:
+    """Load, patch, rebuild, and re-save a stored project.
+
+    ``patch["name"]`` names the saved project (see :func:`apply_project_patch`
+    for the delta shape). The rebuild goes through :func:`build_project`, so
+    the patched payload is validated exactly like a design_project submission
+    before anything is written back. Returns ``(project, change_log)``.
+    """
+    name = str(patch.get("name") or "")
+    path = project_path(name)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Project {name!r} not found at {path}. See list_projects."
+        )
+    base = json.loads(path.read_text())
+    patched, changes = apply_project_patch(base, patch)
+    project = build_project(patched)
+    if changes:  # an empty patch shouldn't bump the snapshot's mtime
+        save_project(project)
+    return project, changes
 
 
 # ─── Dict <-> object conversion ───────────────────────────────────────────────
@@ -502,6 +718,10 @@ def project_to_dict(project: CabinetProject) -> dict:
     }
     if project.wall_width_mm is not None:
         out["wall_width_mm"] = project.wall_width_mm
+    if project.forked_from is not None:
+        out["forked_from"] = project.forked_from
+        if project.forked_at is not None:
+            out["forked_at"] = project.forked_at
     return out
 
 
@@ -516,12 +736,16 @@ def project_from_dict(d: dict) -> CabinetProject:
         for c in d["cabinets"]
     )
     wall_raw = d.get("wall_width_mm")
+    fork_raw = d.get("forked_from")
+    at_raw   = d.get("forked_at")
     return CabinetProject(
         name=str(d["name"]),
         cabinets=cabinets,
         shared=shared,
         notes=str(d.get("notes", "")),
         wall_width_mm=float(wall_raw) if wall_raw is not None else None,
+        forked_from=str(fork_raw) if fork_raw is not None else None,
+        forked_at=str(at_raw) if at_raw is not None else None,
     )
 
 
@@ -600,12 +824,16 @@ def build_project(payload: dict) -> CabinetProject:
             overrides=overrides,
         ))
 
+    fork_raw = payload.get("forked_from")
+    at_raw   = payload.get("forked_at")
     return CabinetProject(
         name=name,
         cabinets=tuple(cabinets),
         shared=shared,
         notes=notes,
         wall_width_mm=wall_width_mm,
+        forked_from=str(fork_raw) if fork_raw is not None else None,
+        forked_at=str(at_raw) if at_raw is not None else None,
     )
 
 
