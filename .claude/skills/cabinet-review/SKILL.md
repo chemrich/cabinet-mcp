@@ -11,7 +11,7 @@ This is the established shape for a broad review of this repo (used for PR #21).
 
 ```bash
 uv run pytest tests/ -q          # capture the actual passed/skipped counts NOW
-uv run python -m evals           # evals baseline is 291 scenarios / 1012 assertions (per CLAUDE.md)
+uv run python -m evals           # evals baseline is 292 scenarios / 1022 assertions (per CLAUDE.md)
 ```
 **Record whatever numbers this run prints** — the test count grows as tests are added, so the baseline is "what the suite reports on the pre-change tree," not a fixed figure. Every later "green" is measured against these captured numbers, not a hardcoded one.
 

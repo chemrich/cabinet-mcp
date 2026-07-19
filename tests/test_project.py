@@ -696,6 +696,55 @@ class TestProjectLibrary:
             ["shop_bench_run"]  # matches notes, case-insensitive
         assert len(list_saved_projects()) == 2
 
+    def test_dev_artifacts_hidden_unless_asked_or_queried(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import list_saved_projects
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="real_project")))
+        for dev in ("eval_thing", "test_thing", "smoke_thing"):
+            save_project(build_project(_sample_payload(name=dev)))
+        # "_"-prefixed names predate name validation and exist only as
+        # legacy files on disk — write one directly, as those were.
+        (tmp_path / "_probe.json").write_text('{"name": "_probe", "cabinets": []}')
+        assert [e["name"] for e in list_saved_projects()] == ["real_project"]
+        assert len(list_saved_projects(include_all=True)) == 5
+        # An explicit query searches everything.
+        assert [e["name"] for e in list_saved_projects(query="eval_thing")] == \
+            ["eval_thing"]
+
+    def test_sort_recent_and_name(self, tmp_path, monkeypatch):
+        import os, time
+        from cadquery_furniture.project import list_saved_projects, project_path
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="older")))
+        save_project(build_project(_sample_payload(name="newer")))
+        past = time.time() - 3600
+        os.utime(project_path("older"), (past, past))
+        assert [e["name"] for e in list_saved_projects()] == ["newer", "older"]
+        assert [e["name"] for e in list_saved_projects(sort="name")] == \
+            ["newer", "older"]  # alphabetical happens to match here
+        save_project(build_project(_sample_payload(name="aaa_last_saved")))
+        assert list_saved_projects()[0]["name"] == "aaa_last_saved"
+        assert list_saved_projects(sort="name")[0]["name"] == "aaa_last_saved"
+
+    def test_rename_and_delete(self, tmp_path, monkeypatch):
+        from cadquery_furniture.project import (
+            delete_project, list_saved_projects, load_project, rename_project,
+        )
+        self._redirect(tmp_path, monkeypatch)
+        save_project(build_project(_sample_payload(name="draft")))
+        rename_project("draft", "final")
+        assert load_project("final").name == "final"  # embedded name updated
+        with pytest.raises(FileNotFoundError):
+            load_project("draft")
+        # Refuses to clobber an existing project.
+        save_project(build_project(_sample_payload(name="other")))
+        with pytest.raises(ValueError, match="already exists"):
+            rename_project("final", "other")
+        delete_project("final")
+        assert [e["name"] for e in list_saved_projects()] == ["other"]
+        with pytest.raises(FileNotFoundError):
+            delete_project("final")
+
 
 class TestRoundTripOverrides:
     def test_serialized_payload_keeps_shared_tokens_applying(self):
