@@ -232,13 +232,18 @@ def load_project(name: str) -> CabinetProject:
         ) from exc
 
 
-def list_saved_projects() -> list[dict]:
+def list_saved_projects(query: str | None = None) -> list[dict]:
     """Lightweight metadata for every saved project under :func:`project_dir`.
 
     Reads each ``*.json`` snapshot without building full config objects so a
     catalogue listing stays cheap and a single corrupt file can't sink the
     whole listing — unreadable files come back as an entry with an ``error``
     field instead.
+
+    ``query`` filters case-insensitively over project name, notes, and
+    cabinet names ("shop" finds the miter station via its notes). Unreadable
+    entries are kept only when their filename matches, so a corrupt file
+    can't hide from a direct-name search.
     """
     from datetime import datetime
 
@@ -276,6 +281,19 @@ def list_saved_projects() -> list[dict]:
                 "modified": modified,
                 "path": str(path),
             })
+
+    if query:
+        q = query.lower().strip()
+
+        def _matches(e: dict) -> bool:
+            haystack = " ".join((
+                e.get("name", ""),
+                e.get("notes", ""),
+                " ".join(e.get("cabinet_names", ())),
+            )).lower()
+            return q in haystack
+
+        entries = [e for e in entries if _matches(e)]
     return entries
 
 

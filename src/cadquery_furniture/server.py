@@ -1653,11 +1653,26 @@ async def list_tools() -> list[types.Tool]:
                 last-modified time. Use this to discover what can be loaded
                 with load_project or batched with generate_project_cutlist.
 
+                Pass 'query' to filter: case-insensitive substring match
+                over project name, notes, and cabinet names — e.g.
+                query="shop" finds shop-bench projects via their notes.
+
                 A single cabinet is saved as a one-cabinet project via
                 design_project, so this is the catalogue of all durable
                 designs, not just multi-cabinet runs.
             """),
-            inputSchema={"type": "object", "properties": {}},
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Case-insensitive substring filter over name, "
+                            "notes, and cabinet names. Omit for all projects."
+                        ),
+                    },
+                },
+            },
         ),
         types.Tool(
             name="load_project",
@@ -1723,6 +1738,14 @@ async def list_tools() -> list[types.Tool]:
                 ONE merged cutlist, sheet optimization, and hardware BOM.
                 Output files land in ~/.cabinet-mcp/cutlists/<name>/ (for a
                 batch, <name> is 'batch_name' or the joined project names).
+
+                Batches keep per-project identity: identical panels from
+                different projects stay separate rows tagged with their
+                project (sheet optimization still pools everything, so no
+                material is wasted), the layout HTML/PDF colours panels by
+                project with a legend, CSV/parts tables gain a Project
+                column, and hardware BOM lines carry a by_project piece
+                breakdown.
             """),
             inputSchema={
                 "type": "object",
@@ -2719,7 +2742,8 @@ def _cutlist_pipeline(
         "sheet_goods": sheet_goods,
         "panels_summary": [
             {"name": p.name, "length_mm": p.length, "width_mm": p.width,
-             "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material}
+             "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material,
+             **({"project": p.source} if p.source else {})}
             for p in all_panels
         ],
         "hardware_bom": [
@@ -2729,6 +2753,7 @@ def _cutlist_pipeline(
                 "brand": h.brand,
                 "model_number": h.model_number,
                 "pieces_needed": h.pieces_needed,
+                **({"by_project": dict(h.source_counts)} if h.source_counts else {}),
                 "pack_quantity": h.pack_quantity,
                 "packs_to_order": h.packs_to_order,
                 "leftover": h.leftover,
@@ -3592,15 +3617,19 @@ async def _tool_design_project(args: dict) -> list[types.TextContent]:
 async def _tool_list_projects(args: dict) -> list[types.TextContent]:
     from .project import list_saved_projects, project_dir
 
-    entries = list_saved_projects()
+    query = args.get("query")
+    entries = list_saved_projects(query=str(query) if query else None)
     names = [e["name"] for e in entries if "error" not in e]
-    return _ok({
+    result = {
         "count": len(names),
         "unreadable": len(entries) - len(names),
         "names": names,
         "projects": entries,
         "directory": str(project_dir()),
-    })
+    }
+    if query:
+        result["query"] = str(query)
+    return _ok(result)
 
 
 async def _tool_load_project(args: dict) -> list[types.TextContent]:
@@ -3736,11 +3765,19 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
             total_cabinets += 1
             columns_raw = _columns_dict_from_cfg(cfg)
             c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
+            hw = hardware_bom_for_cabinet_config(cfg, columns_raw)
+            if batch_names:
+                # Tag provenance so panels stay project-distinct rows through
+                # consolidation and the layout colours/labels by project.
+                for panel in (*c, *b, *x, *f):
+                    panel.source = project.name
+                for line in hw:
+                    line.source = project.name
             raw_carcass.extend(c)
             raw_6mm.extend(b)
             raw_box.extend(x)
             raw_false.extend(f)
-            hw_lines_all.extend(hardware_bom_for_cabinet_config(cfg, columns_raw))
+            hw_lines_all.extend(hw)
 
             per_cabinet_summary.append({
                 # Cabinet names repeat across projects ("left", "a", …) — in a

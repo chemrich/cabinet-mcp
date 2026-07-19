@@ -26,10 +26,10 @@
 | `identify_furniture_type` | Map a natural-language furniture name to the closest preset / opening layout |
 | `list_pull_presets` | Named pull bundles (drawer pull + door pull + orientation) |
 | `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabinet-mcp/projects/<name>.json` |
-| `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times |
+| `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times; `query=` substring filter |
 | `load_project` | Load a saved project's durable payload back for continued editing or reuse |
 | `evaluate_project` | Per-cabinet evaluation plus cross-cabinet consistency checks |
-| `generate_project_cutlist` | Merged cutlist/BOM for one project — or several saved projects batched via `project_names` |
+| `generate_project_cutlist` | Merged cutlist/BOM for one project — or several saved projects batched via `project_names`, with per-project colours, labels, and hardware breakdowns |
 | `visualize_project` | All cabinets in one 3D scene at their run offsets |
 
 ## Recommended workflow

@@ -8226,8 +8226,10 @@ SCENARIOS.append(Scenario(
                 Assertion("per_cabinet.0.name", Op.EQ, "eval_batch_a/a"),
                 Assertion("per_cabinet.1.name", Op.EQ, "eval_batch_b/a"),
                 Assertion("panels_summary.0.name", Op.EQ, "side"),
-                Assertion("panels_summary.0.qty", Op.EQ, 4,
-                          "identical sides merge across the two projects"),
+                # Batch project identity: identical sides stay separate,
+                # project-tagged rows (qty 2 each) instead of merging to 4.
+                Assertion("panels_summary.0.qty", Op.EQ, 2),
+                Assertion("panels_summary.0.project", Op.EQ, "eval_batch_a"),
                 Assertion("files", Op.HAS_KEY, "csv"),
                 Assertion("cost_estimate", Op.HAS_KEY, "grand_total_usd"),
             ],
@@ -8240,6 +8242,16 @@ SCENARIOS.append(Scenario(
             assertions=[
                 Assertion("project", Op.EQ, "eval_batch_custom"),
                 Assertion("cabinet_count", Op.EQ, 2),
+            ],
+        ),
+        ToolCall(
+            tool="list_projects",
+            args={"query": "eval_batch_a"},
+            label="query filters the catalogue",
+            assertions=[
+                Assertion("names", Op.CONTAINS, "eval_batch_a"),
+                Assertion("count", Op.EQ, 1),
+                Assertion("query", Op.EQ, "eval_batch_a"),
             ],
         ),
     ],

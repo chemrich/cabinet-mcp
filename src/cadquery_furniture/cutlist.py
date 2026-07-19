@@ -75,6 +75,29 @@ _PALETTE = [
 ]
 
 
+# Per-project colours for multi-project batch layouts — Okabe–Ito palette
+# (colour-blind safe, mutually distinguishable). Assigned by order of first
+# appearance in the batch, so colours are stable for a given project order.
+_PROJECT_PALETTE = (
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#009E73",  # bluish green
+    "#F0E442",  # yellow
+    "#0072B2",  # blue
+    "#D55E00",  # vermillion
+    "#CC79A7",  # reddish purple
+    "#999999",  # grey
+)
+
+
+def _source_colour(source: str, source_order: list[str]) -> str:
+    """Fill colour for a project in a batch layout (stable by batch order)."""
+    try:
+        return _PROJECT_PALETTE[source_order.index(source) % len(_PROJECT_PALETTE)]
+    except ValueError:
+        return _PROJECT_PALETTE[-1]
+
+
 def _panel_colour(name: str) -> str:
     """Return a fill colour hex string for a panel name.
 
@@ -104,6 +127,11 @@ class CutlistPanel:
     material: str = "baltic_birch"
     edge_band: list[str] = field(default_factory=list)
     notes: str = ""
+    # Which project this panel belongs to in a multi-project batch cutlist.
+    # Empty for single-project runs. Part of the consolidation key, so
+    # identical panels from different projects stay distinct, labeled rows;
+    # sheet optimization still pools everything, so no material is wasted.
+    source: str = ""
 
 
 @dataclass
@@ -245,6 +273,7 @@ def consolidate_bom(panels: list[CutlistPanel]) -> list[CutlistPanel]:
             panel.grain_direction,
             panel.material,
             tuple(panel.edge_band),
+            panel.source,
         )
         if key in consolidated:
             consolidated[key].quantity += panel.quantity
@@ -269,6 +298,7 @@ def consolidate_bom(panels: list[CutlistPanel]) -> list[CutlistPanel]:
                 material=panel.material,
                 edge_band=list(panel.edge_band),
                 notes=panel.notes,
+                source=panel.source,
             )
             consolidated[key] = new_panel
 
@@ -297,6 +327,7 @@ def to_json(
         "panels": [
             {
                 "name": p.name,
+                **({"project": p.source} if p.source else {}),
                 "length": p.length,
                 "width": p.width,
                 "quantity": p.quantity,
@@ -321,19 +352,30 @@ def to_json(
 
 
 def to_csv(panels: list[CutlistPanel]) -> str:
-    """Export cutlist as CSV."""
+    """Export cutlist as CSV.
+
+    Multi-project batches (any panel carrying a ``source``) get a leading
+    Project column; single-project output keeps the historical header.
+    """
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
+    with_project = any(p.source for p in panels)
+    header = [
         "Name", "Length (mm)", "Width (mm)", "Thickness (mm)",
         "Quantity", "Grain", "Material", "Edge Band", "Notes",
-    ])
+    ]
+    if with_project:
+        header = ["Project"] + header
+    writer.writerow(header)
     for p in panels:
-        writer.writerow([
+        row = [
             p.name, p.length, p.width, p.thickness,
             p.quantity, p.grain_direction, p.material,
             ", ".join(p.edge_band), p.notes,
-        ])
+        ]
+        if with_project:
+            row = [p.source] + row
+        writer.writerow(row)
     return output.getvalue()
 
 
@@ -375,6 +417,7 @@ class Placement:
     placed_width: float   #   nominal if rotated — see ``rotated`` flag)
     rotated: bool         # True when piece was rotated 90° from nominal orientation
     cut_sequence: int = 0  # 1-based cut order within the sheet (0 = unset)
+    source: str = ""       # originating project in a multi-project batch
 
 
 @dataclass
@@ -545,6 +588,7 @@ def _optimize_with_rectpack(
     packable: list[tuple[float, float, str, int, bool]] = []
     piece_dims: dict[int, tuple[float, float]] = {}  # net add_len × add_wid
     piece_name: dict[int, str] = {}
+    piece_source: dict[int, str] = {}
 
     counter = 0
     for p in panels:
@@ -564,6 +608,7 @@ def _optimize_with_rectpack(
             packable.append((add_l, add_w, p.name, uid, pre_rot))
             piece_dims[uid] = (add_l, add_w)
             piece_name[uid] = p.name
+            piece_source[uid] = p.source
 
     packable.sort(key=lambda e: e[0] * e[1], reverse=True)
 
@@ -601,6 +646,7 @@ def _optimize_with_rectpack(
                 placed_length=round(rect.width - kerf, 1),
                 placed_width=round(rect.height - kerf, 1),
                 rotated=pre_rotated[uid],
+                source=piece_source[uid],
             ))
 
     unplaced: list[str] = list(oversized)
@@ -677,6 +723,7 @@ def _optimize_with_opcut(
 
     items: list = []
     id_to_name: dict[str, str] = {}
+    id_to_source: dict[str, str] = {}
     counter = 0
     for p in valid:
         for _ in range(p.quantity):
@@ -689,6 +736,7 @@ def _optimize_with_opcut(
                 can_rotate=p.name not in grain_constrained,
             ))
             id_to_name[iid] = p.name
+            id_to_source[iid] = p.source
 
     total_area = sum(p.length * p.width * p.quantity for p in valid)
     base = max(1, math.ceil(total_area / (eff_l * eff_w)))
@@ -732,6 +780,7 @@ def _optimize_with_opcut(
             placed_length=round(placed_l, 1),
             placed_width=round(placed_w, 1),
             rotated=used.rotate,
+            source=id_to_source[used.item.id],
         ))
 
     used_indices = sorted({p.sheet_index for p in placements})
@@ -786,17 +835,17 @@ def _optimize_strip(
     }
 
     oversized: list[str] = []
-    oriented: list[tuple[float, float, str, int, bool]] = []
+    oriented: list[tuple[float, float, str, str, bool]] = []
 
     for p in panels:
-        for idx in range(p.quantity):
+        for _ in range(p.quantity):
             if p.name in grain_constrained:
                 plen, pwid, rot = p.length, p.width, False
                 if plen > eff_l + EPS or pwid > eff_w + EPS:
                     if p.name not in oversized:
                         oversized.append(p.name)
                 else:
-                    oriented.append((plen, pwid, p.name, idx, rot))
+                    oriented.append((plen, pwid, p.name, p.source, rot))
             else:
                 if p.length >= p.width:
                     plen, pwid, rot = p.length, p.width, False
@@ -808,7 +857,7 @@ def _optimize_strip(
                         if p.name not in oversized:
                             oversized.append(p.name)
                         continue
-                oriented.append((plen, pwid, p.name, idx, rot))
+                oriented.append((plen, pwid, p.name, p.source, rot))
 
     oriented.sort(key=lambda e: (-e[1], -e[0]))
 
@@ -818,7 +867,7 @@ def _optimize_strip(
     x = 0.0
     current_h: float | None = None
 
-    for plen, pwid, name, idx, rotated in oriented:
+    for plen, pwid, name, src, rotated in oriented:
         pk = plen + kerf
 
         if current_h is None or abs(pwid - current_h) > EPS:
@@ -845,6 +894,7 @@ def _optimize_strip(
             placed_length=round(plen, 1),
             placed_width=round(pwid, 1),
             rotated=rotated,
+            source=src,
         ))
         x += pk
 
@@ -894,6 +944,11 @@ class HardwareLine:
     pieces_needed: int
     pack_quantity: int = 1
     notes: str = ""
+    # Which project this line came from in a multi-project batch. Hardware
+    # consolidates GLOBALLY (one purchase per SKU) — consolidation merges
+    # across sources but accumulates the per-project breakdown here.
+    source: str = ""
+    source_counts: dict = field(default_factory=dict)  # project → pieces
 
     @property
     def packs_to_order(self) -> int:
@@ -1390,6 +1445,16 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
     Notes are concatenated (comma-separated) for traceability. Input order
     is preserved for the first occurrence of each SKU.
     """
+    def _line_sources(line: HardwareLine) -> dict:
+        # A line re-entering consolidation may already carry a per-project
+        # breakdown (batch mode consolidates per-cabinet output again);
+        # otherwise derive it from the line's own source tag.
+        if line.source_counts:
+            return dict(line.source_counts)
+        if line.source:
+            return {line.source: line.pieces_needed}
+        return {}
+
     out: dict[str, HardwareLine] = {}
     order: list[str] = []
     for line in lines:
@@ -1402,6 +1467,8 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
                 merged.notes = (
                     f"{merged.notes}, {line.notes}" if merged.notes else line.notes
                 )
+            for src, n in _line_sources(line).items():
+                merged.source_counts[src] = merged.source_counts.get(src, 0) + n
         else:
             out[line.sku] = HardwareLine(
                 sku=line.sku,
@@ -1412,6 +1479,7 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
                 pieces_needed=line.pieces_needed,
                 pack_quantity=line.pack_quantity,
                 notes=line.notes,
+                source_counts=_line_sources(line),
             )
             order.append(line.sku)
     return [out[sku] for sku in order]
@@ -1540,6 +1608,19 @@ def generate_sheet_layout_html(
     str
         Complete HTML document (self-contained, no external dependencies).
     """
+    # ── Multi-project batches colour panels by originating project ────────────
+    source_order: list[str] = []
+    for _, _panels, _opt in groups:
+        for _p in _panels:
+            if _p.source and _p.source not in source_order:
+                source_order.append(_p.source)
+    project_mode = bool(source_order)
+
+    def _fill_for(pl: Placement) -> str:
+        if project_mode:
+            return _source_colour(pl.source, source_order)
+        return _panel_colour(pl.panel_name)
+
     # ── SVG builder ────────────────────────────────────────────────────────────
     def _sheet_svg(sheet: SheetStock, placements: list[Placement]) -> str:
         sl, sw = sheet.length, sheet.width
@@ -1562,7 +1643,7 @@ def generate_sheet_layout_html(
 
         # Panels.
         for p in placements:
-            fill = _panel_colour(p.panel_name)
+            fill = _fill_for(p)
             stroke = _panel_colour_dark(fill)
 
             out.append(
@@ -1773,18 +1854,27 @@ def generate_sheet_layout_html(
         )
         cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
         sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
+        hw_project_mode = any(h.source_counts for h in hardware_lines)
         hw_total = 0.0
         rows_list = []
         for h in sorted_hw:
             unit = price_for(h.sku)
             line_total = round(h.packs_to_order * unit, 2)
             hw_total += line_total
+            if hw_project_mode:
+                breakdown = ", ".join(
+                    f"{_esc(src)} ×{n}" for src, n in h.source_counts.items()
+                ) or "—"
+                proj_td = f'<td>{breakdown}</td>'
+            else:
+                proj_td = ""
             rows_list.append(
                 f'<tr>'
                 f'<td>{_esc(h.category.title())}</td>'
                 f'<td>{_esc(h.name)}</td>'
                 f'<td>{_esc(h.brand)}</td>'
                 f'<td>{_esc(h.model_number)}</td>'
+                f'{proj_td}'
                 f'<td style="text-align:center">{h.pieces_needed}</td>'
                 f'<td style="text-align:center">{h.pack_quantity}</td>'
                 f'<td style="text-align:center;font-weight:600">{h.packs_to_order}</td>'
@@ -1795,9 +1885,11 @@ def generate_sheet_layout_html(
                 f'</tr>'
             )
         rows = "".join(rows_list)
+        total_span = 9 if hw_project_mode else 8
+        proj_th = '<th>Project</th>' if hw_project_mode else ''
         total_row = (
             f'<tr style="border-top:2px solid #888;font-weight:600">'
-            f'<td colspan="8" style="text-align:right">Hardware total (list prices):</td>'
+            f'<td colspan="{total_span}" style="text-align:right">Hardware total (list prices):</td>'
             f'<td style="text-align:right">${hw_total:.2f}</td>'
             f'<td colspan="2"></td>'
             f'</tr>'
@@ -1806,6 +1898,7 @@ def generate_sheet_layout_html(
             f'<table class="bom-tbl">'
             f'<thead><tr>'
             f'<th>Category</th><th>Name</th><th>Brand</th><th>Model #</th>'
+            f'{proj_th}'
             f'<th>Needed</th><th>Pack&nbsp;Qty</th><th>Packs&nbsp;to&nbsp;Order</th>'
             f'<th>Unit&nbsp;Price</th><th>Line&nbsp;Total</th>'
             f'<th>Leftover</th><th>Notes</th>'
@@ -1820,13 +1913,20 @@ def generate_sheet_layout_html(
     tabs_html = "\n".join(tab_buttons)
     panes_html = "\n".join(tab_panes)
 
-    # ── Legend: panel name → colour ────────────────────────────────────────────
+    # ── Legend ─────────────────────────────────────────────────────────────────
+    # Single project: panel name → colour. Batch: PROJECT → colour, so the
+    # visual grouping on every sheet reads at a glance.
     seen: dict[str, str] = {}
-    for _, panels, opt in groups:
-        for p in opt.placements:
-            if p.panel_name not in seen:
-                seen[p.panel_name] = _panel_colour(p.panel_name)
-    legend_items = "".join(
+    if project_mode:
+        for src in source_order:
+            seen[src] = _source_colour(src, source_order)
+    else:
+        for _, panels, opt in groups:
+            for p in opt.placements:
+                if p.panel_name not in seen:
+                    seen[p.panel_name] = _panel_colour(p.panel_name)
+    legend_title = "Projects: " if project_mode else ""
+    legend_items = legend_title + "".join(
         f'<span class="legend-item">'
         f'<span class="legend-swatch" style="background:{col};"></span>'
         f'{_esc(name)}</span>'
@@ -1974,6 +2074,19 @@ def generate_sheet_layout_pdf(
         title=f"Cutlist — {cabinet_name}",
     )
 
+    # Multi-project batches colour panels by originating project and add a
+    # Project column to the parts / hardware tables.
+    source_order: list[str] = []
+    for _, _pnls, _opt in groups:
+        for _p in _pnls:
+            if _p.source and _p.source not in source_order:
+                source_order.append(_p.source)
+    project_mode = bool(source_order)
+    _fill_for = (
+        (lambda pl: _source_colour(pl.source, source_order))
+        if project_mode else None
+    )
+
     story = []
 
     # ── Page 1: summary ───────────────────────────────────────────────────────
@@ -1981,6 +2094,13 @@ def generate_sheet_layout_pdf(
     story.append(_Paragraph(
         f"Generated {_date.today().isoformat()} · Kerf: {kerf} mm", norm_sty
     ))
+    if project_mode:
+        legend = " &nbsp;·&nbsp; ".join(
+            f'<font color="{_source_colour(s, source_order)}">◼</font> '
+            f"{_xml_escape(s)}"
+            for s in source_order
+        )
+        story.append(_Paragraph(f"Projects: {legend}", norm_sty))
     story.append(_Spacer(1, 5 * _rl_mm))
 
     # Sheet goods table
@@ -2006,11 +2126,14 @@ def generate_sheet_layout_pdf(
     all_panels: list[CutlistPanel] = []
     for _, pnls, _ in groups:
         all_panels.extend(pnls)
-    all_panels.sort(key=lambda p: (p.thickness, p.material, p.name))
+    all_panels.sort(key=lambda p: (p.source, p.thickness, p.material, p.name))
 
-    parts_data = [["Part Name", "L (mm)", "W (mm)", "T (mm)", "Qty", "Material", "Edge Band", "Notes"]]
+    parts_header = ["Part Name", "L (mm)", "W (mm)", "T (mm)", "Qty", "Material", "Edge Band", "Notes"]
+    if project_mode:
+        parts_header = ["Project"] + parts_header
+    parts_data = [parts_header]
     for p in all_panels:
-        parts_data.append([
+        row = [
             p.name,
             f"{p.length:.0f}",
             f"{p.width:.0f}",
@@ -2019,8 +2142,14 @@ def generate_sheet_layout_pdf(
             p.material.replace("_", " ").title(),
             ", ".join(p.edge_band) if p.edge_band else "—",
             p.notes or "—",
-        ])
-    parts_col_w = [CW * x for x in (0.22, 0.08, 0.08, 0.07, 0.05, 0.16, 0.12, 0.22)]
+        ]
+        if project_mode:
+            row = [p.source or "—"] + row
+        parts_data.append(row)
+    if project_mode:
+        parts_col_w = [CW * x for x in (0.13, 0.18, 0.07, 0.07, 0.06, 0.05, 0.13, 0.11, 0.20)]
+    else:
+        parts_col_w = [CW * x for x in (0.22, 0.08, 0.08, 0.07, 0.05, 0.16, 0.12, 0.22)]
     parts_tbl = _Table(parts_data, colWidths=parts_col_w, repeatRows=1)
     parts_tbl.setStyle(_tbl_style(small=True))
     story.append(parts_tbl)
@@ -2053,7 +2182,9 @@ def generate_sheet_layout_pdf(
             ))
             story.append(_Spacer(1, 2 * _rl_mm))
 
-            story.append(_SheetDrawingFlowable(pls, result.stock_sheet, kerf, CW, DRAW_H))
+            story.append(_SheetDrawingFlowable(
+                pls, result.stock_sheet, kerf, CW, DRAW_H, fill_for=_fill_for,
+            ))
 
             # Cut-sequence table
             raw_cuts: list = []
@@ -2095,15 +2226,19 @@ def generate_sheet_layout_pdf(
         cat_order = {"pull": 0, "slide": 1, "hinge": 2, "leg": 3}
         sorted_hw = sorted(hardware_lines, key=lambda h: (cat_order.get(h.category, 9), h.name))
 
-        hw_data = [["Category", "Name", "Brand", "Model #",
-                    "Needed", "Pack Qty", "Packs", "Unit $", "Line $",
-                    "Leftover", "Notes"]]
+        hw_project_mode = any(h.source_counts for h in hardware_lines)
+        hw_header = ["Category", "Name", "Brand", "Model #",
+                     "Needed", "Pack Qty", "Packs", "Unit $", "Line $",
+                     "Leftover", "Notes"]
+        if hw_project_mode:
+            hw_header.insert(4, "Project")
+        hw_data = [hw_header]
         hw_total = 0.0
         for h in sorted_hw:
             unit = price_for(h.sku)
             line_total = round(h.packs_to_order * unit, 2)
             hw_total += line_total
-            hw_data.append([
+            row = [
                 h.category.title(),
                 h.name,
                 h.brand,
@@ -2115,10 +2250,21 @@ def generate_sheet_layout_pdf(
                 f"${line_total:.2f}" if line_total else "—",
                 str(h.leftover) if h.leftover else "—",
                 h.notes or "—",
-            ])
-        hw_data.append(["", "", "", "", "", "", "", "Total:", f"${hw_total:.2f}", "", ""])
-        hw_col_w = [CW * x for x in
-                    (0.08, 0.18, 0.10, 0.11, 0.06, 0.06, 0.06, 0.07, 0.08, 0.07, 0.13)]
+            ]
+            if hw_project_mode:
+                breakdown = ", ".join(
+                    f"{src} ×{n}" for src, n in h.source_counts.items()
+                ) or "—"
+                row.insert(4, breakdown)
+            hw_data.append(row)
+        total_pad = [""] * (5 if hw_project_mode else 4)
+        hw_data.append(total_pad + ["", "", "", "Total:", f"${hw_total:.2f}", "", ""])
+        if hw_project_mode:
+            hw_col_w = [CW * x for x in
+                        (0.07, 0.15, 0.08, 0.10, 0.13, 0.05, 0.05, 0.05, 0.06, 0.07, 0.06, 0.13)]
+        else:
+            hw_col_w = [CW * x for x in
+                        (0.08, 0.18, 0.10, 0.11, 0.06, 0.06, 0.06, 0.07, 0.08, 0.07, 0.13)]
         hw_tbl = _Table(hw_data, colWidths=hw_col_w, repeatRows=1)
         hw_tbl.setStyle(_tbl_style(small=True))
         story.append(hw_tbl)
@@ -2141,6 +2287,7 @@ if _REPORTLAB_AVAILABLE:
             kerf: float,
             avail_w: float,
             avail_h: float,
+            fill_for=None,
         ) -> None:
             super().__init__()
             self._pl = placements
@@ -2148,6 +2295,9 @@ if _REPORTLAB_AVAILABLE:
             self._kerf = kerf
             self.width = avail_w
             self.height = avail_h
+            # Optional Placement → hex-colour override (batch mode colours
+            # by project); default is the per-panel-name palette.
+            self._fill_for = fill_for or (lambda p: _panel_colour(p.panel_name))
 
         def draw(self) -> None:
             canvas = self.canv
@@ -2174,7 +2324,7 @@ if _REPORTLAB_AVAILABLE:
 
             # Panels
             for p in self._pl:
-                fc = _panel_colour(p.panel_name)
+                fc = self._fill_for(p)
                 sc = _panel_colour_dark(fc)
                 canvas.setFillColor(_HexColor(fc))
                 canvas.setStrokeColor(_HexColor(sc))
