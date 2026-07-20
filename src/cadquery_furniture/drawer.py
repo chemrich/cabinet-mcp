@@ -49,6 +49,17 @@ STANDARD_BOX_HEIGHTS: tuple[float, ...] = (
 )
 
 
+# ─── Manga scale reference ────────────────────────────────────────────────────
+# A standard tankōbon volume, used as a visual scale item in the viewer.
+# Volumes sit in the front-left corner of the drawer interior and stack up to
+# MANGA_MAX_STACK high; the viewer's M toggle controls how many are shown.
+MANGA_WIDTH_MM:  float = 112.5   # cover width  (x, across the drawer)
+MANGA_DEPTH_MM:  float = 176.0   # cover height (y, into the drawer)
+MANGA_THICK_MM:  float = 15.0    # one volume's thickness (z)
+MANGA_MAX_STACK: int   = 5
+MANGA_CLEARANCE_MM: float = 5.0  # gap kept to the interior walls
+
+
 def snap_to_standard_box_height(raw_mm: float) -> float:
     """Return the largest standard box height that fits within *raw_mm*.
 
@@ -346,8 +357,69 @@ def make_drawer_face(cfg: DrawerConfig) -> "cq.Workplane":
     )
 
 
-def build_drawer(cfg: DrawerConfig) -> tuple["cq.Assembly", list[PartInfo]]:
+def add_manga_stack(assy: "cq.Assembly", cfg: DrawerConfig) -> None:
+    """Add a MANGA_MAX_STACK-high manga pile to a drawer-box assembly.
+
+    The stack sits on the drawer bottom in the front-left interior corner
+    (viewer meshes ``manga0`` … ``manga4``; visibility is a viewer toggle).
+    Raises ``ValueError`` when the drawer interior cannot hold the full
+    stack — footprint plus MANGA_CLEARANCE_MM on the wall sides, and
+    MANGA_MAX_STACK volumes of height under the box rim.
+    """
+    floor_z    = cfg.bottom_dado_inset + cfg.bottom_thickness
+    interior_w = cfg.box_width  - 2 * cfg.side_thickness
+    interior_d = cfg.box_depth  - 2 * cfg.front_back_thickness
+    interior_h = cfg.box_height - floor_z
+    need_w = MANGA_WIDTH_MM + MANGA_CLEARANCE_MM
+    need_d = MANGA_DEPTH_MM + MANGA_CLEARANCE_MM
+    need_h = MANGA_MAX_STACK * MANGA_THICK_MM
+    if interior_w < need_w or interior_d < need_d or interior_h < need_h:
+        raise ValueError(
+            f"drawer interior {interior_w:.0f}×{interior_d:.0f}×"
+            f"{interior_h:.0f} mm cannot hold a stack of {MANGA_MAX_STACK} "
+            f"manga ({MANGA_WIDTH_MM:g}×{MANGA_DEPTH_MM:g} mm footprint "
+            f"+ {MANGA_CLEARANCE_MM:g} mm wall clearance, "
+            f"{need_h:g} mm tall). Render without the manga scale item."
+        )
+
+    # Flat pastel accents for the no-finish render; the viewer replaces these
+    # with drawn tankōbon covers at load time.
+    accents = [
+        cq.Color(0.91, 0.26, 0.23, 1.0),
+        cq.Color(0.17, 0.44, 0.83, 1.0),
+        cq.Color(0.07, 0.63, 0.35, 1.0),
+        cq.Color(0.95, 0.55, 0.11, 1.0),
+        cq.Color(0.55, 0.27, 0.78, 1.0),
+    ]
+    base_x = cfg.side_thickness + MANGA_CLEARANCE_MM
+    base_y = cfg.front_back_thickness + MANGA_CLEARANCE_MM
+    volume = (
+        cq.Workplane("XY")
+        .box(MANGA_WIDTH_MM, MANGA_DEPTH_MM, MANGA_THICK_MM, centered=False)
+    )
+    for k in range(MANGA_MAX_STACK):
+        # Small deterministic jitter away from the walls so the pile reads
+        # as stacked books rather than one extruded block.
+        jx = 4.0 if k % 2 else 0.0
+        jy = 3.0 * (k % 3)
+        assy.add(
+            volume, name=f"manga{k}",
+            loc=cq.Location((base_x + jx, base_y + jy, floor_z + k * MANGA_THICK_MM)),
+            color=accents[k % len(accents)],
+        )
+
+
+def build_drawer(
+    cfg: DrawerConfig,
+    include_manga: bool = False,
+) -> tuple["cq.Assembly", list[PartInfo]]:
     """Build a complete drawer box assembly.
+
+    Args:
+        cfg:           Drawer configuration.
+        include_manga: Add the manga scale-reference stack (viewer prop, not a
+                       BOM part; see :func:`add_manga_stack`). Raises
+                       ``ValueError`` if the interior can't hold the full stack.
 
     Returns:
         Tuple of (cq.Assembly, list of PartInfo for BOM/cutlist).
@@ -429,6 +501,9 @@ def build_drawer(cfg: DrawerConfig) -> tuple["cq.Assembly", list[PartInfo]]:
     assy.add(bottom, name="bottom",
              loc=cq.Location((bottom_x, bottom_y, bottom_z)),
              color=COL_BOTTOM)
+
+    if include_manga:
+        add_manga_stack(assy, cfg)
 
     # Applied face
     if cfg.applied_face:

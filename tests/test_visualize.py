@@ -369,3 +369,79 @@ class TestVisualizeProject:
             assert f'"worktop_leg{i}"'.encode() in glb
         # furniture_top adds the top front cap strip per cabinet.
         assert glb.count(b'top_front_cap') >= 2
+
+
+# ── Manga scale reference ────────────────────────────────────────────────────
+
+
+class TestMangaScaleReference:
+    _tower = {"width": 381, "height": 1168, "depth": 457,
+              "drawer_config": [[300, "drawer"], [832, "drawer"]]}
+
+    def test_manga_stack_in_glb(self, tmp_path):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_cabinet
+
+        out = asyncio.get_event_loop().run_until_complete(
+            _tool_visualize_cabinet({
+                "name": "manga_test", **self._tower, "manga": True,
+                "open_browser": False, "output_dir": str(tmp_path),
+            }))
+        data = json.loads(out[0].text)
+        glb = Path(data["glb"]).read_bytes()
+        for k in range(5):
+            assert f'"manga{k}"'.encode() in glb
+        html = Path(data["html"]).read_text()
+        assert "MANGA_NODE_RE" in html
+        assert "cycleManga" in html
+        assert "help-manga" in html
+
+    def test_manga_off_by_default(self, tmp_path):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_cabinet
+
+        out = asyncio.get_event_loop().run_until_complete(
+            _tool_visualize_cabinet({
+                "name": "manga_off", **self._tower,
+                "open_browser": False, "output_dir": str(tmp_path),
+            }))
+        data = json.loads(out[0].text)
+        glb = Path(data["glb"]).read_bytes()
+        assert b'"manga0"' not in glb
+
+    def test_short_drawer_raises_named_error(self, tmp_path):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_cabinet
+
+        # A 104 mm opening snaps to a 76 mm box; interior ~58 mm < 75 mm stack.
+        with pytest.raises(ValueError, match=r"bay0_drawer0.*manga"):
+            asyncio.get_event_loop().run_until_complete(
+                _tool_visualize_cabinet({
+                    "name": "manga_short",
+                    "width": 600, "height": 300, "depth": 457,
+                    "drawer_config": [[104, "drawer"], [160, "drawer"]],
+                    "manga": True,
+                    "open_browser": False, "output_dir": str(tmp_path),
+                }))
+
+    def test_project_path_names_cabinet_in_error(self, tmp_path, monkeypatch):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_project
+
+        payload = {
+            "name": "viz_manga_err",
+            "cabinets": [
+                {"name": "shallow", "config": {"width": 600, "height": 300, "depth": 457,
+                                               "drawer_config": [[104, "drawer"], [160, "drawer"]]}},
+            ],
+        }
+        with pytest.raises(ValueError, match=r"cabinet 'shallow'.*bay0_drawer0"):
+            asyncio.get_event_loop().run_until_complete(
+                _tool_visualize_project({
+                    "project": payload, "manga": True,
+                    "open_browser": False, "output_dir": str(tmp_path),
+                }))

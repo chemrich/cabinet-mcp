@@ -254,6 +254,21 @@ def _hardware_line_to_dict(line) -> dict:
 server = Server("cabinet-mcp")
 
 
+def _manga_schema() -> dict:
+    """Input schema for the manga scale-reference toggle (visualize tools)."""
+    return {
+        "type": "boolean",
+        "default": False,
+        "description": (
+            "Add a manga scale-reference stack (5 tankōbon volumes, "
+            "112.5×176×15 mm each) in the front-left corner of every drawer "
+            "box. The viewer's M key / side-panel button cycles how many are "
+            "shown (1…5, hidden). Errors if any drawer interior can't hold "
+            "the full 5-volume stack."
+        ),
+    }
+
+
 def _worktop_schema() -> dict:
     """Input schema for a project worktop block (design_project / update_project)."""
     return {
@@ -1107,6 +1122,7 @@ async def list_tools() -> list[types.Tool]:
                         ),
                         "default": True,
                     },
+                    "manga": _manga_schema(),
                 },
                 "required": ["width", "height", "depth"],
             },
@@ -2005,6 +2021,7 @@ async def list_tools() -> list[types.Tool]:
                             "lowest face drops to the carcass underside."
                         ),
                     },
+                    "manga": _manga_schema(),
                     "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
                     "open_browser": {"type": "boolean", "default": True},
                     "tolerance":    {"type": "number", "default": 0.1},
@@ -3166,6 +3183,7 @@ def _cabinet_assembly(
     num_bays: int = 1,
     furniture_top: bool = False,
     divider_full_height: bool = True,
+    include_manga: bool = False,
 ):
     """Build the CadQuery assembly for one cabinet config (column-aware).
 
@@ -3252,6 +3270,7 @@ def _cabinet_assembly(
         face_top_overhang=face_top_overhang,
         transition_shelf_zs=transition_shelf_zs or None,
         divider_top_z=divider_top_z,
+        include_manga=include_manga,
     )
     return assy, parts, info
 
@@ -3268,6 +3287,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     columns_raw        = args.pop("columns", None)
     furniture_top      = bool(args.pop("furniture_top", False))
     divider_full_height = bool(args.pop("divider_full_height", True))
+    include_manga      = bool(args.pop("manga", False))
     cfg = _build_cabinet_config(args)
 
     assy, parts, info = _cabinet_assembly(
@@ -3275,6 +3295,7 @@ async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
         num_bays=num_bays,
         furniture_top=furniture_top,
         divider_full_height=divider_full_height,
+        include_manga=include_manga,
     )
     result = _visualize_assembly(
         assy,
@@ -4158,6 +4179,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     tolerance    = float(args.get("tolerance", 0.1))
     gap_mm       = float(args.get("gap_mm", 0.0))
     furniture_top = bool(args.get("furniture_top", False))
+    include_manga = bool(args.get("manga", False))
     finish       = args.get("finish")
     drawer_box_finish = args.get("drawer_box_finish")
     grain_direction   = str(args.get("grain_direction", "vertical"))
@@ -4168,9 +4190,13 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     x_off = 0.0
     for cname, cfg in project.resolved():
         columns_raw = _columns_dict_from_cfg(cfg)
-        assy, parts, _info = _cabinet_assembly(
-            cfg, columns_raw, furniture_top=furniture_top,
-        )
+        try:
+            assy, parts, _info = _cabinet_assembly(
+                cfg, columns_raw, furniture_top=furniture_top,
+                include_manga=include_manga,
+            )
+        except ValueError as e:
+            raise ValueError(f"cabinet '{cname}': {e}") from None
         run_assy.add(assy, name=cname, loc=cq.Location(cq.Vector(x_off, 0, 0)))
         all_parts.extend(parts)
         per_cabinet.append({

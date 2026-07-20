@@ -364,6 +364,9 @@ const HARDWARE_RE = /^(bay\\d+_(?:door)?pull\\d+|foot|worktop_leg\\d+)(?:_\\d+)*
 function classifyWood(root) {
   root.traverse(obj => {
     if (!obj.isMesh) return;
+    // Manga scale-reference meshes keep their own drawn covers — never wood.
+    const mangaLvl = mangaLevel(obj);
+    if (mangaLvl !== null) { mangaMeshes.push({ mesh: obj, level: mangaLvl }); return; }
     // Drawer-box meshes live under a bay{i}_drawer{j} group (dedup tolerated).
     let isHardware = false, isBox = false;
     for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
@@ -480,6 +483,274 @@ function initFinishUI() {
   };
 }
 initFinishUI();"""
+
+
+# Manga scale-reference JS — plain (non-f-string) constant like _FINISH_JS, so
+# braces need no doubling.  Meshes named manga{k} (see drawer.add_manga_stack)
+# are collected by classifyWood, re-textured with drawn tankōbon covers, and
+# cycled by the M key / side-panel button (1…5 volumes, then hidden).
+_MANGA_JS = """\
+
+// ── Manga scale reference (M toggle) ──────────────────────────────────────────
+const MANGA_NODE_RE = /^manga(\\d+)(?:_\\d+)*$/;
+const mangaMeshes = [];   // { mesh, level } — level = position in the stack
+let mangaCount = 1;       // volumes shown per drawer; 0 = hidden
+
+function mangaLevel(obj) {
+  for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
+    const m = MANGA_NODE_RE.exec(n.name || '');
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
+const MANGA_ACCENTS = ['#e8433a', '#2b6fd4', '#12a05a', '#f28c1b', '#8b46c8'];
+const MANGA_FONT = '"Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
+const mangaMatCache = {};
+let mangaPagesMat = null;
+
+function mangaTex(canvas) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+// A generic, unmistakably-manga tankōbon cover: title band with katakana,
+// big-eyed spiky-haired character, speed lines, screentone dots, volume badge.
+function mangaCoverCanvas(level) {
+  const W = 256, H = 384;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const accent = MANGA_ACCENTS[level % MANGA_ACCENTS.length];
+
+  g.fillStyle = '#f7f3e8'; g.fillRect(0, 0, W, H);
+
+  // Speed lines radiating from the face
+  const cx = W / 2, cy = H * 0.60;
+  g.strokeStyle = 'rgba(35,35,35,0.5)'; g.lineWidth = 1.4;
+  for (let i = 0; i < 46; i++) {
+    const a = (i / 46) * Math.PI * 2;
+    const r0 = 120 + 34 * ((i * 7) % 5) / 5;
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0 * 1.35);
+    g.lineTo(cx + Math.cos(a) * 420, cy + Math.sin(a) * 420);
+    g.stroke();
+  }
+
+  // Screentone dots, lower-left corner triangle
+  g.fillStyle = 'rgba(60,60,60,0.4)';
+  for (let y = H - 110; y < H - 8; y += 8)
+    for (let x = 10; x < H - 26 - y + 110; x += 8) {
+      g.beginPath(); g.arc(x + ((y >> 3) % 2) * 4, y, 1.7, 0, Math.PI * 2); g.fill();
+    }
+
+  // Character — spiky hair fan
+  g.fillStyle = '#20242c';
+  g.strokeStyle = '#20242c';
+  for (let i = 0; i < 9; i++) {
+    const a = Math.PI * (1.08 + 0.84 * i / 8);   // arc over the head
+    const bx = cx + Math.cos(a) * 56, by = cy - 14 + Math.sin(a) * 60;
+    const tx = cx + Math.cos(a) * 105, ty = cy - 20 + Math.sin(a) * 112;
+    const px = Math.cos(a + Math.PI / 2) * 14, py = Math.sin(a + Math.PI / 2) * 14;
+    g.beginPath();
+    g.moveTo(bx - px, by - py); g.lineTo(tx, ty); g.lineTo(bx + px, by + py);
+    g.closePath(); g.fill();
+  }
+
+  // Face
+  g.fillStyle = '#ffe3c9'; g.strokeStyle = '#1c1c1c'; g.lineWidth = 5;
+  g.beginPath(); g.ellipse(cx, cy, 60, 66, 0, 0, Math.PI * 2);
+  g.fill(); g.stroke();
+
+  // Bangs over the forehead
+  g.fillStyle = '#20242c';
+  g.beginPath(); g.moveTo(cx - 58, cy - 26);
+  for (let i = 0; i <= 6; i++) {
+    const x = cx - 58 + (116 * i / 6);
+    g.lineTo(x + 9, cy - (i % 2 ? 6 : 30));
+  }
+  g.lineTo(cx + 58, cy - 26);
+  g.quadraticCurveTo(cx, cy - 92, cx - 58, cy - 26);
+  g.closePath(); g.fill();
+
+  // Enormous sparkly eyes
+  for (const s of [-1, 1]) {
+    const ex = cx + s * 27, ey = cy + 12;
+    g.fillStyle = '#fff'; g.strokeStyle = '#1c1c1c'; g.lineWidth = 4;
+    g.beginPath(); g.ellipse(ex, ey, 20, 26, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = accent;
+    g.beginPath(); g.arc(ex, ey + 4, 14, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#111';
+    g.beginPath(); g.arc(ex, ey + 4, 7, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff';
+    g.beginPath(); g.arc(ex - 6, ey - 4, 6, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(ex + 5, ey + 11, 2.6, 0, Math.PI * 2); g.fill();
+    // Heavy top lash
+    g.strokeStyle = '#111'; g.lineWidth = 6;
+    g.beginPath(); g.ellipse(ex, ey - 4, 21, 22, 0, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    // Eyebrow
+    g.lineWidth = 4;
+    g.beginPath(); g.moveTo(ex - 18, ey - 38); g.quadraticCurveTo(ex, ey - 46, ex + 18, ey - 40); g.stroke();
+    // Cheek blush strokes
+    g.strokeStyle = 'rgba(230,120,110,0.9)'; g.lineWidth = 2.5;
+    for (let i = 0; i < 3; i++) {
+      g.beginPath();
+      g.moveTo(ex + s * (10 + i * 6) - 4, ey + 34);
+      g.lineTo(ex + s * (10 + i * 6) + 4, ey + 26);
+      g.stroke();
+    }
+  }
+
+  // Tiny nose + open shonen grin
+  g.strokeStyle = '#1c1c1c'; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(cx - 1, cy + 34); g.lineTo(cx + 3, cy + 38); g.stroke();
+  g.fillStyle = '#fff'; g.strokeStyle = '#1c1c1c'; g.lineWidth = 4;
+  g.beginPath(); g.ellipse(cx, cy + 50, 15, 9, 0, 0, Math.PI); g.fill(); g.stroke();
+
+  // Title band with katakana (latin fallback keeps it readable without CJK fonts)
+  g.fillStyle = accent; g.fillRect(0, 0, W, 86);
+  g.fillStyle = '#111'; g.fillRect(0, 86, W, 6);
+  g.fillStyle = '#fff';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '900 54px ' + MANGA_FONT;
+  g.strokeStyle = '#111'; g.lineWidth = 7;
+  g.strokeText('マンガ', W / 2, 40); g.fillText('マンガ', W / 2, 40);
+  g.font = '700 17px ' + MANGA_FONT;
+  g.fillText('M  A  N  G  A', W / 2, 72);
+
+  // Volume badge
+  g.beginPath(); g.arc(W - 36, H - 36, 25, 0, Math.PI * 2);
+  g.fillStyle = '#fff'; g.fill();
+  g.strokeStyle = accent; g.lineWidth = 6; g.stroke();
+  g.fillStyle = '#111'; g.font = '900 30px ' + MANGA_FONT;
+  g.fillText(String(level + 1), W - 36, H - 34);
+
+  // Cover frame
+  g.strokeStyle = '#111'; g.lineWidth = 8; g.strokeRect(0, 0, W, H);
+  return c;
+}
+
+function mangaSpineCanvas(level) {
+  const W = 384, H = 48;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const accent = MANGA_ACCENTS[level % MANGA_ACCENTS.length];
+  g.fillStyle = accent; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 10, H); g.fillRect(W - 10, 0, 10, H);
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '900 26px ' + MANGA_FONT;
+  g.fillText('マンガ', W * 0.30, H / 2 + 1);
+  g.font = '700 22px ' + MANGA_FONT;
+  g.fillText('VOL. ' + (level + 1), W * 0.68, H / 2 + 1);
+  g.strokeStyle = '#111'; g.lineWidth = 4; g.strokeRect(0, 0, W, H);
+  return c;
+}
+
+function mangaPagesCanvas() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#efe7d2'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#cfc4a8'; g.lineWidth = 1;
+  for (let y = 1; y < 64; y += 3) {
+    g.beginPath(); g.moveTo(0, y); g.lineTo(64, y); g.stroke();
+  }
+  return c;
+}
+
+function mangaMaterials(level) {
+  if (!mangaMatCache[level]) {
+    if (!mangaPagesMat) {
+      mangaPagesMat = new THREE.MeshStandardMaterial({
+        map: mangaTex(mangaPagesCanvas()), roughness: 0.9, metalness: 0.0 });
+    }
+    mangaMatCache[level] = [
+      new THREE.MeshStandardMaterial({
+        map: mangaTex(mangaCoverCanvas(level)), roughness: 0.5, metalness: 0.0 }),
+      new THREE.MeshStandardMaterial({
+        map: mangaTex(mangaSpineCanvas(level)), roughness: 0.5, metalness: 0.0 }),
+      mangaPagesMat,
+    ];
+  }
+  return mangaMatCache[level];
+}
+
+// Split the box into cover (+Z), spine/back (+X, −Z) and page-edge faces.
+// The GLB export splits vertices per face (normals differ), so classifying
+// per-vertex by normal is exact.
+function setupMangaMesh(mesh, level) {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position, nor = geo.attributes.normal;
+  const mats = mangaMaterials(level);
+  if (!pos || !nor) { mesh.material = mats[0]; return; }
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const sx = Math.max(bb.max.x - bb.min.x, 1e-6);
+  const sy = Math.max(bb.max.y - bb.min.y, 1e-6);
+  const sz = Math.max(bb.max.z - bb.min.z, 1e-6);
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const nx = nor.getX(i), nz = nor.getZ(i);
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let u, v;
+    if (Math.abs(nz) >= 0.5)      { u = (x - bb.min.x) / sx; v = (y - bb.min.y) / sy; }
+    else if (Math.abs(nx) >= 0.5) { u = (y - bb.min.y) / sy; v = (z - bb.min.z) / sz; }
+    else                          { u = (x - bb.min.x) / sx; v = (z - bb.min.z) / sz; }
+    uv[2 * i] = u; uv[2 * i + 1] = v;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+
+  const idx = geo.index
+    ? Array.from(geo.index.array)
+    : Array.from({ length: pos.count }, (_, i) => i);
+  const buckets = [[], [], []];   // cover, spine+back, pages
+  for (let t = 0; t < idx.length; t += 3) {
+    const i0 = idx[t];
+    const nz = nor.getZ(i0), nx = nor.getX(i0);
+    const b = nz >= 0.5 ? 0 : (nx >= 0.5 || nz <= -0.5) ? 1 : 2;
+    buckets[b].push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  geo.setIndex(buckets[0].concat(buckets[1], buckets[2]));
+  geo.clearGroups();
+  let start = 0;
+  buckets.forEach((b, mi) => {
+    if (b.length) geo.addGroup(start, b.length, mi);
+    start += b.length;
+  });
+  mesh.material = mats;
+}
+
+function applyMangaCount() {
+  for (const mm of mangaMeshes) mm.mesh.visible = mm.level < mangaCount;
+  const btn = document.getElementById('manga-btn');
+  if (btn) btn.textContent = mangaCount === 0
+    ? 'Manga: hidden'
+    : 'Manga: ' + mangaCount + (mangaCount === 1 ? ' volume' : ' volumes');
+}
+
+function cycleManga() {
+  if (!mangaMeshes.length) return;
+  mangaCount = (mangaCount + 1) % 6;
+  applyMangaCount();
+}
+
+function initManga() {
+  const helpRow = document.getElementById('help-manga');
+  if (!mangaMeshes.length) {
+    if (helpRow) helpRow.remove();
+    return;
+  }
+  for (const mm of mangaMeshes) setupMangaMesh(mm.mesh, mm.level);
+  const ui = document.getElementById('finish-ui');
+  if (ui) {
+    const btn = document.createElement('button');
+    btn.id = 'manga-btn';
+    btn.title = 'Cycle the manga scale-reference stack (M)';
+    btn.addEventListener('click', cycleManga);
+    ui.appendChild(btn);
+  }
+  applyMangaCount();
+}"""
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -792,6 +1063,7 @@ def _build_html(
         cutlist_prompt or "Generate the cutlist for this design."
     )
     finish_js = _FINISH_JS
+    manga_js = _MANGA_JS
 
     # Build info panel rows.  Title and info values are interpolated straight
     # into the HTML, so escape them to prevent markup injection / breakage.
@@ -956,7 +1228,8 @@ def _build_html(
     <span style="color: rgba(240, 192, 96, 0.55);">X</span>&nbsp;&nbsp;x-ray fronts<br>
     <span style="color: rgba(240, 192, 96, 0.55);">O</span>&nbsp;&nbsp;open drawers<br>
     <span style="color: rgba(240, 192, 96, 0.55);">C</span>&nbsp;&nbsp;clip plane<br>
-    <span style="color: rgba(240, 192, 96, 0.55);">V</span>&nbsp;&nbsp;diag colors
+    <span style="color: rgba(240, 192, 96, 0.55);">V</span>&nbsp;&nbsp;diag colors<span id="help-manga"><br>
+    <span style="color: rgba(240, 192, 96, 0.55);">M</span>&nbsp;&nbsp;manga stack</span>
   </div>
 
   <div id="clip-ui">
@@ -1002,6 +1275,7 @@ const INITIAL_GRAIN = {initial_grain_json};
 const BOX_FINISH = {box_finish_json};
 const CUTLIST_PROMPT = {cutlist_prompt_json};
 {finish_js}
+{manga_js}
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({{ antialias: true }});
@@ -1174,6 +1448,7 @@ new GLTFLoader().parse(b64ToBuffer(GLB_B64), '', (gltf) => {{
   }}
 
   classifyWood(model);
+  initManga();
   // Apply the current selection (initialised to INITIAL_FINISH) rather than
   // INITIAL_FINISH directly, so a finish picked while the model was still
   // parsing is honoured instead of reverted.
@@ -1332,6 +1607,7 @@ window.addEventListener('keydown', (e) => {{
   if (e.key === 'o' || e.key === 'O') {{ toggleOpenDrawers(); e.preventDefault(); }}
   if (e.key === 'c' || e.key === 'C') {{ toggleClip();        e.preventDefault(); }}
   if (e.key === 'v' || e.key === 'V') {{ toggleDiagColors(); e.preventDefault(); }}
+  if (e.key === 'm' || e.key === 'M') {{ cycleManga();       e.preventDefault(); }}
 }});
 
 // ── Diagnostic colors (V key) ─────────────────────────────────────────────────

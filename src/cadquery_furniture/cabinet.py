@@ -801,6 +801,7 @@ def build_multi_bay_cabinet(
     furniture_top: bool = False,
     transition_shelf_zs: Optional[list[float]] = None,
     divider_top_z: Optional[float] = None,
+    include_manga: bool = False,
 ) -> tuple["cq.Assembly", list["PartInfo"]]:
     """Build a multi-bay cabinet assembly with bays positioned side-by-side.
 
@@ -845,6 +846,10 @@ def build_multi_bay_cabinet(
                               (face_bottom_overhang is automatically set to
                               bottom_thickness; an explicit face_bottom_overhang
                               argument is ignored when furniture_top=True).
+        include_manga:        Add a manga scale-reference stack to every drawer
+                              box (viewer prop, excluded from the parts list).
+                              Raises ValueError naming the drawer if any
+                              interior can't hold the full 5-volume stack.
 
     Returns:
         (cq.Assembly, list[PartInfo]) — the full assembly and its parts list.
@@ -1090,7 +1095,12 @@ def build_multi_bay_cabinet(
                         front_back_thickness=cfg.drawer_box_thickness,
                         bottom_thickness=op.bottom_thickness,
                     )
-                    drw_assy, drw_parts = build_drawer(dcfg)
+                    try:
+                        drw_assy, drw_parts = build_drawer(
+                            dcfg, include_manga=include_manga)
+                    except ValueError as e:
+                        raise ValueError(
+                            f"bay{bay_idx}_drawer{drw_idx}: {e}") from None
 
                     drw_x = bx + cfg.side_thickness + dcfg.slide.nominal_side_clearance
                     drw_y = dcfg.front_gap
