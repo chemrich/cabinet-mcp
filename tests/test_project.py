@@ -1025,10 +1025,10 @@ class TestFaceMaterialAndDoors:
                           and p["thickness_mm"] == 18)
         assert g18["panel_count"] >= face_qty + carcass_qty
 
-    def test_ply_species_packs_as_unpriced_sheet_group(self, tmp_path, monkeypatch):
+    def test_ply_species_packs_as_sheet_group(self, tmp_path, monkeypatch):
         # A '_ply' face material is sheet stock: it must be PACKED (own
-        # material+thickness group, sheet count, layout) with the
-        # price_missing flag — not left as an order-out note line.
+        # material+thickness group, sheet count, layout) and priced from
+        # PRICE_LIST — not left as an order-out note line.
         from cadquery_furniture import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
@@ -1040,7 +1040,8 @@ class TestFaceMaterialAndDoors:
         assert not [g for g in data["sheet_goods"] if "note" in g]
         oak = next(g for g in data["sheet_goods"]
                    if "Rift White Oak Ply" in g["material"])
-        assert oak["price_missing"] is True
+        assert oak["price_per_sheet_usd"] == 209.00
+        assert "price_missing" not in oak
         assert oak["sheets_used"] >= 1
         assert oak["panel_count"] == 3 + 6  # 3 fronts + 6 door leaves
 
@@ -1109,7 +1110,7 @@ class TestFaceMaterialAndDoors:
         # One packed oak group carries carcass + faces + doors at 18 mm.
         oak = next(g for g in data["sheet_goods"]
                    if "Rift White Oak Ply" in g["material"])
-        assert oak["price_missing"] is True
+        assert oak["price_per_sheet_usd"] == 209.00
         assert oak["thickness_mm"] == 18
         # No 18 mm Baltic birch group remains (only 15/6 mm parts pools).
         bb18 = [g for g in data["sheet_goods"]
