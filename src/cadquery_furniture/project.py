@@ -107,9 +107,14 @@ class WorktopSpec:
     number matches how a desk or counter height is actually specified.
 
     ``leg_count`` renders simple round support legs from the floor to the
-    slab underside: 4 = one per corner, 2 = front corners only (rear edge
-    carried by cleats into the flanking cabinets), 0 = no legs (slab rests
-    on the cabinets themselves).
+    slab underside; ``leg_placement`` says where they go:
+      "corners"   — leg_count 4 = one per corner; leg_count 2 = front
+                    corners only (rear edge carried by cleats into the
+                    flanking cabinets).  The default.
+      "left_end"  — 2 legs (front + rear) at the slab's left end, e.g. a
+                    single-pedestal desk whose right end sits on a cabinet.
+      "right_end" — mirror of left_end.
+    ``leg_count = 0`` means no legs (slab rests on the cabinets).
     """
     width_mm: float
     depth_mm: float
@@ -122,11 +127,37 @@ class WorktopSpec:
     leg_count: int = 0
     leg_diameter_mm: float = 50.0
     leg_inset_mm: float = 60.0
+    leg_placement: str = "corners"
     material: str = "finished_wood"
+
+    def __post_init__(self) -> None:
+        valid = {"corners", "left_end", "right_end"}
+        if self.leg_placement not in valid:
+            raise ValueError(
+                f"leg_placement must be one of {sorted(valid)}, "
+                f"got {self.leg_placement!r}."
+            )
 
     @property
     def leg_height_mm(self) -> float:
         return self.surface_height_mm - self.thickness_mm
+
+    def leg_points(self) -> list[tuple[float, float]]:
+        """(x, y) floor positions for the support legs, in run coordinates."""
+        if self.leg_count <= 0:
+            return []
+        inset = self.leg_inset_mm
+        x0 = self.x_offset_mm + inset
+        x1 = self.x_offset_mm + self.width_mm - inset
+        yf = self.y_offset_mm + inset
+        yb = self.y_offset_mm + self.depth_mm - inset
+        if self.leg_placement == "left_end":
+            return [(x0, yf), (x0, yb)]
+        if self.leg_placement == "right_end":
+            return [(x1, yf), (x1, yb)]
+        if self.leg_count >= 4:
+            return [(x0, yf), (x1, yf), (x0, yb), (x1, yb)]
+        return [(x0, yf), (x1, yf)]
 
 
 @dataclass(frozen=True)
@@ -780,12 +811,14 @@ def worktop_from_dict(d: dict | None) -> Optional[WorktopSpec]:
         if d.get(req) is None:
             raise ValueError(f"worktop requires '{req}'.")
     kwargs: dict[str, Any] = {k: v for k, v in d.items() if v is not None}
+    _str_fields = ("material", "leg_placement")
     if "leg_count" in kwargs:
         kwargs["leg_count"] = int(kwargs["leg_count"])
-    if "material" in kwargs:
-        kwargs["material"] = str(kwargs["material"])
+    for k in _str_fields:
+        if k in kwargs:
+            kwargs[k] = str(kwargs[k])
     for k in kwargs:
-        if k not in ("leg_count", "material"):
+        if k != "leg_count" and k not in _str_fields:
             kwargs[k] = float(kwargs[k])
     return WorktopSpec(**kwargs)
 
