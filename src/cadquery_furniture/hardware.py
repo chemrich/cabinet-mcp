@@ -1235,6 +1235,8 @@ PRICE_LIST: dict[str, float] = {
     "sheet_baltic_birch_prefinished_12mm":  94.00,
     "sheet_baltic_birch_prefinished_9mm":   78.00,
     "sheet_baltic_birch_prefinished_6mm":   64.00,
+    # Show-wood plywood
+    "sheet_rift_white_oak_ply_18mm": 209.00,  # 3/4" A1 rift-sawn white oak (Charlie's supplier, Jul 2026)
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
     # Length-suffixed keys (model-length-NNNmm) reflect actual distributor

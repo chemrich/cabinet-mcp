@@ -245,3 +245,9 @@ class TestBuildConfigValidation:
         from cadquery_furniture.cabinet import build_cabinet_config
         with pytest.raises(ValueError, match="heigth.*Valid parameters"):
             build_cabinet_config({"width": 600, "heigth": 720})
+
+
+class TestShowWoodSheetPrices:
+    def test_rift_white_oak_ply_priced(self):
+        from cadquery_furniture.hardware import price_for
+        assert price_for("sheet_rift_white_oak_ply_18mm") == 209.00
