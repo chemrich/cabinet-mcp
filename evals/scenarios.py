@@ -8696,6 +8696,57 @@ _s(Scenario(
 ))
 
 
+_s(Scenario(
+    name="face_material_door_panels",
+    prompt="A sideboard with a drawer and a door pair: door leaves must land "
+           "in the cutlist as show-face panels, and a face_material of "
+           "baltic_birch must pool the faces into the sheet optimisation.",
+    tags=["cutlist", "door", "face_material"],
+    difficulty="standard",
+    description="Door leaves are emitted as 'door' panels (DoorConfig leaf "
+                "dims, qty = num_doors) in the show-face material; "
+                "face_material=baltic_birch removes the order-out group and "
+                "pools faces with the 18 mm carcass sheets.",
+    tool_calls=[
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project": {"name": "eval_face_doors", "cabinets": [
+                {"name": "a", "config": {"width": 800, "height": 762,
+                                         "depth": 500,
+                                         "openings": [[150, "drawer"],
+                                                       [576, "door_pair"]]}}]}},
+            label="default faces: doors emitted, species TBD group",
+            assertions=[
+                Assertion("panels_summary.9.name", Op.EQ, "door"),
+                Assertion("panels_summary.9.qty", Op.EQ, 2),
+                Assertion("panels_summary.9.material", Op.EQ, "finished_wood"),
+                # 1 false front + 2 door leaves in the order-out group
+                Assertion("sheet_goods.3.material", Op.CONTAINS, "species TBD"),
+                Assertion("sheet_goods.3.panel_count", Op.EQ, 3),
+            ],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project": {"name": "eval_face_doors_bb",
+                  "shared": {"face_material": "baltic_birch"},
+                  "cabinets": [
+                {"name": "a", "config": {"width": 800, "height": 762,
+                                         "depth": 500,
+                                         "openings": [[150, "drawer"],
+                                                       [576, "door_pair"]]}}]}},
+            label="baltic_birch faces pool into the 18 mm sheets",
+            assertions=[
+                Assertion("panels_summary.9.material", Op.EQ, "baltic_birch"),
+                # No order-out group: the last sheet_goods entry is real stock
+                Assertion("sheet_goods", Op.LEN_EQ, 3),
+                # 18 mm group now counts carcass (4) + faces (3)
+                Assertion("sheet_goods.0.panel_count", Op.EQ, 7),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────
