@@ -8620,6 +8620,82 @@ SCENARIOS.append(Scenario(
 ))
 
 
+_s(Scenario(
+    name="worktop_slab_lifecycle",
+    prompt="Two drawer towers flanking a kneehole desk surface: save the "
+           "project with a worktop slab, delta-edit the slab, and confirm it "
+           "lands in the cutlist as a finished-stock panel.",
+    tags=["project", "worktop", "workflow"],
+    difficulty="standard",
+    description="A project 'worktop' block persists, shallow-merges through "
+                "update_project (null-free fields survive), round-trips via "
+                "load_project, and contributes one finished-stock panel to "
+                "the project cutlist.",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_worktop_desk", "overwrite": True,
+                  "shared": {"side_thickness": 18, "carcass_joinery": "floating_tenon"},
+                  "cabinets": [
+                      {"name": "tower-left",
+                       "config": {"width": 381, "height": 500, "depth": 457,
+                                  "drawer_config": [[464, "drawer"]]}},
+                      {"name": "tower-right",
+                       "config": {"width": 381, "height": 500, "depth": 457,
+                                  "drawer_config": [[464, "drawer"]]}}],
+                  "worktop": {"width_mm": 1219.2, "depth_mm": 457.2,
+                              "thickness_mm": 19, "surface_height_mm": 660.4,
+                              "x_offset_mm": 381, "y_offset_mm": -18,
+                              "leg_count": 4}},
+            label="save towers plus a kneehole worktop",
+            assertions=[
+                Assertion("cabinet_count", Op.EQ, 2),
+                Assertion("worktop.surface_height_mm", Op.APPROX, 660.4),
+                Assertion("worktop.leg_count", Op.EQ, 4),
+            ],
+        ),
+        ToolCall(
+            tool="update_project",
+            args={"name": "eval_worktop_desk",
+                  "worktop": {"leg_count": 2}},
+            label="switch to front legs + rear cleats",
+            assertions=[
+                Assertion("changes", Op.CONTAINS, "worktop updated"),
+                Assertion("worktop.leg_count", Op.EQ, 2),
+                # Shallow merge keeps the untouched fields
+                Assertion("worktop.width_mm", Op.APPROX, 1219.2),
+                Assertion("worktop.y_offset_mm", Op.APPROX, -18),
+            ],
+        ),
+        ToolCall(
+            tool="load_project",
+            args={"name": "eval_worktop_desk"},
+            label="the slab persisted in the snapshot",
+            assertions=[
+                Assertion("project.worktop.leg_count", Op.EQ, 2),
+                Assertion("project.worktop.thickness_mm", Op.APPROX, 19),
+            ],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_worktop_desk"},
+            label="worktop lands in the cutlist",
+            assertions=[
+                Assertion("panels_summary.9.name", Op.EQ, "worktop"),
+                Assertion("panels_summary.9.qty", Op.EQ, 1),
+                Assertion("panels_summary.9.length_mm", Op.APPROX, 1219.2),
+                Assertion("panels_summary.9.material", Op.EQ, "finished_wood"),
+            ],
+        ),
+        ToolCall(
+            tool="delete_project", args={"name": "eval_worktop_desk"},
+            label="cleanup",
+            assertions=[Assertion("deleted", Op.EQ, "eval_worktop_desk")],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

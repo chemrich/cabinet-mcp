@@ -97,6 +97,7 @@ from .cutlist import (
 )
 from .cabinet import (
     OpeningConfig,
+    PartInfo,
     build_cabinet_config as _build_cabinet_config,
     stack_from_column as _stack_from_column,
     to_opening as _to_opening,
@@ -251,6 +252,39 @@ def _hardware_line_to_dict(line) -> dict:
 # ─── Server ───────────────────────────────────────────────────────────────────
 
 server = Server("cabinet-mcp")
+
+
+def _worktop_schema() -> dict:
+    """Input schema for a project worktop block (design_project / update_project)."""
+    return {
+        "type": "object",
+        "description": (
+            "Desk/counter slab spanning part of the run. Positioned in run "
+            "coordinates: x_offset_mm is the slab's left edge measured from "
+            "the left face of the first cabinet at whatever gap_mm the run "
+            "is rendered with. surface_height_mm is the finished top-of-slab "
+            "height above the FLOOR (cabinet feet included)."
+        ),
+        "properties": {
+            "width_mm":          {"type": "number"},
+            "depth_mm":          {"type": "number"},
+            "thickness_mm":      {"type": "number", "default": 19},
+            "surface_height_mm": {"type": "number", "default": 736.6,
+                                  "description": "Finished slab-top height above the floor. Default 736.6 (29in desk height)."},
+            "x_offset_mm":       {"type": "number", "default": 0},
+            "y_offset_mm":       {"type": "number", "default": 0,
+                                  "description": "Front-edge shift from the cabinet fronts; negative pushes the slab proud (e.g. -18 lands on the drawer-face plane)."},
+            "leg_count":         {"type": "integer", "default": 0,
+                                  "description": "Support legs rendered floor-to-slab: 4 = corners, 2 = front corners only (rear on cleats), 0 = none. leg_placement left_end/right_end always renders 2."},
+            "leg_diameter_mm":   {"type": "number", "default": 50},
+            "leg_inset_mm":      {"type": "number", "default": 60},
+            "leg_placement":     {"type": "string", "default": "corners",
+                                  "enum": ["corners", "left_end", "right_end"],
+                                  "description": "Where the legs go. corners = leg_count spread over the corners; left_end/right_end = 2 legs (front + rear) at that end of the slab — single-pedestal desks whose other end sits on a cabinet."},
+            "material":          {"type": "string", "default": "finished_wood"},
+        },
+        "required": ["width_mm", "depth_mm"],
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1599,6 +1633,12 @@ async def list_tools() -> list[types.Tool]:
 
                 Returns per-cabinet resolved configs plus a divergence note for
                 any shared token a child overrode.
+
+                An optional 'worktop' block models a desk/counter slab spanning
+                part of the run (e.g. between two flanking drawer towers). It
+                is rendered by visualize_project, included in the project
+                cutlist as a finished-stock panel, and persists with the
+                project.
             """),
             inputSchema={
                 "type": "object",
@@ -1653,6 +1693,7 @@ async def list_tools() -> list[types.Tool]:
                             "required": ["name", "config"],
                         },
                     },
+                    "worktop": _worktop_schema(),
                 },
                 "required": ["name", "cabinets"],
             },
@@ -1667,6 +1708,9 @@ async def list_tools() -> list[types.Tool]:
                 Patch fields (all optional except 'name'):
                 - notes: replaces the notes string.
                 - wall_width_mm: replaces the wall constraint; null clears it.
+                - worktop: shallow-merged into the stored worktop spec
+                  (creating one if absent — width_mm/depth_mm required then);
+                  null removes the worktop entirely.
                 - shared: shallow-merged into the shared token block; a null
                   value removes that token.
                 - cabinets: per-cabinet patches matched by 'name'. 'config'
@@ -1691,6 +1735,14 @@ async def list_tools() -> list[types.Tool]:
                     "name": {"type": "string", "description": "Saved project to update (see list_projects)."},
                     "notes": {"type": "string"},
                     "wall_width_mm": {"type": ["number", "null"]},
+                    "worktop": {
+                        "type": ["object", "null"],
+                        "description": (
+                            "Worktop deltas, shallow-merged into the stored "
+                            "spec (see design_project's worktop block for the "
+                            "fields); null removes the worktop."
+                        ),
+                    },
                     "shared": {
                         "type": "object",
                         "description": "Shared-token deltas; null values clear a token.",
@@ -1933,6 +1985,9 @@ async def list_tools() -> list[types.Tool]:
 
                 Pass either 'project_name' to load a persisted project or an
                 inline 'project' payload (same shape as design_project input).
+                A project 'worktop' block renders as a slab (plus optional
+                support legs) at its stored run position — make sure gap_mm
+                matches the layout the worktop was measured against.
                 Requires the full install (CadQuery).
             """),
             inputSchema={
@@ -1943,6 +1998,27 @@ async def list_tools() -> list[types.Tool]:
                     "gap_mm": {
                         "type": "number", "default": 0,
                         "description": "Gap between adjacent cabinets in mm (0 = butted).",
+                    },
+                    "furniture_top": {
+                        "type": "boolean", "default": False,
+                        "description": (
+                            "Render every cabinet in the 'furniture top, "
+                            "flush bottom' style: the top panel gains a front "
+                            "cap flush with the drawer-face plane and the "
+                            "lowest face drops to the carcass underside."
+                        ),
+                    },
+                    "shared_junction_feet": {
+                        "type": "boolean", "default": False,
+                        "description": (
+                            "Butted runs (gap_mm=0, 2+ cabinets) only: render "
+                            "ONE pair of feet centered on each cabinet "
+                            "junction instead of each cabinet carrying its "
+                            "own inner pair; outer corners keep theirs. Foot "
+                            "count becomes 2×(cabinet_count+1). Reflect the "
+                            "reduced count in the hardware BOM by setting "
+                            "per-cabinet leg_count (e.g. 4/2/2 for a trio)."
+                        ),
                     },
                     "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
                     "open_browser": {"type": "boolean", "default": True},
@@ -3105,6 +3181,7 @@ def _cabinet_assembly(
     num_bays: int = 1,
     furniture_top: bool = False,
     divider_full_height: bool = True,
+    include_feet: bool = True,
 ):
     """Build the CadQuery assembly for one cabinet config (column-aware).
 
@@ -3191,6 +3268,7 @@ def _cabinet_assembly(
         face_top_overhang=face_top_overhang,
         transition_shelf_zs=transition_shelf_zs or None,
         divider_top_z=divider_top_z,
+        include_feet=include_feet,
     )
     return assy, parts, info
 
@@ -3762,6 +3840,9 @@ def _project_summary(project, path) -> dict:
     }
     if project.forked_from is not None:
         out["forked_from"] = project.forked_from
+    if project.worktop is not None:
+        from .project import _worktop_to_dict
+        out["worktop"] = _worktop_to_dict(project.worktop)
     return out
 
 
@@ -4032,6 +4113,24 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                 "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
             })
 
+        if project.worktop is not None:
+            wt = project.worktop
+            panel = CutlistPanel(
+                name="worktop",
+                length=wt.width_mm,
+                width=wt.depth_mm,
+                thickness=wt.thickness_mm,
+                material=wt.material,
+                notes=(
+                    f"desk/counter slab, top at {wt.surface_height_mm:g} mm"
+                    + (f"; {len(wt.leg_points())} support legs (buy-out, "
+                       f"~{wt.leg_height_mm:g} mm)" if wt.leg_points() else "")
+                ),
+            )
+            if batch_names:
+                panel.source = project.name
+            raw_false.append(panel)
+
     # Consolidate identical panels across all cabinets — this is the merge
     # behavior the user picked. Six matching sides across three cabinets
     # become one row with quantity=6.
@@ -4075,9 +4174,18 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     open_browser = bool(args.get("open_browser", True))
     tolerance    = float(args.get("tolerance", 0.1))
     gap_mm       = float(args.get("gap_mm", 0.0))
+    furniture_top = bool(args.get("furniture_top", False))
+    shared_feet  = bool(args.get("shared_junction_feet", False))
     finish       = args.get("finish")
     drawer_box_finish = args.get("drawer_box_finish")
     grain_direction   = str(args.get("grain_direction", "vertical"))
+
+    # A butted run (gap 0) can share one pair of feet per cabinet junction
+    # instead of each cabinet carrying its own inner pair. Cabinet feet are
+    # then suppressed and run-level feet added below.
+    use_shared_feet = (
+        shared_feet and gap_mm == 0 and len(project.cabinets) > 1
+    )
 
     run_assy = cq.Assembly(name=project.name)
     all_parts: list = []
@@ -4085,7 +4193,10 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     x_off = 0.0
     for cname, cfg in project.resolved():
         columns_raw = _columns_dict_from_cfg(cfg)
-        assy, parts, _info = _cabinet_assembly(cfg, columns_raw)
+        assy, parts, _info = _cabinet_assembly(
+            cfg, columns_raw, furniture_top=furniture_top,
+            include_feet=not use_shared_feet,
+        )
         run_assy.add(assy, name=cname, loc=cq.Location(cq.Vector(x_off, 0, 0)))
         all_parts.extend(parts)
         per_cabinet.append({
@@ -4096,11 +4207,95 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         x_off += cfg.width + gap_mm
 
     run_width = x_off - gap_mm if project.cabinets else 0.0
+
+    if use_shared_feet:
+        resolved = project.resolved()
+        cfg0 = resolved[0][1]
+        try:
+            leg_spec = get_leg(cfg0.leg_key)
+            foot_h, foot_d = leg_spec.height_mm, leg_spec.base_diameter_mm
+        except KeyError:
+            foot_h, foot_d = 102.0, 50.0
+        inset = cfg0.leg_inset
+        # (x, depth) stations: outer ends keep their own inset pair; each
+        # junction gets ONE pair centered on the seam. Feet run front-to-back
+        # at the shallower neighbour's depth so they never poke out the back.
+        stations: list[tuple[float, float]] = [(inset, resolved[0][1].depth)]
+        acc = 0.0
+        for (_, left_cfg), (_, right_cfg) in zip(resolved, resolved[1:]):
+            acc += left_cfg.width
+            stations.append((acc, min(left_cfg.depth, right_cfg.depth)))
+        stations.append((run_width - inset, resolved[-1][1].depth))
+        foot_shape = (
+            cq.Workplane("XY")
+            .cylinder(foot_h, foot_d / 2, centered=(True, True, False))
+        )
+        fi = 0
+        for fx, depth in stations:
+            for fy in (inset, depth - inset):
+                run_assy.add(
+                    foot_shape, name=f"foot_{fi}",
+                    loc=cq.Location(cq.Vector(fx, fy, -foot_h)),
+                    color=cq.Color(0.25, 0.25, 0.28, 1.0),
+                )
+                fi += 1
+
+    worktop = project.worktop
+    if worktop is not None:
+        # The floor plane sits one foot-height below the carcass origin —
+        # resolve it the same way build_multi_bay_cabinet resolves feet.
+        floor_z = -102.0
+        if project.cabinets:
+            try:
+                floor_z = -get_leg(project.resolved()[0][1].leg_key).height_mm
+            except KeyError:
+                pass
+        slab_top_z = floor_z + worktop.surface_height_mm
+        slab = cq.Workplane("XY").box(
+            worktop.width_mm, worktop.depth_mm, worktop.thickness_mm,
+            centered=False,
+        )
+        run_assy.add(
+            slab, name="worktop",
+            loc=cq.Location(cq.Vector(
+                worktop.x_offset_mm,
+                worktop.y_offset_mm,
+                slab_top_z - worktop.thickness_mm,
+            )),
+            color=cq.Color(0.87, 0.72, 0.53, 1.0),
+        )
+        all_parts.append(PartInfo(
+            name="worktop",
+            shape=slab,
+            material_thickness=worktop.thickness_mm,
+            grain_direction="length",
+        ))
+        leg_pts = worktop.leg_points()
+        if leg_pts:
+            leg_shape = (
+                cq.Workplane("XY")
+                .cylinder(
+                    worktop.leg_height_mm, worktop.leg_diameter_mm / 2,
+                    centered=(True, True, False),
+                )
+            )
+            for li, (lx, ly) in enumerate(leg_pts):
+                run_assy.add(
+                    leg_shape, name=f"worktop_leg{li}",
+                    loc=cq.Location(cq.Vector(lx, ly, floor_z)),
+                    color=cq.Color(0.25, 0.25, 0.28, 1.0),
+                )
+
     info = {
         "cabinets":     len(project.cabinets),
         "run_width":    round(run_width, 1),
         "parts":        len(all_parts),
     }
+    if worktop is not None:
+        info["worktop"] = (
+            f"{worktop.width_mm:g}×{worktop.depth_mm:g}×"
+            f"{worktop.thickness_mm:g} mm @ {worktop.surface_height_mm:g} mm"
+        )
     if project.wall_width_mm:
         info["wall_width"] = project.wall_width_mm
 
@@ -4121,7 +4316,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         ),
     )
 
-    return _ok({
+    out = {
         "project":      project.name,
         "cabinet_count": len(project.cabinets),
         "total_run_width_mm": round(run_width, 1),
@@ -4138,7 +4333,11 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
             "Generate-cutlist button that copies a request to paste back to "
             "the assistant."
         ),
-    })
+    }
+    if worktop is not None:
+        from .project import _worktop_to_dict
+        out["worktop"] = _worktop_to_dict(worktop)
+    return _ok(out)
 
 
 # ─── Port management ──────────────────────────────────────────────────────────
