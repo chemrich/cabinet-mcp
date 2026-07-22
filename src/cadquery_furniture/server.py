@@ -401,6 +401,16 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -569,6 +579,16 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -667,6 +687,16 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_prefinished": {
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
                     },
                     "drawer_config": {
                         "type": "array",
@@ -884,6 +914,16 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1005,6 +1045,16 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_prefinished": {
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1278,6 +1328,16 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
                     },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1348,6 +1408,16 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_prefinished": {
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1493,6 +1563,16 @@ async def list_tools() -> list[types.Tool]:
                     "drawer_box_prefinished": {
                         "type": "boolean", "default": False,
                         "description": "Build drawer boxes (incl. bottoms) from pre-finished Baltic birch — separate cutlist material and sheet pricing, no finishing step. Workshop presets default true.",
+                    },
+                    "face_material": {
+                        "type": "string",
+                        "default": "finished_wood",
+                        "description": (
+                            "Cutlist material for show faces (false fronts + door "
+                            "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
+                            "pool into sheet optimisation; any other string stays "
+                            "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
                     },
                     "drawer_config": {
                         "type": "array",
@@ -1684,6 +1764,7 @@ async def list_tools() -> list[types.Tool]:
                             "back_thickness":   {"type": "number"},
                             "drawer_box_thickness": {"type": "number"},
                             "drawer_box_prefinished": {"type": "boolean"},
+                            "face_material": {"type": "string"},
                             "carcass_joinery":  {"type": "string"},
                             "drawer_joinery":   {"type": "string"},
                             "drawer_slide":     {"type": "string"},
@@ -2655,6 +2736,20 @@ def _build_cost_estimate(
 
 # ── generate_cutlist ──────────────────────────────────────────────────────────
 
+#: Face materials the sheet optimiser knows how to pack and price.  Faces in
+#: any other material stay a labeled order-out group (species/stock external).
+_SHEET_FACE_MATERIALS = ("baltic_birch", "baltic_birch_prefinished")
+
+
+def _face_note(material: str, detail: str) -> str:
+    """Cutlist note for a show-face panel (false front or door leaf)."""
+    if material == "finished_wood":
+        return f"species TBD; {detail}"
+    if material in _SHEET_FACE_MATERIALS:
+        return detail
+    return f"{material.replace('_', ' ')}; {detail}"
+
+
 def _raw_panels_for_cabinet(
     cfg: CabinetConfig,
     columns_raw: list | None,
@@ -2741,6 +2836,31 @@ def _raw_panels_for_cabinet(
             for row in col_drawers:
                 op = _to_opening(row)
                 opening_h, slot_type = op.height_mm, op.opening_type
+                if slot_type in ("door", "door_pair"):
+                    # Door leaves are show-face panels too — same stock as
+                    # the false fronts. Leaf dims come from DoorConfig so
+                    # the cutlist matches the hinge/pull BOM's geometry.
+                    num_doors = op.num_doors or (2 if slot_type == "door_pair" else 1)
+                    door_cfg = DoorConfig(
+                        opening_width=col_width,
+                        opening_height=opening_h,
+                        num_doors=num_doors,
+                        hinge_key=op.hinge_key or cfg.door_hinge,
+                        door_thickness=op.door_thickness or 18.0,
+                    )
+                    raw_false_fronts.append(CutlistPanel(
+                        name="door",
+                        length=round(door_cfg.door_height, 1),
+                        width=round(door_cfg.door_width, 1),
+                        thickness=door_cfg.door_thickness,
+                        quantity=num_doors,
+                        grain_direction="length",
+                        material=cfg.face_material,
+                        notes=_face_note(cfg.face_material,
+                                         f"{num_doors} leaf" if num_doors == 1
+                                         else f"{num_doors} leaves"),
+                    ))
+                    continue
                 if slot_type != "drawer":
                     continue
                 dcfg = DrawerConfig(
@@ -2795,8 +2915,9 @@ def _raw_panels_for_cabinet(
                     thickness=dcfg.face_thickness,
                     quantity=1,
                     grain_direction="length",
-                    material="finished_wood",
-                    notes="species TBD; full-overlay 3 mm reveal",
+                    material=cfg.face_material,
+                    notes=_face_note(cfg.face_material,
+                                     "full-overlay 3 mm reveal"),
                 ))
 
     return raw_carcass, raw_6mm, raw_box, raw_false_fronts
@@ -2837,7 +2958,21 @@ def _cutlist_pipeline(
     Carcass panels are grouped by their actual thickness: each group is
     packed onto, and priced as, the matching sheet stock
     (``sheet_baltic_birch_{t}mm``).
+
+    Show-face panels (false fronts, door leaves, worktops) whose material is
+    real sheet stock join the optimisation: raw Baltic birch pools with the
+    carcass thickness groups, pre-finished with the pre-finished parts pool.
+    Faces in any other material (default "finished_wood", or a named species
+    like "rift_white_oak_ply") remain a labeled group excluded from packing.
     """
+    pooled_faces_carcass = [p for p in false_fronts if p.material == "baltic_birch"]
+    pooled_faces_parts   = [p for p in false_fronts
+                            if p.material == "baltic_birch_prefinished"]
+    false_fronts = [p for p in false_fronts
+                    if p.material not in _SHEET_FACE_MATERIALS]
+    carcass_panels = carcass_panels + pooled_faces_carcass
+    box_panels = box_panels + pooled_faces_parts
+
     all_panels = carcass_panels + box_panels + panels_6mm + false_fronts
 
     def _make_sheet(t: float) -> SheetStock:
@@ -2913,12 +3048,24 @@ def _cutlist_pipeline(
         entry.update(opt_info)
         sheet_goods.append(entry)
     if false_fronts:
-        sheet_goods.append({
-            "material": "Finished wood — false fronts (species TBD)",
-            "thickness_mm": DrawerConfig.__dataclass_fields__["face_thickness"].default,
-            "panel_count": sum(p.quantity for p in false_fronts),
-            "note": "Order solid stock or veneered panel; not included in sheet optimisation.",
-        })
+        # Group the order-out faces by material so a named species reads as
+        # its own shopping line while unspecified faces stay "species TBD".
+        faces_by_mat: dict[str, list[CutlistPanel]] = {}
+        for p in false_fronts:
+            faces_by_mat.setdefault(p.material, []).append(p)
+        for mat in sorted(faces_by_mat):
+            group = faces_by_mat[mat]
+            if mat == "finished_wood":
+                label = "Finished wood — show faces (species TBD)"
+            else:
+                label = f"Show faces — {mat.replace('_', ' ')} (price TBD)"
+            sheet_goods.append({
+                "material": label,
+                "thickness_mm": max(p.thickness for p in group),
+                "panel_count": sum(p.quantity for p in group),
+                "note": ("Order solid stock or veneered panel; "
+                         "not included in sheet optimisation."),
+            })
 
     # ── File output ────────────────────────────────────────────────────────
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -978,3 +978,94 @@ class TestWorktop:
         assert none.leg_points() == []
         with pytest.raises(ValueError, match="leg_placement"):
             worktop_from_dict({**base, "leg_placement": "rear"})
+
+
+# ─── Face material + door panels ──────────────────────────────────────────────
+
+
+class TestFaceMaterialAndDoors:
+    def test_door_leaves_emitted_in_cutlist(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        out = _run(_tool_generate_project_cutlist(
+            {"project": _sample_payload(name="door_cut")}))
+        data = json.loads(out[0].text)
+        doors = [p for p in data["panels_summary"] if p["name"] == "door"]
+        # Three cabinets, one door_pair each -> one consolidated row, qty 6.
+        assert len(doors) == 1, data["panels_summary"]
+        assert doors[0]["qty"] == 6
+        assert doors[0]["material"] == "finished_wood"
+        # Show-face group present and counts fronts + door leaves.
+        groups = [g for g in data["sheet_goods"] if "species TBD" in g["material"]]
+        assert len(groups) == 1
+        assert groups[0]["panel_count"] == 3 + 6  # 3 false fronts + 6 leaves
+
+    def test_face_material_bb_pools_into_sheets(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = _sample_payload(name="bb_faces")
+        payload["shared"]["face_material"] = "baltic_birch"
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+        # No order-out group; faces carry the sheet material.
+        assert not [g for g in data["sheet_goods"] if "note" in g]
+        fronts = [p for p in data["panels_summary"] if p["name"] == "false_front"]
+        assert fronts and all(p["material"] == "baltic_birch" for p in fronts)
+        # The 18 mm sheet group absorbed the faces (panel_count includes them).
+        g18 = next(g for g in data["sheet_goods"] if g["thickness_mm"] == 18)
+        face_qty = sum(p["qty"] for p in data["panels_summary"]
+                       if p["name"] in ("false_front", "door")
+                       and p["thickness_mm"] == 18.0)
+        carcass_qty = sum(p["qty"] for p in data["panels_summary"]
+                          if p["name"] in ("side", "top", "bottom")
+                          and p["thickness_mm"] == 18)
+        assert g18["panel_count"] >= face_qty + carcass_qty
+
+    def test_named_species_gets_labeled_group(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = _sample_payload(name="rwo_faces")
+        payload["shared"]["face_material"] = "rift_white_oak_ply"
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+        labels = [g["material"] for g in data["sheet_goods"] if "note" in g]
+        assert labels == ["Show faces — rift white oak ply (price TBD)"]
+        fronts = [p for p in data["panels_summary"] if p["name"] == "false_front"]
+        assert all("rift white oak ply" in p.get("notes", "")
+                   or p["material"] == "rift_white_oak_ply" for p in fronts)
+
+    def test_face_material_round_trips(self):
+        payload = _sample_payload(name="rt_faces")
+        payload["shared"]["face_material"] = "baltic_birch"
+        payload["cabinets"][1]["config"]["face_material"] = "rift_white_oak_ply"
+        proj = build_project(payload)
+        loaded = project_from_dict(project_to_dict(proj))
+        resolved = dict(loaded.resolved())
+        assert resolved["left"].face_material == "baltic_birch"
+        assert resolved["center"].face_material == "rift_white_oak_ply"
+
+    def test_bb_worktop_pools_with_carcass(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = {
+            "name": "wt_pool",
+            "cabinets": [{"name": "a", "config": {
+                "width": 600, "height": 720, "depth": 457,
+                "drawer_config": [[300, "drawer"], [384, "drawer"]],
+                "face_material": "baltic_birch"}}],
+            "worktop": {"width_mm": 1200, "depth_mm": 457,
+                        "thickness_mm": 18, "material": "baltic_birch"},
+        }
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+        assert not [g for g in data["sheet_goods"] if "note" in g]
+        wt = next(p for p in data["panels_summary"] if p["name"] == "worktop")
+        assert wt["material"] == "baltic_birch"
