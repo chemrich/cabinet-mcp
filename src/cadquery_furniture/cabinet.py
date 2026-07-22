@@ -135,11 +135,17 @@ class CabinetConfig:
     # identical.  Workshop presets default this on.
     drawer_box_prefinished: bool = False
     # Cutlist material for the show faces — applied false fronts AND door
-    # panels.  "baltic_birch" / "baltic_birch_prefinished" pool into the
-    # sheet optimisation with the matching stock; any other string (default
+    # panels.  Sheet materials (the Baltic birch stocks, or any name ending
+    # in "_ply") pool into the sheet optimisation; any other string (default
     # "finished_wood") keeps the faces as a labeled order-out group excluded
-    # from sheet packing (e.g. "rift_white_oak_ply").  Geometry unaffected.
+    # from sheet packing.  Geometry unaffected.
     face_material: str = "finished_wood"
+    # Cutlist material for the carcass panels — sides, top, bottom, shelves,
+    # and column dividers.  Backs and drawer boxes keep their own stock
+    # (back is 1/4" ply, boxes follow drawer_box_thickness/_prefinished).
+    # Sheet groups are packed per (material, thickness) and priced from
+    # PRICE_LIST when a matching sheet entry exists (price TBD otherwise).
+    carcass_material: str = "baltic_birch"
 
     # Joinery
     dado_depth: float = 9.0  # half thickness dado for shelves/bottom

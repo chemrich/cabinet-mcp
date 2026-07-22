@@ -411,6 +411,17 @@ async def list_tools() -> list[types.Tool]:
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
                         ),
                     },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -589,6 +600,17 @@ async def list_tools() -> list[types.Tool]:
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
                         ),
                     },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -696,6 +718,17 @@ async def list_tools() -> list[types.Tool]:
                             "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
                             "pool into sheet optimisation; any other string stays "
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
                     "drawer_config": {
@@ -924,6 +957,17 @@ async def list_tools() -> list[types.Tool]:
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
                         ),
                     },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1054,6 +1098,17 @@ async def list_tools() -> list[types.Tool]:
                             "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
                             "pool into sheet optimisation; any other string stays "
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
                     "drawer_config": {
@@ -1338,6 +1393,17 @@ async def list_tools() -> list[types.Tool]:
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
                         ),
                     },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1417,6 +1483,17 @@ async def list_tools() -> list[types.Tool]:
                             "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
                             "pool into sheet optimisation; any other string stays "
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
                     "drawer_config": {
@@ -1572,6 +1649,17 @@ async def list_tools() -> list[types.Tool]:
                             "leaves). 'baltic_birch' / 'baltic_birch_prefinished' "
                             "pool into sheet optimisation; any other string stays "
                             "a labeled order-out group (e.g. 'rift_white_oak_ply')."
+                        ),
+                    },
+                    "carcass_material": {
+                        "type": "string",
+                        "default": "baltic_birch",
+                        "description": (
+                            "Cutlist material for carcass panels (sides, top, "
+                            "bottom, shelves, dividers). Sheet materials (Baltic "
+                            "birch stocks or names ending '_ply') pack per "
+                            "(material, thickness) and price from PRICE_LIST when "
+                            "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
                     "drawer_config": {
@@ -1765,6 +1853,7 @@ async def list_tools() -> list[types.Tool]:
                             "drawer_box_thickness": {"type": "number"},
                             "drawer_box_prefinished": {"type": "boolean"},
                             "face_material": {"type": "string"},
+                            "carcass_material": {"type": "string"},
                             "carcass_joinery":  {"type": "string"},
                             "drawer_joinery":   {"type": "string"},
                             "drawer_slide":     {"type": "string"},
@@ -2736,16 +2825,25 @@ def _build_cost_estimate(
 
 # ── generate_cutlist ──────────────────────────────────────────────────────────
 
-#: Face materials the sheet optimiser knows how to pack and price.  Faces in
-#: any other material stay a labeled order-out group (species/stock external).
-_SHEET_FACE_MATERIALS = ("baltic_birch", "baltic_birch_prefinished")
+def _is_sheet_material(material: str) -> bool:
+    """True when the material is sheet stock the optimiser should pack.
+
+    The Baltic birch stocks always are; any name ending in ``_ply``
+    (``rift_white_oak_ply``, ``walnut_ply``, …) is treated as sheet goods
+    too — packed per (material, thickness) and priced from PRICE_LIST when
+    a matching ``sheet_<material>_<t>mm`` entry exists (price TBD flag
+    otherwise).  Everything else (``finished_wood``, solid stock names)
+    stays an order-out line excluded from packing.
+    """
+    return material in ("baltic_birch", "baltic_birch_prefinished") \
+        or material.endswith("_ply")
 
 
 def _face_note(material: str, detail: str) -> str:
     """Cutlist note for a show-face panel (false front or door leaf)."""
     if material == "finished_wood":
         return f"species TBD; {detail}"
-    if material in _SHEET_FACE_MATERIALS:
+    if material in ("baltic_birch", "baltic_birch_prefinished"):
         return detail
     return f"{material.replace('_', ' ')}; {detail}"
 
@@ -2767,22 +2865,22 @@ def _raw_panels_for_cabinet(
     raw_carcass: list[CutlistPanel] = [
         CutlistPanel(name="side", length=cfg.height, width=cfg.depth,
                      thickness=cfg.side_thickness, quantity=2,
-                     grain_direction="length", material="baltic_birch",
+                     grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"]),
         CutlistPanel(name="bottom", length=interior_width, width=interior_depth,
                      thickness=cfg.bottom_thickness, quantity=1,
-                     grain_direction="length", material="baltic_birch",
+                     grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"]),
         CutlistPanel(name="top", length=interior_width, width=interior_depth,
                      thickness=cfg.top_thickness, quantity=1,
-                     grain_direction="length", material="baltic_birch",
+                     grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"]),
     ]
     for i, _ in enumerate(cfg.fixed_shelf_positions):
         raw_carcass.append(CutlistPanel(
             name=f"shelf_{i + 1}", length=interior_width, width=interior_depth,
             thickness=cfg.shelf_thickness, quantity=1,
-            grain_direction="length", material="baltic_birch",
+            grain_direction="length", material=cfg.carcass_material,
         ))
 
     raw_6mm: list[CutlistPanel] = [
@@ -2806,7 +2904,7 @@ def _raw_panels_for_cabinet(
                 thickness=cfg.side_thickness,
                 quantity=num_dividers,
                 grain_direction="length",
-                material="baltic_birch",
+                material=cfg.carcass_material,
             ))
     elif cfg.openings:
         # Single-column cabinet: treat the opening stack as one full-width
@@ -2829,7 +2927,7 @@ def _raw_panels_for_cabinet(
                     thickness=cfg.shelf_thickness,
                     quantity=1,
                     grain_direction="length",
-                    material="baltic_birch",
+                    material=cfg.carcass_material,
                     edge_band=["front"],
                 ))
             col_drawers = _stack_from_column(col)
@@ -2965,11 +3063,12 @@ def _cutlist_pipeline(
     Faces in any other material (default "finished_wood", or a named species
     like "rift_white_oak_ply") remain a labeled group excluded from packing.
     """
-    pooled_faces_carcass = [p for p in false_fronts if p.material == "baltic_birch"]
-    pooled_faces_parts   = [p for p in false_fronts
-                            if p.material == "baltic_birch_prefinished"]
-    false_fronts = [p for p in false_fronts
-                    if p.material not in _SHEET_FACE_MATERIALS]
+    pooled_faces_parts = [p for p in false_fronts
+                          if p.material == "baltic_birch_prefinished"]
+    pooled_faces_carcass = [p for p in false_fronts
+                            if p.material != "baltic_birch_prefinished"
+                            and _is_sheet_material(p.material)]
+    false_fronts = [p for p in false_fronts if not _is_sheet_material(p.material)]
     carcass_panels = carcass_panels + pooled_faces_carcass
     box_panels = box_panels + pooled_faces_parts
 
@@ -2991,11 +3090,12 @@ def _cutlist_pipeline(
                  "unplaced": opt.unplaced}, opt)
 
     # Carcass panels can span multiple thicknesses (side vs top/bottom
-    # overrides, mixed-thickness projects) — group by panel thickness.
-    carcass_by_t: dict[float, list[CutlistPanel]] = {}
+    # overrides, mixed-thickness projects) AND multiple materials
+    # (carcass_material, sheet-stock show faces) — group by both.
+    carcass_by_mt: dict[tuple[str, float], list[CutlistPanel]] = {}
     for p in carcass_panels:
-        carcass_by_t.setdefault(p.thickness, []).append(p)
-    carcass_ts = sorted(carcass_by_t, reverse=True)
+        carcass_by_mt.setdefault((p.material, p.thickness), []).append(p)
+    carcass_mts = sorted(carcass_by_mt, key=lambda mt: (mt[0], -mt[1]))
 
     # Drawer-box parts and thin panels (backs + bottoms) pool by
     # (material, thickness): box stock is configurable (drawer_box_thickness,
@@ -3008,21 +3108,24 @@ def _cutlist_pipeline(
         parts_by_mt.setdefault((p.material, p.thickness), []).append(p)
     parts_mts = sorted(parts_by_mt, key=lambda mt: (mt[0], -mt[1]))
 
-    opt_carcass_by_t = {t: _opt_group(carcass_by_t[t], t) for t in carcass_ts}
+    opt_carcass_by_mt = {mt: _opt_group(carcass_by_mt[mt], mt[1])
+                         for mt in carcass_mts}
     opt_parts_by_mt = {mt: _opt_group(parts_by_mt[mt], mt[1]) for mt in parts_mts}
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
-    for t in carcass_ts:
-        opt_info, _ = opt_carcass_by_t[t]
+    for mt in carcass_mts:
+        mat, t = mt
+        opt_info, _ = opt_carcass_by_mt[mt]
         sheets = opt_info.get("sheets_used", 0)
-        unit_p = price_for(f"sheet_baltic_birch_{int(round(t))}mm")
+        unit_p = price_for(f"sheet_{mat}_{int(round(t))}mm")
         frac   = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
-        label  = (f"Baltic Birch {frac} ({t:.0f} mm)" if frac
-                  else f"Baltic Birch {t:.0f} mm")
+        mat_label = _SHEET_MATERIAL_LABELS.get(mat, mat.replace("_", " ").title())
+        label  = (f"{mat_label} {frac} ({t:.0f} mm)" if frac
+                  else f"{mat_label} {t:.0f} mm")
         entry  = {"material": label,
                   "thickness_mm": t,
-                  "panel_count": sum(p.quantity for p in carcass_by_t[t]),
+                  "panel_count": sum(p.quantity for p in carcass_by_mt[mt]),
                   "price_per_sheet_usd": unit_p,
                   "line_total_usd": round(sheets * unit_p, 2)}
         if not unit_p:
@@ -3071,7 +3174,9 @@ def _cutlist_pipeline(
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path  = out_dir / f"{name}_cutlist.csv"
     json_path = out_dir / f"{name}_cutlist.json"
-    carcass_sheets = [_make_sheet(t) for t in carcass_ts] or [_make_sheet(18.0)]
+    carcass_thicknesses = sorted({t for _, t in carcass_mts}, reverse=True)
+    carcass_sheets = ([_make_sheet(t) for t in carcass_thicknesses]
+                      or [_make_sheet(18.0)])
     csv_path.write_text(to_csv(all_panels))
     json_path.write_text(to_json(all_panels, carcass_sheets))
 
@@ -3083,14 +3188,18 @@ def _cutlist_pipeline(
         files["hardware_bom_json"] = str(hw_json_path)
 
     layout_groups = []
-    for t in carcass_ts:
-        _, opt_res = opt_carcass_by_t[t]
+    for mt in carcass_mts:
+        mat, t = mt
+        _, opt_res = opt_carcass_by_mt[mt]
         if opt_res:
             frac = _IMPERIAL_SHEET_LABELS.get(int(round(t)))
             suffix = f" ({frac})" if frac else ""
+            mat_label = ("" if mat == "baltic_birch" else
+                         _SHEET_MATERIAL_LABELS.get(
+                             mat, mat.replace("_", " ").title()) + " ")
             layout_groups.append((
-                f'{t:.0f}mm Carcass{suffix} — {opt_res.sheets_used} sheets',
-                carcass_by_t[t], opt_res,
+                f'{t:.0f}mm {mat_label}Carcass{suffix} — {opt_res.sheets_used} sheets',
+                carcass_by_mt[mt], opt_res,
             ))
     for mt in parts_mts:
         mat, t = mt
@@ -3167,7 +3276,7 @@ def _cutlist_pipeline(
 
     # Aggregate carcass optimisation stats (single group for a uniform-
     # thickness cabinet — identical to the historical single-group values).
-    carcass_summaries = [s for s, _ in opt_carcass_by_t.values() if s]
+    carcass_summaries = [s for s, _ in opt_carcass_by_mt.values() if s]
     if carcass_summaries:
         result["sheets_used"] = sum(s["sheets_used"] for s in carcass_summaries)
         # Sheet-weighted average — a single group's waste_pct misrepresents
