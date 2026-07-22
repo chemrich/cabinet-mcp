@@ -275,9 +275,12 @@ def _worktop_schema() -> dict:
             "y_offset_mm":       {"type": "number", "default": 0,
                                   "description": "Front-edge shift from the cabinet fronts; negative pushes the slab proud (e.g. -18 lands on the drawer-face plane)."},
             "leg_count":         {"type": "integer", "default": 0,
-                                  "description": "Support legs rendered floor-to-slab: 4 = corners, 2 = front corners only (rear on cleats), 0 = none."},
+                                  "description": "Support legs rendered floor-to-slab: 4 = corners, 2 = front corners only (rear on cleats), 0 = none. leg_placement left_end/right_end always renders 2."},
             "leg_diameter_mm":   {"type": "number", "default": 50},
             "leg_inset_mm":      {"type": "number", "default": 60},
+            "leg_placement":     {"type": "string", "default": "corners",
+                                  "enum": ["corners", "left_end", "right_end"],
+                                  "description": "Where the legs go. corners = leg_count spread over the corners; left_end/right_end = 2 legs (front + rear) at that end of the slab — single-pedestal desks whose other end sits on a cabinet."},
             "material":          {"type": "string", "default": "finished_wood"},
         },
         "required": ["width_mm", "depth_mm"],
@@ -4106,8 +4109,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                 material=wt.material,
                 notes=(
                     f"desk/counter slab, top at {wt.surface_height_mm:g} mm"
-                    + (f"; {wt.leg_count} support legs (buy-out, "
-                       f"~{wt.leg_height_mm:g} mm)" if wt.leg_count else "")
+                    + (f"; {len(wt.leg_points())} support legs (buy-out, "
+                       f"~{wt.leg_height_mm:g} mm)" if wt.leg_points() else "")
                 ),
             )
             if batch_names:
@@ -4212,7 +4215,8 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
             material_thickness=worktop.thickness_mm,
             grain_direction="length",
         ))
-        if worktop.leg_count > 0:
+        leg_pts = worktop.leg_points()
+        if leg_pts:
             leg_shape = (
                 cq.Workplane("XY")
                 .cylinder(
@@ -4220,26 +4224,12 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
                     centered=(True, True, False),
                 )
             )
-            leg_xs = [
-                worktop.x_offset_mm + worktop.leg_inset_mm,
-                worktop.x_offset_mm + worktop.width_mm - worktop.leg_inset_mm,
-            ]
-            # Front edge is the low-y side; 2 legs = front corners only
-            # (rear edge carried by cleats into the flanking cabinets).
-            leg_ys = [worktop.y_offset_mm + worktop.leg_inset_mm]
-            if worktop.leg_count >= 4:
-                leg_ys.append(
-                    worktop.y_offset_mm + worktop.depth_mm - worktop.leg_inset_mm
+            for li, (lx, ly) in enumerate(leg_pts):
+                run_assy.add(
+                    leg_shape, name=f"worktop_leg{li}",
+                    loc=cq.Location(cq.Vector(lx, ly, floor_z)),
+                    color=cq.Color(0.25, 0.25, 0.28, 1.0),
                 )
-            li = 0
-            for ly in leg_ys:
-                for lx in leg_xs:
-                    run_assy.add(
-                        leg_shape, name=f"worktop_leg{li}",
-                        loc=cq.Location(cq.Vector(lx, ly, floor_z)),
-                        color=cq.Color(0.25, 0.25, 0.28, 1.0),
-                    )
-                    li += 1
 
     info = {
         "cabinets":     len(project.cabinets),

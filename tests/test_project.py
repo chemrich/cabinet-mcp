@@ -948,3 +948,33 @@ class TestWorktop:
         data = json.loads(out[0].text)
         assert data["worktop"]["surface_height_mm"] == pytest.approx(660.4)
         assert load_project("desk_echo").worktop.leg_count == 4
+
+    def test_leg_placement_round_trip_and_points(self):
+        from cadquery_furniture.project import worktop_from_dict
+        spec = worktop_from_dict({
+            "width_mm": 1219.2, "depth_mm": 457.2, "surface_height_mm": 508,
+            "leg_count": 2, "leg_placement": "right_end", "leg_inset_mm": 60,
+        })
+        # right_end → 2 legs at the right edge, front + rear
+        pts = spec.leg_points()
+        assert pts == [(1219.2 - 60, 60), (1219.2 - 60, 457.2 - 60)]
+        loaded = project_from_dict(project_to_dict(build_project({
+            "name": "p", "cabinets": [
+                {"name": "a", "config": {"width": 381, "height": 389, "depth": 457,
+                                         "drawer_config": [[200, "drawer"]]}}],
+            "worktop": {"width_mm": 1219.2, "depth_mm": 457.2,
+                        "leg_count": 2, "leg_placement": "right_end"},
+        })))
+        assert loaded.worktop.leg_placement == "right_end"
+
+    def test_leg_placement_corners_preserves_old_semantics(self):
+        from cadquery_furniture.project import worktop_from_dict
+        base = {"width_mm": 1000, "depth_mm": 500, "leg_inset_mm": 50}
+        four = worktop_from_dict({**base, "leg_count": 4})
+        two = worktop_from_dict({**base, "leg_count": 2})
+        none = worktop_from_dict(base)
+        assert len(four.leg_points()) == 4
+        assert two.leg_points() == [(50, 50), (950, 50)]   # front corners
+        assert none.leg_points() == []
+        with pytest.raises(ValueError, match="leg_placement"):
+            worktop_from_dict({**base, "leg_placement": "rear"})
