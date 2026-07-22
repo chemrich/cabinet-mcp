@@ -1025,7 +1025,10 @@ class TestFaceMaterialAndDoors:
                           and p["thickness_mm"] == 18)
         assert g18["panel_count"] >= face_qty + carcass_qty
 
-    def test_named_species_gets_labeled_group(self, tmp_path, monkeypatch):
+    def test_ply_species_packs_as_unpriced_sheet_group(self, tmp_path, monkeypatch):
+        # A '_ply' face material is sheet stock: it must be PACKED (own
+        # material+thickness group, sheet count, layout) with the
+        # price_missing flag — not left as an order-out note line.
         from cadquery_furniture import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
@@ -1034,11 +1037,24 @@ class TestFaceMaterialAndDoors:
         payload["shared"]["face_material"] = "rift_white_oak_ply"
         out = _run(_tool_generate_project_cutlist({"project": payload}))
         data = json.loads(out[0].text)
+        assert not [g for g in data["sheet_goods"] if "note" in g]
+        oak = next(g for g in data["sheet_goods"]
+                   if "Rift White Oak Ply" in g["material"])
+        assert oak["price_missing"] is True
+        assert oak["sheets_used"] >= 1
+        assert oak["panel_count"] == 3 + 6  # 3 fronts + 6 door leaves
+
+    def test_solid_species_stays_order_out(self, tmp_path, monkeypatch):
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = _sample_payload(name="walnut_faces")
+        payload["shared"]["face_material"] = "walnut_solid"
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
         labels = [g["material"] for g in data["sheet_goods"] if "note" in g]
-        assert labels == ["Show faces — rift white oak ply (price TBD)"]
-        fronts = [p for p in data["panels_summary"] if p["name"] == "false_front"]
-        assert all("rift white oak ply" in p.get("notes", "")
-                   or p["material"] == "rift_white_oak_ply" for p in fronts)
+        assert labels == ["Show faces — walnut solid (price TBD)"]
 
     def test_face_material_round_trips(self):
         payload = _sample_payload(name="rt_faces")
@@ -1069,3 +1085,37 @@ class TestFaceMaterialAndDoors:
         assert not [g for g in data["sheet_goods"] if "note" in g]
         wt = next(p for p in data["panels_summary"] if p["name"] == "worktop")
         assert wt["material"] == "baltic_birch"
+
+    def test_carcass_material_oak_run(self, tmp_path, monkeypatch):
+        # carcass_material applies to sides/top/bottom/shelves/dividers;
+        # backs and drawer boxes keep Baltic birch.
+        from cadquery_furniture import project as pmod
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        payload = _sample_payload(name="oak_carcass")
+        payload["shared"]["face_material"] = "rift_white_oak_ply"
+        payload["shared"]["carcass_material"] = "rift_white_oak_ply"
+        out = _run(_tool_generate_project_cutlist({"project": payload}))
+        data = json.loads(out[0].text)
+
+        by_name = {}
+        for p in data["panels_summary"]:
+            by_name.setdefault(p["name"], set()).add(p["material"])
+        for carcass_part in ("side", "top", "bottom"):
+            assert by_name[carcass_part] == {"rift_white_oak_ply"}
+        assert by_name["back"] == {"baltic_birch"}
+        assert by_name["drawer_box_side"] == {"baltic_birch"}
+        # One packed oak group carries carcass + faces + doors at 18 mm.
+        oak = next(g for g in data["sheet_goods"]
+                   if "Rift White Oak Ply" in g["material"])
+        assert oak["price_missing"] is True
+        assert oak["thickness_mm"] == 18
+        # No 18 mm Baltic birch group remains (only 15/6 mm parts pools).
+        bb18 = [g for g in data["sheet_goods"]
+                if g["material"].startswith("Baltic Birch 3/4")]
+        assert not bb18
+        # Token round-trips.
+        proj = build_project(payload)
+        loaded = project_from_dict(project_to_dict(proj))
+        assert loaded.resolved()[0][1].carcass_material == "rift_white_oak_ply"
