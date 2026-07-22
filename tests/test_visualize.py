@@ -369,3 +369,32 @@ class TestVisualizeProject:
             assert f'"worktop_leg{i}"'.encode() in glb
         # furniture_top adds the top front cap strip per cabinet.
         assert glb.count(b'top_front_cap') >= 2
+
+    def test_shared_junction_feet(self, tmp_path):
+        pytest.importorskip("cadquery")
+        import asyncio
+        from cadquery_furniture.server import _tool_visualize_project
+
+        payload = {
+            "name": "viz_shared_feet",
+            "cabinets": [
+                {"name": "a", "config": {"width": 400, "height": 500, "depth": 330,
+                                         "fixed_shelf_positions": [240]}},
+                {"name": "b", "config": {"width": 500, "height": 900, "depth": 330,
+                                         "fixed_shelf_positions": [240]}},
+            ],
+        }
+        def render(shared):
+            out = asyncio.get_event_loop().run_until_complete(
+                _tool_visualize_project({
+                    "project": payload, "shared_junction_feet": shared,
+                    "open_browser": False, "output_dir": str(tmp_path),
+                }))
+            return Path(json.loads(out[0].text)["glb"]).read_bytes()
+
+        # Each foot contributes 3 name occurrences in the GLB JSON
+        # (node + mesh + object entries).
+        # Default: each cabinet carries 4 feet -> 8 total.
+        assert render(False).count(b'"foot_') == 8 * 3
+        # Shared: 2 ends + 1 junction = 3 stations x 2 = 6 feet.
+        assert render(True).count(b'"foot_') == 6 * 3
