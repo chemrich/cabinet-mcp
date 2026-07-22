@@ -2025,6 +2025,18 @@ async def list_tools() -> list[types.Tool]:
                         ),
                     },
                     "manga": _manga_schema(),
+                    "shared_junction_feet": {
+                        "type": "boolean", "default": False,
+                        "description": (
+                            "Butted runs (gap_mm=0, 2+ cabinets) only: render "
+                            "ONE pair of feet centered on each cabinet "
+                            "junction instead of each cabinet carrying its "
+                            "own inner pair; outer corners keep theirs. Foot "
+                            "count becomes 2×(cabinet_count+1). Reflect the "
+                            "reduced count in the hardware BOM by setting "
+                            "per-cabinet leg_count (e.g. 4/2/2 for a trio)."
+                        ),
+                    },
                     "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
                     "open_browser": {"type": "boolean", "default": True},
                     "tolerance":    {"type": "number", "default": 0.1},
@@ -3187,6 +3199,7 @@ def _cabinet_assembly(
     furniture_top: bool = False,
     divider_full_height: bool = True,
     include_manga: bool = False,
+    include_feet: bool = True,
 ):
     """Build the CadQuery assembly for one cabinet config (column-aware).
 
@@ -3274,6 +3287,7 @@ def _cabinet_assembly(
         transition_shelf_zs=transition_shelf_zs or None,
         divider_top_z=divider_top_z,
         include_manga=include_manga,
+        include_feet=include_feet,
     )
     return assy, parts, info
 
@@ -4183,9 +4197,17 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     gap_mm       = float(args.get("gap_mm", 0.0))
     furniture_top = bool(args.get("furniture_top", False))
     include_manga = bool(args.get("manga", False))
+    shared_feet  = bool(args.get("shared_junction_feet", False))
     finish       = args.get("finish")
     drawer_box_finish = args.get("drawer_box_finish")
     grain_direction   = str(args.get("grain_direction", "vertical"))
+
+    # A butted run (gap 0) can share one pair of feet per cabinet junction
+    # instead of each cabinet carrying its own inner pair. Cabinet feet are
+    # then suppressed and run-level feet added below.
+    use_shared_feet = (
+        shared_feet and gap_mm == 0 and len(project.cabinets) > 1
+    )
 
     run_assy = cq.Assembly(name=project.name)
     all_parts: list = []
@@ -4197,6 +4219,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
             assy, parts, _info = _cabinet_assembly(
                 cfg, columns_raw, furniture_top=furniture_top,
                 include_manga=include_manga,
+                include_feet=not use_shared_feet,
             )
         except ValueError as e:
             raise ValueError(f"cabinet '{cname}': {e}") from None
@@ -4210,6 +4233,38 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
         x_off += cfg.width + gap_mm
 
     run_width = x_off - gap_mm if project.cabinets else 0.0
+
+    if use_shared_feet:
+        resolved = project.resolved()
+        cfg0 = resolved[0][1]
+        try:
+            leg_spec = get_leg(cfg0.leg_key)
+            foot_h, foot_d = leg_spec.height_mm, leg_spec.base_diameter_mm
+        except KeyError:
+            foot_h, foot_d = 102.0, 50.0
+        inset = cfg0.leg_inset
+        # (x, depth) stations: outer ends keep their own inset pair; each
+        # junction gets ONE pair centered on the seam. Feet run front-to-back
+        # at the shallower neighbour's depth so they never poke out the back.
+        stations: list[tuple[float, float]] = [(inset, resolved[0][1].depth)]
+        acc = 0.0
+        for (_, left_cfg), (_, right_cfg) in zip(resolved, resolved[1:]):
+            acc += left_cfg.width
+            stations.append((acc, min(left_cfg.depth, right_cfg.depth)))
+        stations.append((run_width - inset, resolved[-1][1].depth))
+        foot_shape = (
+            cq.Workplane("XY")
+            .cylinder(foot_h, foot_d / 2, centered=(True, True, False))
+        )
+        fi = 0
+        for fx, depth in stations:
+            for fy in (inset, depth - inset):
+                run_assy.add(
+                    foot_shape, name=f"foot_{fi}",
+                    loc=cq.Location(cq.Vector(fx, fy, -foot_h)),
+                    color=cq.Color(0.25, 0.25, 0.28, 1.0),
+                )
+                fi += 1
 
     worktop = project.worktop
     if worktop is not None:
