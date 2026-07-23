@@ -448,9 +448,10 @@ class TestCabinetConfigDoorSlots:
     """Verify CabinetConfig accepts door/door_pair slot types and door_hinge."""
 
     def test_door_hinge_default(self):
+        # Soft-close is the shop standard (Charlie, 2026-07-22).
         from cadquery_furniture.cabinet import CabinetConfig
         cfg = CabinetConfig()
-        assert cfg.door_hinge == "blum_clip_top_110_full"
+        assert cfg.door_hinge == "blum_clip_top_blumotion_110_full"
 
     def test_door_slot_accepted(self):
         from cadquery_furniture.cabinet import CabinetConfig
