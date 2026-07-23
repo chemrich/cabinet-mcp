@@ -552,3 +552,72 @@ class TestDrawerFaceOverDoor:
         # face_gap/2 reveal above the door top rather than overlapping it.
         assert face_bot > cfg.bottom_thickness + 1
         assert face_bot >= door_top
+
+
+# ─── Door overlay vs divider budget (dining-sideboards regression) ────────────
+
+class TestDoorOverlayCollisions:
+    """Full-overlay doors next to drawer columns collide on the shared
+    divider: overlay 16 + neighbour face claim 8 > 18. Caught 2026-07-22 on
+    the dining-sideboards; also latent in two shipped presets."""
+
+    @staticmethod
+    def _cfg(hinge):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        return build_cabinet_config({
+            "width": 1219, "height": 663.6, "depth": 457, "door_hinge": hinge,
+            "columns": [
+                {"width_mm": 304.8, "drawer_config": [[284.7, "drawer"],
+                                                       [342.9, "drawer"]]},
+                {"width_mm": 385, "drawer_config": [[627.6, "door"]]},
+                {"width_mm": 457.2, "drawer_config": [[284.7, "drawer"],
+                                                       [342.9, "drawer"]]},
+            ]})
+
+    def test_full_overlay_next_to_drawers_errors(self):
+        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        issues = check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_full"))
+        assert [i for i in issues if i.severity == Severity.ERROR
+                and i.check == "door_overlay_collision"]
+        worst = issues[0]
+        assert worst.value == pytest.approx(24.0)   # 16 + 8
+        assert worst.limit == pytest.approx(18.0)
+
+    def test_half_overlay_warns_tight_reveal(self):
+        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        issues = check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_half"))
+        assert issues and all(i.severity == Severity.WARNING for i in issues)
+        assert issues[0].value == pytest.approx(17.5)  # 9.5 + 8 -> 0.5 reveal
+
+    def test_inset_hinge_clean(self):
+        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        assert check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_inset")) == []
+
+    def test_single_column_full_overlay_clean(self):
+        # Doors hinging on the cabinet's own sides: 16 <= 18 with 2 mm reveal.
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        cfg = build_cabinet_config({
+            "width": 610, "height": 690, "depth": 600,
+            "openings": [[103, "drawer"], [551, "door_pair"]],
+            "door_hinge": "blum_clip_top_blumotion_110_full"})
+        assert check_door_overlay_collisions(cfg) == []
+
+    def test_door_next_to_open_column_clean(self):
+        # An open-shelf neighbour claims none of the divider.
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        cfg = build_cabinet_config({
+            "width": 900, "height": 700, "depth": 400,
+            "door_hinge": "blum_clip_top_blumotion_110_full",
+            "columns": [
+                {"width_mm": 400, "drawer_config": [[664, "door"]]},
+                {"width_mm": 428, "drawer_config": [[664, "open"]]},
+            ]})
+        assert check_door_overlay_collisions(cfg) == []
+
+    def test_runs_in_evaluate_cabinet(self):
+        from cadquery_furniture.evaluation import evaluate_cabinet
+        issues = evaluate_cabinet(self._cfg("blum_clip_top_blumotion_110_full"))
+        assert any(i.check == "door_overlay_collision"
+                   and i.severity == Severity.ERROR for i in issues)
