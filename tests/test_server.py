@@ -218,7 +218,7 @@ class TestDesignCabinet:
 
     def test_door_hinge_default(self):
         data = self._base()
-        assert data["door_hinge"] == "blum_clip_top_110_full"
+        assert data["door_hinge"] == "blum_clip_top_blumotion_110_full"
 
     def test_custom_door_hinge(self):
         data = self._base(door_hinge="blum_clip_top_blumotion_110_full")

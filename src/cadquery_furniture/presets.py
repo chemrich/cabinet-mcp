@@ -155,7 +155,7 @@ _p(CabinetPreset(
             (192, "drawer"),   # top utensil
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -182,7 +182,7 @@ _p(CabinetPreset(
             (125, "drawer"),  # drawer
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -273,7 +273,7 @@ _p(CabinetPreset(
             (144, "drawer"),
         ],
         drawer_slide="blum_movento_769",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.POCKET_SCREW,
         drawer_box_prefinished=True,
     ),
@@ -299,7 +299,7 @@ _p(CabinetPreset(
         ],
         adj_shelf_holes=True,
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.POCKET_SCREW,
         drawer_box_prefinished=True,  # no drawers today, but shop default
     ),
@@ -334,7 +334,7 @@ _p(CabinetPreset(
             (177, "drawer"),  # top narrow
         ],
         drawer_slide="blum_tandem_plus_563h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -425,7 +425,7 @@ _p(CabinetPreset(
             (100, "drawer"),  # drawer
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -451,7 +451,7 @@ _p(CabinetPreset(
             (114, "drawer"),  # single slim drawer at top
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -653,7 +653,7 @@ _p(CabinetPreset(
             ),
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.FLOATING_TENON,
         drawer_pull="topknobs-hb-96",
         door_pull="topknobs-hb-96",
@@ -721,7 +721,7 @@ _p(CabinetPreset(
             (146, "drawer"),
         ],
         drawer_slide="blum_tandem_plus_563h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -800,7 +800,7 @@ _p(CabinetPreset(
             ),
         ],
         drawer_slide="blum_tandem_plus_563h",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.FLOATING_TENON,
     ),
 ))
@@ -901,7 +901,7 @@ _p(CabinetPreset(
             (316, "drawer"),
         ],
         drawer_slide="blum_movento_769",
-        door_hinge="blum_clip_top_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.POCKET_SCREW,
     ),
 ))

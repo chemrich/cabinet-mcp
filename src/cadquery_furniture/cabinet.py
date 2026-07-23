@@ -178,7 +178,7 @@ class CabinetConfig:
     drawer_slide: str = "blum_tandem_550h"
 
     # Door hardware
-    door_hinge: str = "blum_clip_top_110_full"
+    door_hinge: str = "blum_clip_top_blumotion_110_full"
 
     # Pull hardware (optional defaults).  These keys propagate down to drawers
     # and doors generated from this cabinet via ``drawers_from_cabinet_config``

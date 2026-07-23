@@ -70,7 +70,7 @@ class DoorConfig:
     num_doors: int = 1
 
     # Hardware
-    hinge_key: str = "blum_clip_top_110_full"
+    hinge_key: str = "blum_clip_top_blumotion_110_full"
 
     # Materials
     door_thickness: float = 18.0
@@ -349,7 +349,7 @@ def doors_from_cabinet_config(
                 opening_height=opening_height,
                 num_doors=num_doors,
                 hinge_key=op.hinge_key
-                or getattr(cab_cfg, "door_hinge", "blum_clip_top_110_full"),
+                or getattr(cab_cfg, "door_hinge", "blum_clip_top_blumotion_110_full"),
                 pull_key=op.pull_key or getattr(cab_cfg, "door_pull", None),
                 hinge_side=op.hinge_side
                 or getattr(cab_cfg, "door_hinge_side", "left"),

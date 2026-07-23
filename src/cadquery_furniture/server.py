@@ -459,8 +459,8 @@ async def list_tools() -> list[types.Tool]:
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "door_hinge": {
                         "type": "string",
-                        "description": "Hinge key from list_hardware. Default: blum_clip_top_110_full.",
-                        "default": "blum_clip_top_110_full",
+                        "description": "Hinge key from list_hardware. Default: blum_clip_top_blumotion_110_full.",
+                        "default": "blum_clip_top_blumotion_110_full",
                     },
                     "num_drawers": {
                         "type": "integer",
@@ -622,7 +622,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "door_hinge": {
                         "type": "string",
-                        "default": "blum_clip_top_110_full",
+                        "default": "blum_clip_top_blumotion_110_full",
                     },
                     "num_columns": {
                         "type": "integer",
@@ -741,7 +741,7 @@ async def list_tools() -> list[types.Tool]:
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
                         "default": "floating_tenon",
                     },
-                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "door_hinge": {"type": "string", "default": "blum_clip_top_blumotion_110_full"},
                     "door_configs": {
                         "type": "array",
                         "description": "Optional list of DoorConfig parameter dicts to evaluate.",
@@ -782,7 +782,7 @@ async def list_tools() -> list[types.Tool]:
                     "hinge_key": {
                         "type": "string",
                         "description": "Hinge key from list_hardware.",
-                        "default": "blum_clip_top_110_full",
+                        "default": "blum_clip_top_blumotion_110_full",
                     },
                     "door_thickness": {"type": "number", "default": 18.0},
                     "door_weight_kg": {"type": "number", "default": 0.0},
@@ -1420,7 +1420,7 @@ async def list_tools() -> list[types.Tool]:
                         "default": "half_lap",
                         "description": "Drawer box corner joint style.",
                     },
-                    "door_hinge": {"type": "string", "default": "blum_clip_top_110_full"},
+                    "door_hinge": {"type": "string", "default": "blum_clip_top_blumotion_110_full"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
                 },
@@ -1512,7 +1512,7 @@ async def list_tools() -> list[types.Tool]:
                         "default": "half_lap",
                         "description": "Drawer box corner joint style.",
                     },
-                    "door_hinge":    {"type": "string", "default": "blum_clip_top_110_full"},
+                    "door_hinge":    {"type": "string", "default": "blum_clip_top_blumotion_110_full"},
                     "drawer_slide":  {"type": "string", "default": "blum_tandem_550h"},
                     "adj_shelf_holes": {"type": "boolean", "default": False},
                     "drawer_pull": {
@@ -1709,7 +1709,7 @@ async def list_tools() -> list[types.Tool]:
                         },
                     },
                     "drawer_slide": {"type": "string", "default": "blum_tandem_550h"},
-                    "door_hinge":   {"type": "string", "default": "blum_clip_top_110_full"},
+                    "door_hinge":   {"type": "string", "default": "blum_clip_top_blumotion_110_full"},
                     "drawer_pull": {
                         "type": "string",
                         "description": "Pull catalog key applied to every drawer slot.",
@@ -2698,7 +2698,7 @@ async def _tool_design_door(args: dict) -> list[types.TextContent]:
         "total_hinges":       cfg.total_hinge_count,
         "hinge_positions_z_mm": cfg.hinge_positions_z,
         "hinge": {
-            "key":             args.get("hinge_key", "blum_clip_top_110_full"),
+            "key":             args.get("hinge_key", "blum_clip_top_blumotion_110_full"),
             "name":            hinge.name,
             "cup_diameter_mm": hinge.cup_diameter,
             "cup_boring_distance_mm": hinge.cup_boring_distance,
