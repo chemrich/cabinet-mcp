@@ -8417,8 +8417,14 @@ SCENARIOS.append(Scenario(
             assertions=[
                 Assertion("hardware_bom.0.name", Op.EQ, "Blum Movento 769"),
                 Assertion("hardware_bom.0.pieces_needed", Op.EQ, 2),
-                Assertion("hardware_bom.1.name", Op.EQ, "Blum Tandem 550H"),
-                Assertion("hardware_bom.1.pieces_needed", Op.EQ, 4),
+                # Each Blum slide line is followed by its front locking
+                # devices (one left + one right clip per drawer).
+                Assertion("hardware_bom.1.model_number", Op.EQ, "T51.7601 LI"),
+                Assertion("hardware_bom.1.pieces_needed", Op.EQ, 1),
+                Assertion("hardware_bom.3.name", Op.EQ, "Blum Tandem 550H"),
+                Assertion("hardware_bom.3.pieces_needed", Op.EQ, 4),
+                Assertion("hardware_bom.4.model_number", Op.EQ, "T51.1901 L"),
+                Assertion("hardware_bom.4.pieces_needed", Op.EQ, 2),
             ],
         ),
         ToolCall(

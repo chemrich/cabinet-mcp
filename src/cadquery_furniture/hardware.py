@@ -1238,6 +1238,14 @@ PRICE_LIST: dict[str, float] = {
     # Show-wood plywood
     "sheet_rift_white_oak_ply_18mm": 209.00,  # 3/4" A1 rift-sawn white oak (Charlie's supplier, Jul 2026)
 
+    # ── Blum front locking devices — per piece (Charlie's supplier, Jul 2026) ──
+    # One left + one right per slide pair; Tandem family shares T51.1901,
+    # Movento uses T51.7601.
+    "blum_t51_1901_l":  2.25,
+    "blum_t51_1901_r":  2.25,
+    "blum_t51_7601_li": 2.50,
+    "blum_t51_7601_re": 2.50,
+
     # ── Drawer slides — per pair ──────────────────────────────────────────────
     # Length-suffixed keys (model-length-NNNmm) reflect actual distributor
     # pricing (Woodworker Express, slides.html, May 2026). price_for() falls

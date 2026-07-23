@@ -361,3 +361,61 @@ class TestOutputFormats:
         captured = capsys.readouterr()
         assert "topknobs-hb-128" in captured.out
         assert "2 lines" in captured.out
+
+
+# ─── Blum front locking devices ───────────────────────────────────────────────
+
+class TestSlideLockingDevices:
+    """Every Blum slide pair needs its left + right front locking device
+    (T51.1901 L/R for the Tandem family, T51.7601 LI/RE for Movento) —
+    requested by Charlie 2026-07-23 after they were missing from every BOM."""
+
+    @staticmethod
+    def _lines(**cfg_extra):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        cfg = build_cabinet_config({
+            "width": 600, "height": 720, "depth": 550,
+            "drawer_config": [[300, "drawer"], [384, "drawer"]],
+            **cfg_extra})
+        return slide_lines_for_cabinet_config(cfg)
+
+    def test_tandem_family_gets_t51_1901_pair(self):
+        lines = {l.sku: l for l in self._lines(drawer_slide="blum_tandem_plus_563h")}
+        assert lines["blum_t51_1901_l"].pieces_needed == 2   # one per drawer
+        assert lines["blum_t51_1901_r"].pieces_needed == 2
+        assert lines["blum_t51_1901_l"].category == "slide_accessory"
+
+    def test_tandem_550h_shares_same_clips(self):
+        lines = {l.sku for l in self._lines(drawer_slide="blum_tandem_550h")}
+        assert "blum_t51_1901_l" in lines and "blum_t51_1901_r" in lines
+
+    def test_movento_gets_t51_7601_pair(self):
+        lines = {l.sku: l for l in self._lines(drawer_slide="blum_movento_769")}
+        assert lines["blum_t51_7601_li"].pieces_needed == 2
+        assert lines["blum_t51_7601_re"].pieces_needed == 2
+
+    def test_non_blum_slides_get_no_clips(self):
+        lines = self._lines(drawer_slide="accuride_3832")
+        assert not [l for l in lines if l.category == "slide_accessory"]
+
+    def test_mixed_slides_split_by_family(self):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        cfg = build_cabinet_config({
+            "width": 600, "height": 720, "depth": 550,
+            "drawer_slide": "blum_tandem_plus_563h",
+            "drawer_config": [[300, "drawer"],
+                               [384, "drawer", {"slide_key": "blum_movento_769"}]]})
+        by_sku = {l.sku: l.pieces_needed
+                  for l in slide_lines_for_cabinet_config(cfg)
+                  if l.category == "slide_accessory"}
+        assert by_sku == {"blum_t51_1901_l": 1, "blum_t51_1901_r": 1,
+                          "blum_t51_7601_li": 1, "blum_t51_7601_re": 1}
+
+    def test_clips_are_priced(self):
+        from cadquery_furniture.hardware import price_for
+        assert price_for("blum_t51_1901_l") == 2.25
+        assert price_for("blum_t51_1901_r") == 2.25
+        assert price_for("blum_t51_7601_li") == 2.50
+        assert price_for("blum_t51_7601_re") == 2.50
