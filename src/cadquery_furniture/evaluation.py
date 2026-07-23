@@ -814,6 +814,109 @@ def check_door_dimensions(door_cfg: DoorConfig) -> list[Issue]:
     return issues
 
 
+#: Minimum face-to-face reveal on a shared divider or cabinet side (mm).
+MIN_FACE_REVEAL_MM = 2.0
+
+
+def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Doors must physically fit their overlay onto the panel they hinge over.
+
+    A door overlays BOTH its side edges by the hinge spec's overlay amount.
+    On an interior column divider, the neighbouring column's faces also claim
+    ``INNER_FACE_OVERLAY_MM`` of the same panel — a full-overlay hinge
+    (16 mm) next to a drawer column therefore needs 16 + 8 = 24 mm of an
+    18 mm divider and the fronts collide (the dining-sideboards bug,
+    2026-07-22).  Errors when the combined claim exceeds the panel; warns
+    when the remaining reveal is under MIN_FACE_REVEAL_MM (fixable with the
+    hinge's ±2 mm side adjustment).
+
+    One issue per door opening, reporting its worst edge.
+    """
+    from .cabinet import INNER_FACE_OVERLAY_MM
+
+    issues: list[Issue] = []
+    if cab_cfg.columns:
+        cols = list(cab_cfg.columns)
+    elif cab_cfg.openings:
+        cols = [None]  # single column: both door edges land on cabinet sides
+    else:
+        return []
+
+    def _has_faces(col) -> bool:
+        return any(op.opening_type in ("drawer", "door", "door_pair")
+                   for op in col.openings)
+
+    for i, col in enumerate(cols):
+        openings = col.openings if col is not None else cab_cfg.openings
+        for op in openings:
+            if op.opening_type not in ("door", "door_pair"):
+                continue
+            hinge_key = op.hinge_key or cab_cfg.door_hinge
+            try:
+                overlay = get_hinge(hinge_key).overlay
+            except KeyError:
+                continue  # unknown key is reported by the hinge checks
+
+            worst = None  # (required, claim, edge_desc)
+            for neighbor in (
+                cols[i - 1] if (col is not None and i > 0) else None,
+                cols[i + 1] if (col is not None and i + 1 < len(cols)) else None,
+                "side",  # at least one edge is a side for single/end columns
+            ):
+                if neighbor == "side":
+                    if col is not None and 0 < i < len(cols) - 1:
+                        continue  # fully interior column: no side edge
+                    claim, edge_desc = 0.0, "cabinet side"
+                elif neighbor is None:
+                    continue
+                else:
+                    claim = (INNER_FACE_OVERLAY_MM if _has_faces(neighbor)
+                             else 0.0)
+                    edge_desc = "interior divider"
+                required = overlay + claim
+                if worst is None or required > worst[0]:
+                    worst = (required, claim, edge_desc)
+
+            if worst is None:
+                continue
+            required, claim, edge_desc = worst
+            budget = cab_cfg.side_thickness
+            reveal = budget - required
+            where = f"column {i + 1}" if col is not None else "door"
+            if required > budget:
+                issues.append(Issue(
+                    severity=Severity.ERROR,
+                    check="door_overlay_collision",
+                    message=(
+                        f"{where}: door overlay {overlay:g} mm ({hinge_key}) "
+                        f"plus the neighbouring faces' {claim:g} mm claim "
+                        f"needs {required:g} mm of the {budget:g} mm "
+                        f"{edge_desc} — the door will collide with the "
+                        f"adjacent fronts. Use a half-overlay or inset hinge."
+                    ),
+                    part_a=f"{where}_door",
+                    part_b=edge_desc,
+                    value=required,
+                    limit=budget,
+                ))
+            elif reveal < MIN_FACE_REVEAL_MM:
+                issues.append(Issue(
+                    severity=Severity.WARNING,
+                    check="door_overlay_collision",
+                    message=(
+                        f"{where}: door overlay {overlay:g} mm ({hinge_key}) "
+                        f"leaves only {reveal:g} mm reveal on the {budget:g} mm "
+                        f"{edge_desc} — use the hinge's side adjustment "
+                        f"(±2 mm) to open the reveal."
+                    ),
+                    part_a=f"{where}_door",
+                    part_b=edge_desc,
+                    value=required,
+                    limit=budget - MIN_FACE_REVEAL_MM,
+                ))
+    return issues
+
+
 def check_door_pair_width(door_cfg: DoorConfig) -> list[Issue]:
     """For door pairs, verify each leaf is not excessively wide.
 
@@ -1716,6 +1819,7 @@ def evaluate_cabinet(
     all_issues.extend(check_cumulative_heights(cab_cfg))
     all_issues.extend(check_back_panel_fit(cab_cfg))
     all_issues.extend(check_dado_alignment(cab_cfg))
+    all_issues.extend(check_door_overlay_collisions(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     if cab_cfg.columns:
         # Run carcass clearance checks per-column using correct per-column width.

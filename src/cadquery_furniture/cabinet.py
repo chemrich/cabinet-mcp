@@ -40,6 +40,14 @@ from .joinery import (
 )
 
 
+#: Face overhang onto an interior column divider, per side.  Used as the
+#: build default for ``build_multi_bay_cabinet(inner_overlay=...)`` AND by
+#: evaluation.check_door_overlay_collisions as the share of a divider the
+#: neighbouring column's faces claim — keep the two in sync via this constant
+#: (an 18 mm divider splits 8 + 8 with a 2 mm reveal).
+INNER_FACE_OVERLAY_MM: float = 8.0
+
+
 @dataclass(frozen=True)
 class OpeningConfig:
     """One opening (a single face-height zone) within a column stack.
@@ -802,7 +810,7 @@ def build_multi_bay_cabinet(
     foot_diameter: Optional[float] = None,
     face_thickness: float = 18.0,
     outer_overlay: float = 18.0,
-    inner_overlay: float = 8.0,
+    inner_overlay: float = INNER_FACE_OVERLAY_MM,
     face_gap: float = 4.0,
     face_bottom_overhang: float = 0.0,
     face_top_overhang: float = 0.0,

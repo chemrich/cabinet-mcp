@@ -653,7 +653,7 @@ _p(CabinetPreset(
             ),
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_blumotion_110_full",
+        door_hinge="blum_clip_top_blumotion_110_half",  # half overlay: door hinges over an interior divider shared with drawer faces
         carcass_joinery=CarcassJoinery.FLOATING_TENON,
         drawer_pull="topknobs-hb-96",
         door_pull="topknobs-hb-96",
@@ -685,7 +685,7 @@ _p(CabinetPreset(
             (150, "drawer"),  # shallow drawer at top
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_blumotion_110_full",
+         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -800,7 +800,7 @@ _p(CabinetPreset(
             ),
         ],
         drawer_slide="blum_tandem_plus_563h",
-        door_hinge="blum_clip_top_blumotion_110_full",
+        door_hinge="blum_clip_top_blumotion_110_half",  # half overlay: door hinges over an interior divider shared with drawer faces
         carcass_joinery=CarcassJoinery.FLOATING_TENON,
     ),
 ))
@@ -836,7 +836,7 @@ _p(CabinetPreset(
         # the CabinetConfig default 640 mm base-cabinet range.
         shelf_pin_end_z=1450.0,
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_blumotion_110_full",
+         door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))

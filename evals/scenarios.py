@@ -2898,6 +2898,9 @@ _s(Scenario(
             tool="design_multi_column_cabinet",
             args={
                 "width": 1500, "height": 850, "depth": 450,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                     {
@@ -2921,6 +2924,9 @@ _s(Scenario(
             tool="evaluate_cabinet",
             args={
                 "width": 1500, "height": 850, "depth": 450,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 476, "drawer_config": [[814, "door_pair"]]},
                     {
@@ -2960,6 +2966,9 @@ _s(Scenario(
             tool="design_multi_column_cabinet",
             args={
                 "width": 1800, "height": 450, "depth": 400,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                     {
@@ -2981,6 +2990,9 @@ _s(Scenario(
             tool="evaluate_cabinet",
             args={
                 "width": 1800, "height": 450, "depth": 400,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 576, "drawer_config": [[414, "door_pair"]]},
                     {
@@ -3017,6 +3029,9 @@ _s(Scenario(
             tool="design_multi_column_cabinet",
             args={
                 "width": 1800, "height": 900, "depth": 500,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                     {
@@ -3040,6 +3055,9 @@ _s(Scenario(
             tool="evaluate_cabinet",
             args={
                 "width": 1800, "height": 900, "depth": 500,
+                # Doors hinge over interior dividers shared with drawer
+                # faces -> half overlay (see check_door_overlay_collisions).
+                "door_hinge": "blum_clip_top_blumotion_110_half",
                 "columns": [
                     {"width_mm": 576, "drawer_config": [[864, "door_pair"]]},
                     {
@@ -8741,6 +8759,49 @@ _s(Scenario(
                 Assertion("sheet_goods", Op.LEN_EQ, 3),
                 # 18 mm group now counts carcass (4) + faces (3)
                 Assertion("sheet_goods.0.panel_count", Op.EQ, 7),
+            ],
+        ),
+    ],
+))
+
+
+_s(Scenario(
+    name="door_overlay_collision_check",
+    prompt="A full-overlay door hinged on a divider shared with drawer "
+           "columns must be flagged before it reaches the shop: 16 mm of "
+           "overlay plus the drawer faces' 8 mm exceeds the 18 mm divider.",
+    tags=["evaluation", "door", "multi_column"],
+    difficulty="standard",
+    description="check_door_overlay_collisions: full overlay next to drawers "
+                "errors (24 > 18 mm); half overlay passes with a tight-reveal "
+                "warning (dining-sideboards regression, 2026-07-22).",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 1219, "height": 663.6, "depth": 457,
+                  "door_hinge": "blum_clip_top_blumotion_110_full",
+                  "columns": [
+                      {"width_mm": 304.8, "drawer_config": [[284.7, "drawer"], [342.9, "drawer"]]},
+                      {"width_mm": 385, "drawer_config": [[627.6, "door"]]},
+                      {"width_mm": 457.2, "drawer_config": [[284.7, "drawer"], [342.9, "drawer"]]}]},
+            label="full overlay beside drawers is a hard error",
+            assertions=[
+                Assertion("summary.pass", Op.IS_FALSE),
+                Assertion("issues", Op.HAS_ERROR, "door_overlay_collision"),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 1219, "height": 663.6, "depth": 457,
+                  "door_hinge": "blum_clip_top_blumotion_110_half",
+                  "columns": [
+                      {"width_mm": 304.8, "drawer_config": [[284.7, "drawer"], [342.9, "drawer"]]},
+                      {"width_mm": 385, "drawer_config": [[627.6, "door"]]},
+                      {"width_mm": 457.2, "drawer_config": [[284.7, "drawer"], [342.9, "drawer"]]}]},
+            label="half overlay passes with a tight-reveal warning",
+            assertions=[
+                Assertion("summary.errors", Op.EQ, 0),
+                Assertion("issues", Op.HAS_WARNING, "door_overlay_collision"),
             ],
         ),
     ],
