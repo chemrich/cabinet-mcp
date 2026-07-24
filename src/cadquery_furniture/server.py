@@ -2348,6 +2348,7 @@ async def _tool_list_hardware(args: dict) -> list[types.TextContent]:
                 "name": s.name,
                 "slide_type": s.slide_type.value,
                 "available_lengths_mm": list(s.available_lengths),
+                "extension": s.extension,
                 "nominal_side_clearance_mm": s.nominal_side_clearance,
                 "min_bottom_clearance_mm": s.min_bottom_clearance,
                 "max_load_kg": s.max_load_kg,

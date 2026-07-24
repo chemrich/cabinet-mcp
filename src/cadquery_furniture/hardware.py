@@ -115,6 +115,12 @@ class DrawerSlideSpec:
     # Drives HardwareLine.pack_quantity and must match the PRICE_LIST basis.
     sold_as_pair: bool = True
 
+    #: Drawer travel: "full" (box comes fully out of the cabinet) or "3/4"
+    #: (partial extension). Shown in list_hardware and on every slide BOM
+    #: line so the paperwork states it — added after the 563H swap left
+    #: Charlie unable to verify extension from the BOM (2026-07-23).
+    extension: str = "full"
+
     def slide_length_for_depth(self, cabinet_depth: float) -> int:
         """Return the longest slide that fits the given cabinet interior depth."""
         usable = cabinet_depth - self.rear_bracket_inset - self.front_bracket_inset
@@ -346,6 +352,7 @@ BLUM_TANDEM_550H = DrawerSlideSpec(
     #   interfitco.com); CabinetParts catalog confirmed 450 mm = 550H4500B,
     #   550 mm = 550H5500B.
     name="Blum Tandem 550H",
+    extension="3/4",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
     mount_location=SlideMountLocation.BOTTOM,

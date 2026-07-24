@@ -1176,7 +1176,9 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 model_number=pn or slide_key,
                 pieces_needed=2,           # one pair (left + right) per drawer
                 pack_quantity=2 if slide_spec.sold_as_pair else 1,
-                notes=f"{length} mm",
+                # Parenthesised, not comma-separated: consolidation dedupes
+                # notes by splitting on ", ".
+                notes=f"{length} mm ({slide_spec.extension} extension)",
             ))
             family = next((f for f in _BLUM_LOCKING_DEVICES
                            if slide_key.startswith(f)), None)
