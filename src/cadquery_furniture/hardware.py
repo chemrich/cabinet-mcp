@@ -418,17 +418,21 @@ BLUM_TANDEM_PLUS_563H = DrawerSlideSpec(
 )
 
 
-# ── Blum Tandem Plus 563F (face-frame variant of 563H) ────────────────────────
+# ── Blum Tandem Plus 563F (3/4" drawer-side variant of 563H) ─────────────────
 
 BLUM_TANDEM_PLUS_563F = DrawerSlideSpec(
-    # Face-frame counterpart to the 563H frameless slide. Same load rating
-    # and lengths; bracket geometry differs to clear the face frame.
+    # Same full-extension BLUMOTION runner as the 563H; the F suffix is the
+    # DRAWER-SIDE THICKNESS variant (H = 1/2"-5/8" sides, F = 5/8"-3/4"),
+    # NOT face-frame and NOT extension — verified against Woodworker Express
+    # Q&A + CabinetParts listings, Jul 2026, after Charlie challenged the
+    # suffix meaning. (Either model mounts in face-frame cabinets with the
+    # usual rear brackets.)
     # Source: Woodworker Express listings (slides.html, May 2026 pricing)
     #   SKUs 563F2290B10, 563F3050B, 563F3810B, 563F4570B, 563F5330B at
     #   $28.27 / $23.75 / $23.75 / $24.11 / $24.81 per pair.
     # 9" premium confirmed real across vendors (see 563H note) — not a kit,
     #   not a data error.
-    name="Blum Tandem Plus 563F (face-frame)",
+    name="Blum Tandem Plus 563F (3/4\" drawer sides)",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
     mount_location=SlideMountLocation.BOTTOM,
