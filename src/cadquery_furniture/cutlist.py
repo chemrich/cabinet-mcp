@@ -1110,6 +1110,23 @@ def pull_lines_for_cabinet_config(
 # ─── Consolidation + output ──────────────────────────────────────────────────
 
 
+#: Blum undermount runners are useless without their front locking devices —
+#: one LEFT and one RIGHT clip per slide pair, sold as separate SKUs.
+#: Tandem family (550H, Tandem Plus 563H/563F): T51.1901 L / R.
+#: Movento family (760H, 769): T51.7601 LI / RE.
+#: (Charlie's supplier, Jul 2026: $2.25 ea Tandem, $2.50 ea Movento.)
+_BLUM_LOCKING_DEVICES: dict[str, tuple[tuple[str, str], ...]] = {
+    "blum_tandem": (
+        ("blum_t51_1901_l", "T51.1901 L"),
+        ("blum_t51_1901_r", "T51.1901 R"),
+    ),
+    "blum_movento": (
+        ("blum_t51_7601_li", "T51.7601 LI"),
+        ("blum_t51_7601_re", "T51.7601 RE"),
+    ),
+}
+
+
 def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> list[HardwareLine]:
     """Return HardwareLines for drawer slides required by the cabinet.
 
@@ -1120,6 +1137,11 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
     PRICE_LIST entries use the matching basis (per pair vs per single).
     The SKU is keyed by slide key + length so different-length slides on
     the same model stay separate.
+
+    Blum runners additionally get their front locking devices — one left
+    and one right clip per drawer (see ``_BLUM_LOCKING_DEVICES``); both
+    Tandem models share the same clip SKUs, so they consolidate across
+    mixed-slide projects.
     """
     from .hardware import get_slide
     from .drawer import DrawerConfig
@@ -1154,8 +1176,24 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 model_number=pn or slide_key,
                 pieces_needed=2,           # one pair (left + right) per drawer
                 pack_quantity=2 if slide_spec.sold_as_pair else 1,
-                notes=f"{length} mm",
+                # Parenthesised, not comma-separated: consolidation dedupes
+                # notes by splitting on ", ".
+                notes=f"{length} mm ({slide_spec.extension} extension)",
             ))
+            family = next((f for f in _BLUM_LOCKING_DEVICES
+                           if slide_key.startswith(f)), None)
+            if family:
+                for dev_sku, dev_pn in _BLUM_LOCKING_DEVICES[family]:
+                    lines.append(HardwareLine(
+                        sku=dev_sku,
+                        category="slide_accessory",
+                        name=f"Blum Front Locking Device {dev_pn}",
+                        brand="Blum",
+                        model_number=dev_pn,
+                        pieces_needed=1,   # one of each hand per drawer
+                        pack_quantity=1,
+                        notes=f"for {slide_spec.name}",
+                    ))
         return lines
 
     raw: list[HardwareLine] = []

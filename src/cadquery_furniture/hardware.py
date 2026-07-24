@@ -115,6 +115,12 @@ class DrawerSlideSpec:
     # Drives HardwareLine.pack_quantity and must match the PRICE_LIST basis.
     sold_as_pair: bool = True
 
+    #: Drawer travel: "full" (box comes fully out of the cabinet) or "3/4"
+    #: (partial extension). Shown in list_hardware and on every slide BOM
+    #: line so the paperwork states it — added after the 563H swap left
+    #: Charlie unable to verify extension from the BOM (2026-07-23).
+    extension: str = "full"
+
     def slide_length_for_depth(self, cabinet_depth: float) -> int:
         """Return the longest slide that fits the given cabinet interior depth."""
         usable = cabinet_depth - self.rear_bracket_inset - self.front_bracket_inset
@@ -346,6 +352,7 @@ BLUM_TANDEM_550H = DrawerSlideSpec(
     #   interfitco.com); CabinetParts catalog confirmed 450 mm = 550H4500B,
     #   550 mm = 550H5500B.
     name="Blum Tandem 550H",
+    extension="3/4",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
     mount_location=SlideMountLocation.BOTTOM,
@@ -411,17 +418,21 @@ BLUM_TANDEM_PLUS_563H = DrawerSlideSpec(
 )
 
 
-# ── Blum Tandem Plus 563F (face-frame variant of 563H) ────────────────────────
+# ── Blum Tandem Plus 563F (3/4" drawer-side variant of 563H) ─────────────────
 
 BLUM_TANDEM_PLUS_563F = DrawerSlideSpec(
-    # Face-frame counterpart to the 563H frameless slide. Same load rating
-    # and lengths; bracket geometry differs to clear the face frame.
+    # Same full-extension BLUMOTION runner as the 563H; the F suffix is the
+    # DRAWER-SIDE THICKNESS variant (H = 1/2"-5/8" sides, F = 5/8"-3/4"),
+    # NOT face-frame and NOT extension — verified against Woodworker Express
+    # Q&A + CabinetParts listings, Jul 2026, after Charlie challenged the
+    # suffix meaning. (Either model mounts in face-frame cabinets with the
+    # usual rear brackets.)
     # Source: Woodworker Express listings (slides.html, May 2026 pricing)
     #   SKUs 563F2290B10, 563F3050B, 563F3810B, 563F4570B, 563F5330B at
     #   $28.27 / $23.75 / $23.75 / $24.11 / $24.81 per pair.
     # 9" premium confirmed real across vendors (see 563H note) — not a kit,
     #   not a data error.
-    name="Blum Tandem Plus 563F (face-frame)",
+    name="Blum Tandem Plus 563F (3/4\" drawer sides)",
     manufacturer="Blum",
     slide_type=SlideType.UNDERMOUNT,
     mount_location=SlideMountLocation.BOTTOM,
@@ -1237,6 +1248,14 @@ PRICE_LIST: dict[str, float] = {
     "sheet_baltic_birch_prefinished_6mm":   64.00,
     # Show-wood plywood
     "sheet_rift_white_oak_ply_18mm": 209.00,  # 3/4" A1 rift-sawn white oak (Charlie's supplier, Jul 2026)
+
+    # ── Blum front locking devices — per piece (Charlie's supplier, Jul 2026) ──
+    # One left + one right per slide pair; Tandem family shares T51.1901,
+    # Movento uses T51.7601.
+    "blum_t51_1901_l":  2.25,
+    "blum_t51_1901_r":  2.25,
+    "blum_t51_7601_li": 2.50,
+    "blum_t51_7601_re": 2.50,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
     # Length-suffixed keys (model-length-NNNmm) reflect actual distributor
