@@ -95,6 +95,34 @@ _PROJECT_PALETTE = (
 )
 
 
+def _inch_frac(mm: float) -> str:
+    """mm as fractional inches to the nearest 1/32, reduced (e.g. '12 3/4').
+
+    Charlie's shop annotation (Jul 2026): cut sheets carry metric AND
+    fractional imperial. Whole inches drop the fraction ('48'); values
+    under 1 in drop the whole part ('23/32').
+    """
+    from math import gcd
+    n32 = round(mm / 25.4 * 32)
+    whole, num = divmod(n32, 32)
+    if num == 0:
+        return str(whole)
+    g = gcd(num, 32)
+    frac = f"{num // g}/{32 // g}"
+    return f"{whole} {frac}" if whole else frac
+
+
+#: Nominal imperial names for common sheet thicknesses (trade names, not
+#: exact conversions — 18 mm ply is "3/4 inch" at the yard).
+_NOMINAL_SHEET_INCHES = {18: '3/4"', 15: '5/8"', 12: '1/2"', 9: '3/8"', 6: '1/4"'}
+
+
+def _thickness_imperial(t: float) -> str:
+    """Nominal imperial label for common sheet thicknesses, else exact frac."""
+    frac = _NOMINAL_SHEET_INCHES.get(int(round(t)))
+    return frac if frac else _inch_frac(t) + '\"'
+
+
 def _source_colour(source: str, source_order: list[str]) -> str:
     """Fill colour for a project in a batch layout (stable by batch order)."""
     try:
@@ -1714,6 +1742,8 @@ def generate_sheet_layout_html(
             if p.rotated:
                 label += " ↺"
             dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f} mm"
+            dim_imp = (_inch_frac(p.placed_length) + '\" × '
+                       + _inch_frac(p.placed_width) + '\"')
 
             min_dim = min(p.placed_length, p.placed_width)
             font_mm = max(min_dim * 0.10, 12)
@@ -1722,6 +1752,7 @@ def generate_sheet_layout_html(
             cx = p.x + p.placed_length / 2
             cy_label = p.y + p.placed_width / 2 - font_mm * 0.4
             cy_dim   = cy_label + font_mm * 1.1
+            cy_imp   = cy_dim + dim_font * 1.25
 
             tall = p.placed_width > p.placed_length
             rot_label = f' transform="rotate(-90,{cx:.1f},{cy_label:.1f})"' if tall else ''
@@ -1742,6 +1773,14 @@ def generate_sheet_layout_html(
                 f'font-family="monospace" font-size="{dim_font:.1f}" '
                 f'fill="#000" pointer-events="none"{rot_dim}>'
                 f'{_esc(dim_text)}</text>'
+            )
+            rot_imp = f' transform="rotate(-90,{cx:.1f},{cy_imp:.1f})"' if tall else ''
+            out.append(
+                f'<text x="{cx:.1f}" y="{cy_imp:.1f}" '
+                f'text-anchor="middle" dominant-baseline="middle" '
+                f'font-family="monospace" font-size="{dim_font:.1f}" '
+                f'fill="#000" pointer-events="none"{rot_imp}>'
+                f'{_esc(dim_imp)}</text>'
             )
 
 
@@ -1797,17 +1836,17 @@ def generate_sheet_layout_html(
                 if orient == 'h':
                     if dim_a <= dim_b:
                         tx, ty, anchor = lx + label_r * 1.4, ly - pad, "start"
-                        dim_label = f"{dim_a} mm"
+                        dim_label = f'{dim_a} mm · ' + _inch_frac(dim_a) + '\"'
                     else:
                         tx, ty, anchor = lx + label_r * 1.4, ly + pad, "start"
-                        dim_label = f"{dim_b} mm"
+                        dim_label = f'{dim_b} mm · ' + _inch_frac(dim_b) + '\"'
                 else:
                     if dim_a <= dim_b:
                         tx, ty, anchor = lx - pad, ly - label_r * 1.4, "end"
-                        dim_label = f"{dim_a} mm"
+                        dim_label = f'{dim_a} mm · ' + _inch_frac(dim_a) + '\"'
                     else:
                         tx, ty, anchor = lx + pad, ly - label_r * 1.4, "start"
-                        dim_label = f"{dim_b} mm"
+                        dim_label = f'{dim_b} mm · ' + _inch_frac(dim_b) + '\"'
                 rotate = f' transform="rotate(-90,{tx:.1f},{ty:.1f})"' if orient == 'v' else ''
                 out.append(
                     f'<text x="{tx:.1f}" y="{ty:.1f}" '
@@ -2187,16 +2226,16 @@ def generate_sheet_layout_pdf(
         all_panels.extend(pnls)
     all_panels.sort(key=lambda p: (p.source, p.thickness, p.material, p.name))
 
-    parts_header = ["Part Name", "L (mm)", "W (mm)", "T (mm)", "Qty", "Material", "Edge Band", "Notes"]
+    parts_header = ["Part Name", "L mm/in", "W mm/in", "T mm/in", "Qty", "Material", "Edge Band", "Notes"]
     if project_mode:
         parts_header = ["Project"] + parts_header
     parts_data = [parts_header]
     for p in all_panels:
         row = [
             p.name,
-            f"{p.length:.0f}",
-            f"{p.width:.0f}",
-            f"{p.thickness:.0f}",
+            f"{p.length:.0f}\n" + _inch_frac(p.length) + '\"',
+            f"{p.width:.0f}\n" + _inch_frac(p.width) + '\"',
+            f"{p.thickness:.0f}\n" + _thickness_imperial(p.thickness),
             str(p.quantity),
             p.material.replace("_", " ").title(),
             ", ".join(p.edge_band) if p.edge_band else "—",
@@ -2236,6 +2275,8 @@ def generate_sheet_layout_pdf(
                 warn = f" · ⚠ {len(result.grain_mismatched)} grain mismatch(es)"
             story.append(_Paragraph(
                 f"{result.stock_sheet.length:.0f} × {result.stock_sheet.width:.0f} mm "
+                + "(" + _inch_frac(result.stock_sheet.length) + '\" × '
+                + _inch_frac(result.stock_sheet.width) + '\") '
                 f"· Waste: {result.waste_pct:.1f}%{warn}",
                 norm_sty,
             ))
@@ -2260,7 +2301,8 @@ def generate_sheet_layout_pdf(
                     cut_data.append([
                         str(seq),
                         "Rip" if orient == "h" else "Cross-cut",
-                        f"{min(dim_a, dim_b):.0f} mm",
+                        f"{min(dim_a, dim_b):.0f} mm  ("
+                        + _inch_frac(min(dim_a, dim_b)) + '\")',
                     ])
             if len(cut_data) > 1:
                 cut_col_w = [CW * x for x in (0.06, 0.20, 0.74)]
@@ -2419,6 +2461,9 @@ if _REPORTLAB_AVAILABLE:
                 canvas.drawCentredString(0, font_pt * 0.25, label)
                 canvas.setFont("Helvetica", dim_pt)
                 canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
+                dim_imp = (_inch_frac(p.placed_length) + '\" x '
+                           + _inch_frac(p.placed_width) + '\"')
+                canvas.drawCentredString(0, -dim_pt * 2.9, dim_imp)
                 canvas.restoreState()
 
             # Guillotine cut lines

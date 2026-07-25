@@ -148,3 +148,36 @@ class TestLiteModeImport:
             "assert not hasattr(cl, '_SheetDrawingFlowable')"
         )
         subprocess.run([sys.executable, "-c", code], check=True)
+
+
+class TestImperialAnnotations:
+    """Cut sheets carry metric AND fractional imperial (to 1/32) — Charlie's
+    print request, Jul 2026."""
+
+    def test_inch_frac_values(self):
+        from cadquery_furniture.cutlist import _inch_frac
+        assert _inch_frac(1219.2) == "48"          # exact inches drop fraction
+        assert _inch_frac(457) == "18"             # rounds to whole
+        assert _inch_frac(324) == "12 3/4"         # reduced from 24/32
+        assert _inch_frac(533) == "20 31/32"
+        assert _inch_frac(15.875) == "5/8"         # no whole part
+        assert _inch_frac(663.6) == "26 1/8"
+
+    def test_thickness_nominal_labels(self):
+        from cadquery_furniture.cutlist import _thickness_imperial
+        assert _thickness_imperial(18) == '3/4"'   # trade name, not 23/32
+        assert _thickness_imperial(12) == '1/2"'
+        assert _thickness_imperial(6) == '1/4"'
+
+    def test_layout_html_contains_imperial(self):
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist,
+            generate_sheet_layout_html)
+        panels = [CutlistPanel(name="side", length=663.6, width=457,
+                               thickness=18, quantity=2)]
+        opt = optimize_cutlist(panels, stock_sheet=SheetStock(
+            name="s", length=2440, width=1220, thickness=18), kerf=3.2)
+        html = generate_sheet_layout_html(
+            [("18mm", panels, opt)], cabinet_name="imp_test", kerf=3.2)
+        assert "26 1/8" in html      # panel imperial dims
+        assert "&#215;" in html or "×" in html
