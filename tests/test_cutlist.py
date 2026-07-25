@@ -169,15 +169,34 @@ class TestImperialAnnotations:
         assert _thickness_imperial(12) == '1/2"'
         assert _thickness_imperial(6) == '1/4"'
 
-    def test_layout_html_contains_imperial(self):
+    def test_graphics_metric_only_with_part_ids(self):
+        # Charlie's split (Jul 2026): imperial lives in the TABLES; the
+        # cut-sheet graphics stay metric-only and carry the row IDs.
         from cadquery_furniture.cutlist import (
-            CutlistPanel, SheetStock, optimize_cutlist,
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
             generate_sheet_layout_html)
         panels = [CutlistPanel(name="side", length=663.6, width=457,
                                thickness=18, quantity=2)]
+        assign_part_ids(panels)
+        assert panels[0].part_id == "S1"   # no project letter when solo
         opt = optimize_cutlist(panels, stock_sheet=SheetStock(
             name="s", length=2440, width=1220, thickness=18), kerf=3.2)
         html = generate_sheet_layout_html(
             [("18mm", panels, opt)], cabinet_name="imp_test", kerf=3.2)
-        assert "26 1/8" in html      # panel imperial dims
-        assert "&#215;" in html or "×" in html
+        assert "26 1/8" not in html        # imperial removed from graphics
+        assert "S1 · side" in html         # ID labels each placement
+        assert "663.6" in html or "664×457" in html or "664" in html
+
+    def test_part_ids_batch_lettering(self):
+        from cadquery_furniture.cutlist import CutlistPanel, assign_part_ids
+        ps = [CutlistPanel(name="side", length=100, width=50, thickness=18,
+                           source="dining"),
+              CutlistPanel(name="drawer_box_side", length=100, width=50,
+                           thickness=12, source="dining"),
+              CutlistPanel(name="drawer_box_side", length=90, width=50,
+                           thickness=12, source="kid1"),
+              CutlistPanel(name="drawer_box_front", length=90, width=50,
+                           thickness=12, source="kid1")]
+        letters = assign_part_ids(ps)
+        assert letters == {"dining": "A", "kid1": "B"}
+        assert [x.part_id for x in ps] == ["A-S1", "A-DB1", "B-DB1", "B-DB2"]

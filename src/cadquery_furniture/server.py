@@ -82,6 +82,7 @@ from .visualize import (
     visualize_assembly as _visualize_assembly,
 )
 from .cutlist import (
+    assign_part_ids,
     CutlistPanel,
     SheetStock,
     consolidate_bom,
@@ -3074,6 +3075,9 @@ def _cutlist_pipeline(
     box_panels = box_panels + pooled_faces_parts
 
     all_panels = carcass_panels + box_panels + panels_6mm + false_fronts
+    # Row IDs (A-DB1 …) — the same panel objects flow into the layout
+    # groups, so graphics and tables always agree.
+    assign_part_ids(all_panels)
 
     def _make_sheet(t: float) -> SheetStock:
         return SheetStock(
@@ -3244,7 +3248,8 @@ def _cutlist_pipeline(
         "panel_count": len(all_panels),
         "sheet_goods": sheet_goods,
         "panels_summary": [
-            {"name": p.name, "length_mm": p.length, "width_mm": p.width,
+            {"id": p.part_id, "name": p.name, "length_mm": p.length,
+             "width_mm": p.width,
              "thickness_mm": p.thickness, "qty": p.quantity, "material": p.material,
              **({"project": p.source} if p.source else {})}
             for p in all_panels
