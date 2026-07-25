@@ -56,8 +56,14 @@ class TestOpeningRowParsing:
                       [232, "drawer"], [192, "drawer"]],
         )
         lines = slide_lines_for_cabinet_config(cfg)
-        by_name = {l.name: l.pieces_needed for l in lines}
+        by_name = {l.name: l.pieces_needed for l in lines
+                   if l.category == "slide"}
         assert by_name == {"Blum Movento 769": 2, "Blum Tandem 550H": 4}
+        # Both families also carry their front locking devices.
+        clips = {l.model_number: l.pieces_needed for l in lines
+                 if l.category == "slide_accessory"}
+        assert clips == {"T51.1901 L": 2, "T51.1901 R": 2,
+                         "T51.7601 LI": 1, "T51.7601 RE": 1}
 
     def test_unknown_slide_key_skips_that_drawer_only(self):
         from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
@@ -68,8 +74,12 @@ class TestOpeningRowParsing:
                       [232, "drawer"], [192, "drawer"]],
         )
         lines = slide_lines_for_cabinet_config(cfg)
-        assert {l.name for l in lines} == {"Blum Tandem 550H"}
-        assert sum(l.pieces_needed for l in lines) == 4
+        assert {l.name for l in lines if l.category == "slide"} == {"Blum Tandem 550H"}
+        assert sum(l.pieces_needed for l in lines
+                   if l.category == "slide") == 4
+        # The skipped drawer must not get locking devices either.
+        assert sum(l.pieces_needed for l in lines
+                   if l.category == "slide_accessory") == 4  # 2 L + 2 R
 
     def test_cabinet_config_normalizes_options_row(self):
         cfg = CabinetConfig(

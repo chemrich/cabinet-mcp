@@ -163,7 +163,8 @@ class TestCutlistRobustness:
     def test_slide_notes_deduplicated(self):
         cfg = CabinetConfig(width=600, height=720, depth=550, openings=[
             [200, "drawer"], [200, "drawer"], [200, "drawer"]])
-        lines = slide_lines_for_cabinet_config(cfg)
+        lines = [l for l in slide_lines_for_cabinet_config(cfg)
+                 if l.category == "slide"]
         assert len(lines) == 1
         assert lines[0].notes.count("mm") == 1  # one length note, not three
         assert lines[0].pieces_needed == 6

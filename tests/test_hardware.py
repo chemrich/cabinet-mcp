@@ -251,3 +251,25 @@ class TestShowWoodSheetPrices:
     def test_rift_white_oak_ply_priced(self):
         from cadquery_furniture.hardware import price_for
         assert price_for("sheet_rift_white_oak_ply_18mm") == 209.00
+
+
+class TestSlideExtension:
+    """The BOM must STATE drawer travel — Charlie couldn't verify the 563H
+    swap was full extension from the paperwork (2026-07-23)."""
+
+    def test_550h_is_the_only_partial_extension_slide(self):
+        from cadquery_furniture.hardware import SLIDES
+        assert SLIDES["blum_tandem_550h"].extension == "3/4"
+        assert all(s.extension == "full" for k, s in SLIDES.items()
+                   if k != "blum_tandem_550h")
+
+    def test_bom_notes_state_extension(self):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        cfg = build_cabinet_config({
+            "width": 600, "height": 720, "depth": 550,
+            "drawer_slide": "blum_tandem_plus_563h",
+            "drawer_config": [[300, "drawer"]]})
+        slide = next(l for l in slide_lines_for_cabinet_config(cfg)
+                     if l.category == "slide")
+        assert "full extension" in slide.notes
