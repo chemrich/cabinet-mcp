@@ -1256,6 +1256,8 @@ PRICE_LIST: dict[str, float] = {
     "blum_t51_1901_r":  2.25,
     "blum_t51_7601_li": 2.50,
     "blum_t51_7601_re": 2.50,
+    # Runner mounting screws — per 100-pack (606N100)
+    "blum_606n": 4.19,
 
     # ── Drawer slides — per pair ──────────────────────────────────────────────
     # Length-suffixed keys (model-length-NNNmm) reflect actual distributor
