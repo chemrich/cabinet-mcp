@@ -78,15 +78,20 @@ _PALETTE = [
 # Per-project colours for multi-project batch layouts — Okabe–Ito palette
 # (colour-blind safe, mutually distinguishable). Assigned by order of first
 # appearance in the batch, so colours are stable for a given project order.
+# Pastel tints (base + 60% toward white) of the Okabe–Ito hues: the full-
+# saturation originals were too dark for the black panel labels once printed
+# (Charlie, Jul 2026 — "the green" #009E73 especially). Hue identity and
+# ordering preserved; the red dashed cut lines are a separate fixed colour
+# (#c0392b) and are deliberately NOT pastel.
 _PROJECT_PALETTE = (
-    "#E69F00",  # orange
-    "#56B4E9",  # sky blue
-    "#009E73",  # bluish green
-    "#F0E442",  # yellow
-    "#0072B2",  # blue
-    "#D55E00",  # vermillion
-    "#CC79A7",  # reddish purple
-    "#999999",  # grey
+    "#F5D999",  # orange       (base #E69F00)
+    "#BBE1F6",  # sky blue     (base #56B4E9)
+    "#99D8C7",  # bluish green (base #009E73)
+    "#F9F4B3",  # yellow       (base #F0E442)
+    "#99C7E0",  # blue         (base #0072B2)
+    "#EEBF99",  # vermillion   (base #D55E00)
+    "#EBC9DC",  # reddish purple (base #CC79A7)
+    "#D6D6D6",  # grey         (base #999999)
 )
 
 
