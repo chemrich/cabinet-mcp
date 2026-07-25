@@ -1194,6 +1194,20 @@ def slide_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                         pack_quantity=1,
                         notes=f"for {slide_spec.name}",
                     ))
+                # Runner mounting screws: 4 per runner × 2 runners. The
+                # locking devices ship WITH their own screws (Charlie's
+                # order, Jul 2026), so these cover the runners only.
+                lines.append(HardwareLine(
+                    sku="blum_606n",
+                    category="fastener",
+                    name='Blum 606N #6 × 5/8" Flat-Head Mounting Screw',
+                    brand="Blum",
+                    model_number="606N",
+                    pieces_needed=8,
+                    pack_quantity=100,  # sold as 100-packs (606N100)
+                    notes="runner mounting (4/runner); locking devices "
+                          "include their own screws",
+                ))
         return lines
 
     raw: list[HardwareLine] = []

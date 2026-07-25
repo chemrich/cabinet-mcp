@@ -419,3 +419,18 @@ class TestSlideLockingDevices:
         assert price_for("blum_t51_1901_r") == 2.25
         assert price_for("blum_t51_7601_li") == 2.50
         assert price_for("blum_t51_7601_re") == 2.50
+
+    def test_runner_mounting_screws_per_blum_drawer(self):
+        # 4 screws per runner x 2 runners = 8 per drawer; consolidated line;
+        # locking devices ship with their own screws so clips add none.
+        lines = self._lines(drawer_slide="blum_tandem_plus_563h")
+        screws = [l for l in lines if l.sku == "blum_606n"]
+        assert len(screws) == 1
+        assert screws[0].pieces_needed == 16          # 2 drawers x 8
+        assert screws[0].pack_quantity == 100
+        assert screws[0].packs_to_order == 1
+        assert "locking devices include their own screws" in screws[0].notes
+
+    def test_non_blum_slides_get_no_mounting_screws(self):
+        lines = self._lines(drawer_slide="accuride_3832")
+        assert not [l for l in lines if l.sku == "blum_606n"]
