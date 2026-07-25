@@ -1731,14 +1731,16 @@ def generate_sheet_layout_html(
                 f'<text x="{cx:.1f}" y="{cy_label:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{font_mm:.1f}" '
-                f'fill="{stroke}" pointer-events="none"{rot_label}>'
+                # Solid black labels — the tinted text read as washed-out on
+                # the pastel fills in print (Charlie, Jul 2026).
+                f'fill="#000" pointer-events="none"{rot_label}>'
                 f'{_esc(label)}</text>'
             )
             out.append(
                 f'<text x="{cx:.1f}" y="{cy_dim:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{dim_font:.1f}" '
-                f'fill="{stroke}" opacity="0.7" pointer-events="none"{rot_dim}>'
+                f'fill="#000" pointer-events="none"{rot_dim}>'
                 f'{_esc(dim_text)}</text>'
             )
 
@@ -2411,7 +2413,8 @@ if _REPORTLAB_AVAILABLE:
                 canvas.translate(cx_pt, cy_pt)
                 if tall:
                     canvas.rotate(90)
-                canvas.setFillColor(_HexColor(sc))
+                # Solid black labels (matches the HTML renderer).
+                canvas.setFillColor(_HexColor("#000000"))
                 canvas.setFont("Helvetica", font_pt)
                 canvas.drawCentredString(0, font_pt * 0.25, label)
                 canvas.setFont("Helvetica", dim_pt)
