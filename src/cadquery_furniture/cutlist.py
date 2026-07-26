@@ -169,6 +169,16 @@ def assign_part_ids(panels: list["CutlistPanel"]) -> dict[str, str]:
     return letters
 
 
+def _source_letters_from_groups(groups) -> dict:
+    """{source: letter} recovered from the assigned part IDs in the groups."""
+    letters: dict[str, str] = {}
+    for _, panels, _opt in groups:
+        for pl in panels:
+            if pl.source and pl.source not in letters and "-" in pl.part_id:
+                letters[pl.source] = pl.part_id.split("-", 1)[0]
+    return letters
+
+
 def _group_id_map(panels: list["CutlistPanel"]) -> dict:
     """(source, name, sorted-dims) → part_id, for placement lookup within a
     single layout group (uniform thickness/material, so the key is unique)."""
@@ -1952,6 +1962,8 @@ def generate_sheet_layout_html(
     def _esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    src_letters = _source_letters_from_groups(groups)
+
     # ── Build tab HTML ─────────────────────────────────────────────────────────
     tab_buttons: list[str] = []
     tab_panes: list[str] = []
@@ -1972,12 +1984,30 @@ def generate_sheet_layout_html(
 
         sheet_svgs: list[str] = []
         for si in sorted(by_sheet.keys()):
+            # Per-sheet project key — only the projects cut from THIS sheet.
+            sheet_key = ""
+            if project_mode:
+                on_sheet: list[str] = []
+                for pl_ in by_sheet[si]:
+                    if pl_.source and pl_.source not in on_sheet:
+                        on_sheet.append(pl_.source)
+                if on_sheet:
+                    items = "".join(
+                        f'<span class="legend-item">'
+                        f'<span class="legend-swatch" '
+                        f'style="background:{_source_colour(src, source_order)};"></span>'
+                        f'{_esc((src_letters.get(src, "") + " · " if src_letters.get(src) else "") + src)}'
+                        f'</span>'
+                        for src in on_sheet
+                    )
+                    sheet_key = f'<div class="sheet-key">{items}</div>'
             sheet_svgs.append(
                 f'<div class="sheet-card">'
                 f'<h3>Sheet {si + 1} of {sheets_count} '
                 f'<span class="dim">'
                 f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
                 f'— {_esc(opt.stock_sheet.name)}</span></h3>'
+                f'{sheet_key}'
                 f'{_sheet_svg(opt.stock_sheet, by_sheet[si], id_map)}'
                 f'</div>'
             )
@@ -2079,13 +2109,6 @@ def generate_sheet_layout_html(
     # visual grouping on every sheet reads at a glance.
     seen: dict[str, str] = {}
     if project_mode:
-        # Letter prefixes come from the assigned part IDs so the legend
-        # always matches what the panels display.
-        src_letters: dict[str, str] = {}
-        for _, panels, _opt in groups:
-            for pl in panels:
-                if pl.source and pl.source not in src_letters and "-" in pl.part_id:
-                    src_letters[pl.source] = pl.part_id.split("-", 1)[0]
         for src in source_order:
             letter = src_letters.get(src, "")
             label = f"{letter} · {src}" if letter else src
@@ -2129,6 +2152,8 @@ h1{{font-size:1.3rem;font-weight:600;margin-bottom:12px}}
 .warn{{color:#b55;font-size:.85rem;margin-bottom:8px}}
 .legend{{margin-top:20px;padding-top:12px;border-top:1px solid #ddd}}
 .legend h2{{font-size:.85rem;font-weight:600;color:#555;margin-bottom:6px}}
+.sheet-key{{margin:2px 0 8px;font-size:.78rem;color:#333}}
+.sheet-key .legend-swatch{{width:11px;height:11px}}
 .legend-item{{display:inline-flex;align-items:center;gap:5px;
   margin:3px 8px 3px 0;font-size:.78rem;color:#333}}
 .legend-swatch{{width:14px;height:14px;border-radius:2px;
@@ -2265,11 +2290,7 @@ def generate_sheet_layout_pdf(
         f"Generated {_date.today().isoformat()} · Kerf: {kerf} mm", norm_sty
     ))
     if project_mode:
-        pdf_letters: dict[str, str] = {}
-        for _, pnls_, _o in groups:
-            for pl_ in pnls_:
-                if pl_.source and pl_.source not in pdf_letters and "-" in pl_.part_id:
-                    pdf_letters[pl_.source] = pl_.part_id.split("-", 1)[0]
+        pdf_letters = _source_letters_from_groups(groups)
         legend = " &nbsp;·&nbsp; ".join(
             f'<font color="{_source_colour(s, source_order)}">◼</font> '
             f"{_xml_escape((pdf_letters.get(s, '') + ' · ' if pdf_letters.get(s) else '') + s)}"
@@ -2346,6 +2367,8 @@ def generate_sheet_layout_pdf(
     CUT_TABLE_RESERVE = 50 * _rl_mm # space below drawing for cut-sequence table (~8 rows)
     DRAW_H = PAGE[1] - 2 * MARGIN - HEADER_RESERVE - CUT_TABLE_RESERVE
 
+    pdf_src_letters = _source_letters_from_groups(groups)
+
     for group_label, _pnls, result in groups:
         by_sheet: dict[int, list[Placement]] = {}
         for pl in result.placements:
@@ -2369,6 +2392,20 @@ def generate_sheet_layout_pdf(
                 f"· Waste: {result.waste_pct:.1f}%{warn}",
                 norm_sty,
             ))
+            if project_mode:
+                on_sheet: list[str] = []
+                for pl_ in pls:
+                    if pl_.source and pl_.source not in on_sheet:
+                        on_sheet.append(pl_.source)
+                if on_sheet:
+                    key = " &nbsp;·&nbsp; ".join(
+                        f'<font color="{_source_colour(src, source_order)}">◼</font> '
+                        + _xml_escape(
+                            (pdf_src_letters.get(src, "") + " · "
+                             if pdf_src_letters.get(src) else "") + src)
+                        for src in on_sheet
+                    )
+                    story.append(_Paragraph(f"On this sheet: {key}", norm_sty))
             story.append(_Spacer(1, 2 * _rl_mm))
 
             story.append(_SheetDrawingFlowable(

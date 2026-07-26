@@ -200,3 +200,26 @@ class TestImperialAnnotations:
         letters = assign_part_ids(ps)
         assert letters == {"dining": "A", "kid1": "B"}
         assert [x.part_id for x in ps] == ["A-S1", "A-DB1", "B-DB1", "B-DB2"]
+
+    def test_per_sheet_project_key_lists_only_present_projects(self):
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        stock = SheetStock(name="s", length=2440, width=1220, thickness=18)
+        both = [CutlistPanel(name="side", length=600, width=400, thickness=18,
+                             source="alpha"),
+                CutlistPanel(name="side", length=500, width=400, thickness=18,
+                             source="beta")]
+        solo = [CutlistPanel(name="top", length=600, width=400, thickness=18,
+                             source="beta")]
+        assign_part_ids(both + solo)
+        g1 = optimize_cutlist(both, stock_sheet=stock, kerf=3.2)
+        g2 = optimize_cutlist(solo, stock_sheet=stock, kerf=3.2)
+        html = generate_sheet_layout_html(
+            [("g1", both, g1), ("g2", solo, g2)],
+            cabinet_name="key_test", kerf=3.2)
+        keys = [seg.split("</div>")[0] for seg in html.split('<div class="sheet-key">')[1:]]
+        assert len(keys) == 2
+        assert "alpha" in keys[0] and "beta" in keys[0]      # both on sheet 1
+        assert "beta" in keys[1] and "alpha" not in keys[1]  # only beta on g2
+        assert "A · alpha" in keys[0] and "B · beta" in keys[0]
