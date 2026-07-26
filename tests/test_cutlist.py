@@ -148,3 +148,101 @@ class TestLiteModeImport:
             "assert not hasattr(cl, '_SheetDrawingFlowable')"
         )
         subprocess.run([sys.executable, "-c", code], check=True)
+
+
+class TestImperialAnnotations:
+    """Cut sheets carry metric AND fractional imperial (to 1/32) — Charlie's
+    print request, Jul 2026."""
+
+    def test_inch_frac_values(self):
+        from cadquery_furniture.cutlist import _inch_frac
+        assert _inch_frac(1219.2) == "48"          # exact inches drop fraction
+        assert _inch_frac(457) == "18"             # rounds to whole
+        assert _inch_frac(324) == "12 3/4"         # reduced from 24/32
+        assert _inch_frac(533) == "20 31/32"
+        assert _inch_frac(15.875) == "5/8"         # no whole part
+        assert _inch_frac(663.6) == "26 1/8"
+
+    def test_thickness_nominal_labels(self):
+        from cadquery_furniture.cutlist import _thickness_imperial
+        assert _thickness_imperial(18) == '3/4"'   # trade name, not 23/32
+        assert _thickness_imperial(12) == '1/2"'
+        assert _thickness_imperial(6) == '1/4"'
+
+    def test_graphics_metric_only_with_part_ids(self):
+        # Charlie's split (Jul 2026): imperial lives in the TABLES; the
+        # cut-sheet graphics stay metric-only and carry the row IDs.
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        panels = [CutlistPanel(name="side", length=663.6, width=457,
+                               thickness=18, quantity=2)]
+        assign_part_ids(panels)
+        assert panels[0].part_id == "S1"   # no project letter when solo
+        opt = optimize_cutlist(panels, stock_sheet=SheetStock(
+            name="s", length=2440, width=1220, thickness=18), kerf=3.2)
+        html = generate_sheet_layout_html(
+            [("18mm", panels, opt)], cabinet_name="imp_test", kerf=3.2)
+        assert "26 1/8" not in html        # imperial removed from graphics
+        assert "S1 · side" in html         # ID labels each placement
+        assert "663.6" in html or "664×457" in html or "664" in html
+
+    def test_part_ids_batch_lettering(self):
+        from cadquery_furniture.cutlist import CutlistPanel, assign_part_ids
+        ps = [CutlistPanel(name="side", length=100, width=50, thickness=18,
+                           source="dining"),
+              CutlistPanel(name="drawer_box_side", length=100, width=50,
+                           thickness=12, source="dining"),
+              CutlistPanel(name="drawer_box_side", length=90, width=50,
+                           thickness=12, source="kid1"),
+              CutlistPanel(name="drawer_box_front", length=90, width=50,
+                           thickness=12, source="kid1")]
+        letters = assign_part_ids(ps)
+        assert letters == {"dining": "A", "kid1": "B"}
+        assert [x.part_id for x in ps] == ["A-S1", "A-DB1", "B-DB1", "B-DB2"]
+
+    def test_per_sheet_project_key_lists_only_present_projects(self):
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        stock = SheetStock(name="s", length=2440, width=1220, thickness=18)
+        both = [CutlistPanel(name="side", length=600, width=400, thickness=18,
+                             source="alpha"),
+                CutlistPanel(name="side", length=500, width=400, thickness=18,
+                             source="beta")]
+        solo = [CutlistPanel(name="top", length=600, width=400, thickness=18,
+                             source="beta")]
+        assign_part_ids(both + solo)
+        g1 = optimize_cutlist(both, stock_sheet=stock, kerf=3.2)
+        g2 = optimize_cutlist(solo, stock_sheet=stock, kerf=3.2)
+        html = generate_sheet_layout_html(
+            [("g1", both, g1), ("g2", solo, g2)],
+            cabinet_name="key_test", kerf=3.2)
+        keys = [seg.split("</div>")[0] for seg in html.split('<div class="sheet-key">')[1:]]
+        assert len(keys) == 2
+        assert "alpha" in keys[0] and "beta" in keys[0]      # both on sheet 1
+        assert "beta" in keys[1] and "alpha" not in keys[1]  # only beta on g2
+        assert "A · alpha" in keys[0] and "B · beta" in keys[0]
+
+    def test_global_sheet_numbers_across_groups(self):
+        # Numbers run 1..N across ALL groups (never reset per material) so
+        # Charlie can pencil them on the physical sheet edges.
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        stock = SheetStock(name="s", length=2440, width=1220, thickness=18)
+        # Two panels too big to share a sheet -> group 1 uses 2 sheets.
+        g1p = [CutlistPanel(name="side", length=2200, width=1100, thickness=18,
+                            quantity=2)]
+        g2p = [CutlistPanel(name="top", length=600, width=400, thickness=18)]
+        assign_part_ids(g1p + g2p)
+        g1 = optimize_cutlist(g1p, stock_sheet=stock, kerf=3.2)
+        g2 = optimize_cutlist(g2p, stock_sheet=stock, kerf=3.2)
+        assert g1.sheets_used == 2
+        html = generate_sheet_layout_html(
+            [("g1", g1p, g1), ("g2", g2p, g2)],
+            cabinet_name="num_test", kerf=3.2)
+        assert "Sheet #1 " in html and "Sheet #2 " in html
+        assert "Sheet #3 " in html          # group 2 continues, not resets
+        assert html.count("Sheet #") == 3
+        assert "(#1–#2)" in html and "(#3–#3)" in html or "(#3)" in html

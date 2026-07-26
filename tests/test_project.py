@@ -679,7 +679,8 @@ class TestProjectLibrary:
         data = json.loads(_run(_tool_generate_project_cutlist(
             {"project_name": "lib_solo"}
         ))[0].text)
-        assert data["cutlist_csv"].splitlines()[0].startswith("Name,")
+        # (ID column added Jul 2026 — still no Project column when solo.)
+        assert data["cutlist_csv"].splitlines()[0].startswith("ID,Name,")
         assert all("project" not in p for p in data["panels_summary"])
         assert all("by_project" not in h for h in data["hardware_bom"])
 

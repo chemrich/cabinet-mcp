@@ -78,16 +78,124 @@ _PALETTE = [
 # Per-project colours for multi-project batch layouts — Okabe–Ito palette
 # (colour-blind safe, mutually distinguishable). Assigned by order of first
 # appearance in the batch, so colours are stable for a given project order.
+# Pastel tints (base + 60% toward white) of the Okabe–Ito hues: the full-
+# saturation originals were too dark for the black panel labels once printed
+# (Charlie, Jul 2026 — "the green" #009E73 especially). Hue identity and
+# ordering preserved; the red dashed cut lines are a separate fixed colour
+# (#c0392b) and are deliberately NOT pastel.
 _PROJECT_PALETTE = (
-    "#E69F00",  # orange
-    "#56B4E9",  # sky blue
-    "#009E73",  # bluish green
-    "#F0E442",  # yellow
-    "#0072B2",  # blue
-    "#D55E00",  # vermillion
-    "#CC79A7",  # reddish purple
-    "#999999",  # grey
+    "#F5D999",  # orange       (base #E69F00)
+    "#BBE1F6",  # sky blue     (base #56B4E9)
+    "#99D8C7",  # bluish green (base #009E73)
+    "#F9F4B3",  # yellow       (base #F0E442)
+    "#99C7E0",  # blue         (base #0072B2)
+    "#EEBF99",  # vermillion   (base #D55E00)
+    "#EBC9DC",  # reddish purple (base #CC79A7)
+    "#D6D6D6",  # grey         (base #999999)
 )
+
+
+def _inch_frac(mm: float) -> str:
+    """mm as fractional inches to the nearest 1/32, reduced (e.g. '12 3/4').
+
+    Charlie's shop annotation (Jul 2026): cut sheets carry metric AND
+    fractional imperial. Whole inches drop the fraction ('48'); values
+    under 1 in drop the whole part ('23/32').
+    """
+    from math import gcd
+    n32 = round(mm / 25.4 * 32)
+    whole, num = divmod(n32, 32)
+    if num == 0:
+        return str(whole)
+    g = gcd(num, 32)
+    frac = f"{num // g}/{32 // g}"
+    return f"{whole} {frac}" if whole else frac
+
+
+#: Nominal imperial names for common sheet thicknesses (trade names, not
+#: exact conversions — 18 mm ply is "3/4 inch" at the yard).
+_NOMINAL_SHEET_INCHES = {18: '3/4"', 15: '5/8"', 12: '1/2"', 9: '3/8"', 6: '1/4"'}
+
+
+def _thickness_imperial(t: float) -> str:
+    """Nominal imperial label for common sheet thicknesses, else exact frac."""
+    frac = _NOMINAL_SHEET_INCHES.get(int(round(t)))
+    return frac if frac else _inch_frac(t) + '\"'
+
+
+#: Panel-name prefix → identifier code. Order matters: longest/most
+#: specific first ("drawer_box_side" must map to DB, not S).
+_PART_ID_CODES = (
+    ("drawer_box", "DB"),
+    ("false_front", "FF"),
+    ("door", "DR"),
+    ("column_divider", "CD"),
+    ("shelf", "SH"),
+    ("worktop", "WT"),
+    ("back", "BK"),
+    ("side", "S"),
+    ("bottom", "B"),
+    ("top", "T"),
+)
+
+
+def _part_code(name: str) -> str:
+    for prefix, code in _PART_ID_CODES:
+        if name.startswith(prefix):
+            return code
+    return "P"
+
+
+def assign_part_ids(panels: list["CutlistPanel"]) -> dict[str, str]:
+    """Assign matchable row IDs like 'A-DB1' in place; return {source: letter}.
+
+    Charlie's convention (Jul 2026): letter = project (A, B, … by first
+    appearance), code = part family, number = row sequence within that
+    project+family. Single-project rows (no source) drop the letter.
+    The same panel objects flow into CSV, tables, and the layout groups,
+    so every output shows the same ID.
+    """
+    letters: dict[str, str] = {}
+    for pl in panels:
+        if pl.source and pl.source not in letters:
+            letters[pl.source] = chr(ord("A") + len(letters) % 26)
+    counters: dict[tuple[str, str], int] = {}
+    for pl in panels:
+        letter = letters.get(pl.source, "")
+        code = _part_code(pl.name)
+        counters[(letter, code)] = counters.get((letter, code), 0) + 1
+        seq = counters[(letter, code)]
+        pl.part_id = (f"{letter}-" if letter else "") + f"{code}{seq}"
+    return letters
+
+
+def _source_letters_from_groups(groups) -> dict:
+    """{source: letter} recovered from the assigned part IDs in the groups."""
+    letters: dict[str, str] = {}
+    for _, panels, _opt in groups:
+        for pl in panels:
+            if pl.source and pl.source not in letters and "-" in pl.part_id:
+                letters[pl.source] = pl.part_id.split("-", 1)[0]
+    return letters
+
+
+def _group_id_map(panels: list["CutlistPanel"]) -> dict:
+    """(source, name, sorted-dims) → part_id, for placement lookup within a
+    single layout group (uniform thickness/material, so the key is unique)."""
+    out = {}
+    for pl in panels:
+        key = (pl.source, pl.name,
+               round(min(pl.length, pl.width), 1),
+               round(max(pl.length, pl.width), 1))
+        out[key] = pl.part_id
+    return out
+
+
+def _placement_id(id_map: dict, pl: "Placement") -> str:
+    key = (pl.source, pl.panel_name,
+           round(min(pl.placed_length, pl.placed_width), 1),
+           round(max(pl.placed_length, pl.placed_width), 1))
+    return id_map.get(key, "")
 
 
 def _source_colour(source: str, source_order: list[str]) -> str:
@@ -132,6 +240,10 @@ class CutlistPanel:
     # identical panels from different projects stay distinct, labeled rows;
     # sheet optimization still pools everything, so no material is wasted.
     source: str = ""
+    # Row identifier for matching list rows to cut-sheet graphics, e.g.
+    # "A-DB1" (project A, drawer-box row 1). Assigned by assign_part_ids()
+    # after consolidation; single-project runs drop the letter ("DB1").
+    part_id: str = ""
 
 
 @dataclass
@@ -361,7 +473,7 @@ def to_csv(panels: list[CutlistPanel]) -> str:
     writer = csv.writer(output)
     with_project = any(p.source for p in panels)
     header = [
-        "Name", "Length (mm)", "Width (mm)", "Thickness (mm)",
+        "ID", "Name", "Length (mm)", "Width (mm)", "Thickness (mm)",
         "Quantity", "Grain", "Material", "Edge Band", "Notes",
     ]
     if with_project:
@@ -369,7 +481,7 @@ def to_csv(panels: list[CutlistPanel]) -> str:
     writer.writerow(header)
     for p in panels:
         row = [
-            p.name, p.length, p.width, p.thickness,
+            p.part_id, p.name, p.length, p.width, p.thickness,
             p.quantity, p.grain_direction, p.material,
             ", ".join(p.edge_band), p.notes,
         ]
@@ -1674,7 +1786,8 @@ def generate_sheet_layout_html(
         return _panel_colour(pl.panel_name)
 
     # ── SVG builder ────────────────────────────────────────────────────────────
-    def _sheet_svg(sheet: SheetStock, placements: list[Placement]) -> str:
+    def _sheet_svg(sheet: SheetStock, placements: list[Placement],
+                   id_map: dict) -> str:
         sl, sw = sheet.length, sheet.width
         # Display ~760 px wide; height scaled proportionally.
         disp_w = 760
@@ -1709,6 +1822,9 @@ def generate_sheet_layout_html(
             if p.rotated:
                 label += " ↺"
             dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f} mm"
+            pid = _placement_id(id_map, p)
+            if pid:
+                label = f"{pid} · {label}"
 
             min_dim = min(p.placed_length, p.placed_width)
             font_mm = max(min_dim * 0.10, 12)
@@ -1726,14 +1842,16 @@ def generate_sheet_layout_html(
                 f'<text x="{cx:.1f}" y="{cy_label:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{font_mm:.1f}" '
-                f'fill="{stroke}" pointer-events="none"{rot_label}>'
+                # Solid black labels — the tinted text read as washed-out on
+                # the pastel fills in print (Charlie, Jul 2026).
+                f'fill="#000" pointer-events="none"{rot_label}>'
                 f'{_esc(label)}</text>'
             )
             out.append(
                 f'<text x="{cx:.1f}" y="{cy_dim:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{dim_font:.1f}" '
-                f'fill="{stroke}" opacity="0.7" pointer-events="none"{rot_dim}>'
+                f'fill="#000" pointer-events="none"{rot_dim}>'
                 f'{_esc(dim_text)}</text>'
             )
 
@@ -1844,9 +1962,15 @@ def generate_sheet_layout_html(
     def _esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    src_letters = _source_letters_from_groups(groups)
+
     # ── Build tab HTML ─────────────────────────────────────────────────────────
     tab_buttons: list[str] = []
     tab_panes: list[str] = []
+    # Globally unique sheet number across ALL groups, in generation order —
+    # Charlie pencils it on each physical sheet's edge (Jul 2026). The PDF
+    # renderer iterates groups/sheets in the same order, so numbers agree.
+    global_sheet_no = 0
 
     for tab_idx, (label, _panels, opt) in enumerate(groups):
         active = "active" if tab_idx == 0 else ""
@@ -1857,19 +1981,41 @@ def generate_sheet_layout_html(
         )
 
         sheets_count = opt.sheets_used
+        id_map = _group_id_map(_panels)
         by_sheet: dict[int, list[Placement]] = {}
         for p in opt.placements:
             by_sheet.setdefault(p.sheet_index, []).append(p)
 
         sheet_svgs: list[str] = []
+        group_first_no = global_sheet_no + 1
         for si in sorted(by_sheet.keys()):
+            global_sheet_no += 1
+            # Per-sheet project key — only the projects cut from THIS sheet.
+            sheet_key = ""
+            if project_mode:
+                on_sheet: list[str] = []
+                for pl_ in by_sheet[si]:
+                    if pl_.source and pl_.source not in on_sheet:
+                        on_sheet.append(pl_.source)
+                if on_sheet:
+                    items = "".join(
+                        f'<span class="legend-item">'
+                        f'<span class="legend-swatch" '
+                        f'style="background:{_source_colour(src, source_order)};"></span>'
+                        f'{_esc((src_letters.get(src, "") + " · " if src_letters.get(src) else "") + src)}'
+                        f'</span>'
+                        for src in on_sheet
+                    )
+                    sheet_key = f'<div class="sheet-key">{items}</div>'
             sheet_svgs.append(
                 f'<div class="sheet-card">'
-                f'<h3>Sheet {si + 1} of {sheets_count} '
+                f'<h3>Sheet #{global_sheet_no} '
                 f'<span class="dim">'
+                f'({si + 1} of {sheets_count} in group) · '
                 f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
                 f'— {_esc(opt.stock_sheet.name)}</span></h3>'
-                f'{_sheet_svg(opt.stock_sheet, by_sheet[si])}'
+                f'{sheet_key}'
+                f'{_sheet_svg(opt.stock_sheet, by_sheet[si], id_map)}'
                 f'</div>'
             )
 
@@ -1888,7 +2034,8 @@ def generate_sheet_layout_html(
         tab_panes.append(
             f'<div class="tab-pane {active}" id="pane-{tab_idx}">'
             f'<div class="group-stats">'
-            f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} · '
+            f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} '
+            f'(#{group_first_no}–#{global_sheet_no}) · '
             f'{opt.waste_pct:.1f}% waste'
             f'</div>'
             f'{notes_html}'
@@ -1971,7 +2118,9 @@ def generate_sheet_layout_html(
     seen: dict[str, str] = {}
     if project_mode:
         for src in source_order:
-            seen[src] = _source_colour(src, source_order)
+            letter = src_letters.get(src, "")
+            label = f"{letter} · {src}" if letter else src
+            seen[label] = _source_colour(src, source_order)
     else:
         for _, panels, opt in groups:
             for p in opt.placements:
@@ -2011,6 +2160,8 @@ h1{{font-size:1.3rem;font-weight:600;margin-bottom:12px}}
 .warn{{color:#b55;font-size:.85rem;margin-bottom:8px}}
 .legend{{margin-top:20px;padding-top:12px;border-top:1px solid #ddd}}
 .legend h2{{font-size:.85rem;font-weight:600;color:#555;margin-bottom:6px}}
+.sheet-key{{margin:2px 0 8px;font-size:.78rem;color:#333}}
+.sheet-key .legend-swatch{{width:11px;height:11px}}
 .legend-item{{display:inline-flex;align-items:center;gap:5px;
   margin:3px 8px 3px 0;font-size:.78rem;color:#333}}
 .legend-swatch{{width:14px;height:14px;border-radius:2px;
@@ -2147,9 +2298,10 @@ def generate_sheet_layout_pdf(
         f"Generated {_date.today().isoformat()} · Kerf: {kerf} mm", norm_sty
     ))
     if project_mode:
+        pdf_letters = _source_letters_from_groups(groups)
         legend = " &nbsp;·&nbsp; ".join(
             f'<font color="{_source_colour(s, source_order)}">◼</font> '
-            f"{_xml_escape(s)}"
+            f"{_xml_escape((pdf_letters.get(s, '') + ' · ' if pdf_letters.get(s) else '') + s)}"
             for s in source_order
         )
         story.append(_Paragraph(f"Projects: {legend}", norm_sty))
@@ -2157,17 +2309,20 @@ def generate_sheet_layout_pdf(
 
     # Sheet goods table
     story.append(_Paragraph("Sheet Goods Required", h1_sty))
-    sg_data = [["Material", "Thickness", "Sheets", "Waste", "Unplaced"]]
+    sg_data = [["Material", "Thickness", "Sheets", "Sheet #s", "Waste", "Unplaced"]]
+    _no = 0
     for label, _pnls, result in groups:
         mat = result.stock_sheet.material.replace("_", " ").title()
+        first, _no = _no + 1, _no + result.sheets_used
         sg_data.append([
             f"{label}  ({mat})",
             f"{result.stock_sheet.thickness:.0f} mm",
             str(result.sheets_used),
+            f"#{first}–#{_no}" if _no > first else f"#{first}",
             f"{result.waste_pct:.1f}%",
             str(len(result.unplaced)) if result.unplaced else "—",
         ])
-    sg_col_w = [CW * x for x in (0.42, 0.16, 0.14, 0.14, 0.14)]
+    sg_col_w = [CW * x for x in (0.36, 0.14, 0.10, 0.14, 0.13, 0.13)]
     sg_tbl = _Table(sg_data, colWidths=sg_col_w)
     sg_tbl.setStyle(_tbl_style())
     story.append(sg_tbl)
@@ -2180,16 +2335,26 @@ def generate_sheet_layout_pdf(
         all_panels.extend(pnls)
     all_panels.sort(key=lambda p: (p.source, p.thickness, p.material, p.name))
 
-    parts_header = ["Part Name", "L (mm)", "W (mm)", "T (mm)", "Qty", "Material", "Edge Band", "Notes"]
+    parts_header = ["ID", "Part Name", "L (mm/in)", "W (mm/in)", "T (mm/in)",
+                    "Qty", "Material", "Edge Band", "Notes"]
     if project_mode:
         parts_header = ["Project"] + parts_header
+    # Metric BOLD, imperial normal in parentheses (Charlie, Jul 2026).
+    dim_cell_sty = _ParagraphStyle(
+        "dimcell", parent=norm_sty, fontSize=6.5, leading=8)
+
+    def _dim_cell(mm_text: str, imp_text: str):
+        return _Paragraph(
+            f"<b>{mm_text}</b> ({_xml_escape(imp_text)})", dim_cell_sty)
+
     parts_data = [parts_header]
     for p in all_panels:
         row = [
+            p.part_id or "—",
             p.name,
-            f"{p.length:.0f}",
-            f"{p.width:.0f}",
-            f"{p.thickness:.0f}",
+            _dim_cell(f"{p.length:.0f}", _inch_frac(p.length) + '\"'),
+            _dim_cell(f"{p.width:.0f}", _inch_frac(p.width) + '\"'),
+            _dim_cell(f"{p.thickness:.0f}", _thickness_imperial(p.thickness)),
             str(p.quantity),
             p.material.replace("_", " ").title(),
             ", ".join(p.edge_band) if p.edge_band else "—",
@@ -2199,9 +2364,11 @@ def generate_sheet_layout_pdf(
             row = [p.source or "—"] + row
         parts_data.append(row)
     if project_mode:
-        parts_col_w = [CW * x for x in (0.13, 0.18, 0.07, 0.07, 0.06, 0.05, 0.13, 0.11, 0.20)]
+        parts_col_w = [CW * x for x in (0.11, 0.07, 0.15, 0.09, 0.09, 0.07,
+                                        0.04, 0.11, 0.09, 0.18)]
     else:
-        parts_col_w = [CW * x for x in (0.22, 0.08, 0.08, 0.07, 0.05, 0.16, 0.12, 0.22)]
+        parts_col_w = [CW * x for x in (0.08, 0.18, 0.10, 0.10, 0.08, 0.04,
+                                        0.14, 0.10, 0.18)]
     parts_tbl = _Table(parts_data, colWidths=parts_col_w, repeatRows=1)
     parts_tbl.setStyle(_tbl_style(small=True))
     story.append(parts_tbl)
@@ -2211,17 +2378,22 @@ def generate_sheet_layout_pdf(
     CUT_TABLE_RESERVE = 50 * _rl_mm # space below drawing for cut-sequence table (~8 rows)
     DRAW_H = PAGE[1] - 2 * MARGIN - HEADER_RESERVE - CUT_TABLE_RESERVE
 
+    pdf_src_letters = _source_letters_from_groups(groups)
+    pdf_sheet_no = 0
+
     for group_label, _pnls, result in groups:
         by_sheet: dict[int, list[Placement]] = {}
         for pl in result.placements:
             by_sheet.setdefault(pl.sheet_index, []).append(pl)
 
         for sheet_idx in sorted(by_sheet):
+            pdf_sheet_no += 1
             story.append(_PageBreak())
             pls = by_sheet[sheet_idx]
 
             story.append(_Paragraph(
-                f"{_xml_escape(group_label)} — Sheet {sheet_idx + 1} of {result.sheets_used}",
+                f"Sheet #{pdf_sheet_no} — {_xml_escape(group_label)} "
+                f"({sheet_idx + 1} of {result.sheets_used})",
                 h1_sty,
             ))
             warn = ""
@@ -2229,13 +2401,30 @@ def generate_sheet_layout_pdf(
                 warn = f" · ⚠ {len(result.grain_mismatched)} grain mismatch(es)"
             story.append(_Paragraph(
                 f"{result.stock_sheet.length:.0f} × {result.stock_sheet.width:.0f} mm "
+                + "(" + _inch_frac(result.stock_sheet.length) + '\" × '
+                + _inch_frac(result.stock_sheet.width) + '\") '
                 f"· Waste: {result.waste_pct:.1f}%{warn}",
                 norm_sty,
             ))
+            if project_mode:
+                on_sheet: list[str] = []
+                for pl_ in pls:
+                    if pl_.source and pl_.source not in on_sheet:
+                        on_sheet.append(pl_.source)
+                if on_sheet:
+                    key = " &nbsp;·&nbsp; ".join(
+                        f'<font color="{_source_colour(src, source_order)}">◼</font> '
+                        + _xml_escape(
+                            (pdf_src_letters.get(src, "") + " · "
+                             if pdf_src_letters.get(src) else "") + src)
+                        for src in on_sheet
+                    )
+                    story.append(_Paragraph(f"On this sheet: {key}", norm_sty))
             story.append(_Spacer(1, 2 * _rl_mm))
 
             story.append(_SheetDrawingFlowable(
                 pls, result.stock_sheet, kerf, CW, DRAW_H, fill_for=_fill_for,
+                id_map=_group_id_map(_pnls),
             ))
 
             # Cut-sequence table
@@ -2253,7 +2442,10 @@ def generate_sheet_layout_pdf(
                     cut_data.append([
                         str(seq),
                         "Rip" if orient == "h" else "Cross-cut",
-                        f"{min(dim_a, dim_b):.0f} mm",
+                        _Paragraph(
+                            f"<b>{min(dim_a, dim_b):.0f} mm</b> ("
+                            + _xml_escape(_inch_frac(min(dim_a, dim_b)))
+                            + '\")', norm_sty),
                     ])
             if len(cut_data) > 1:
                 cut_col_w = [CW * x for x in (0.06, 0.20, 0.74)]
@@ -2340,6 +2532,7 @@ if _REPORTLAB_AVAILABLE:
             avail_w: float,
             avail_h: float,
             fill_for=None,
+            id_map=None,
         ) -> None:
             super().__init__()
             self._pl = placements
@@ -2350,6 +2543,7 @@ if _REPORTLAB_AVAILABLE:
             # Optional Placement → hex-colour override (batch mode colours
             # by project); default is the per-panel-name palette.
             self._fill_for = fill_for or (lambda p: _panel_colour(p.panel_name))
+            self._id_map = id_map or {}
 
         def draw(self) -> None:
             canvas = self.canv
@@ -2392,6 +2586,9 @@ if _REPORTLAB_AVAILABLE:
                 label = p.panel_name[:20] + ("…" if len(p.panel_name) > 20 else "")
                 if p.rotated:
                     label += " ↺"
+                pid = _placement_id(self._id_map, p)
+                if pid:
+                    label = f"{pid} · {label}"
                 dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f}mm"
 
                 min_dim_pt = min(pw_pt, ph_pt)
@@ -2406,7 +2603,8 @@ if _REPORTLAB_AVAILABLE:
                 canvas.translate(cx_pt, cy_pt)
                 if tall:
                     canvas.rotate(90)
-                canvas.setFillColor(_HexColor(sc))
+                # Solid black labels (matches the HTML renderer).
+                canvas.setFillColor(_HexColor("#000000"))
                 canvas.setFont("Helvetica", font_pt)
                 canvas.drawCentredString(0, font_pt * 0.25, label)
                 canvas.setFont("Helvetica", dim_pt)
