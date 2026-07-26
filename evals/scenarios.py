@@ -8895,6 +8895,64 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="edge_banding_hardwood_core_shrink",
+    prompt=(
+        "Hardwood-band a tenon cabinet's exposed edges (1/4\" oak strips): "
+        "cores shrink so finished dims hold, and the BOM gains a "
+        "rip-from-stock banding line; hot-melt mode instead orders "
+        "priced iron-on rolls without touching dims."
+    ),
+    tags=["edge_band", "cutlist", "project", "evaluation"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_edgeband", "overwrite": True,
+                  "shared": {"edge_band_mode": "hardwood",
+                             "edge_band_thickness_mm": 6.4,
+                             "face_material": "rift_white_oak_ply",
+                             "carcass_material": "rift_white_oak_ply"},
+                  "cabinets": [
+                      {"name": "a", "config": {
+                          "width": 800, "height": 700, "depth": 457,
+                          "drawer_config": [[300, "drawer"],
+                                            [364, "drawer"]]}},
+                  ]},
+            label="save project with hardwood banding token",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_edgeband"},
+            label="cores shrink, banding line appears",
+            assertions=[
+                # side core: depth 457 − 6.4 band on the front edge.
+                Assertion("panels_summary.0.name", Op.EQ, "side"),
+                Assertion("panels_summary.0.width_mm", Op.APPROX, 450.6),
+                Assertion("panels_summary.1.name", Op.EQ, "bottom"),
+                # bottom core: 457 − 6 back − 6.4 band.
+                Assertion("panels_summary.1.width_mm", Op.APPROX, 444.6),
+                # Banding line lands after the standard hardware for this
+                # fixed project: unpriced rip-from-stock strips, 28 ft.
+                Assertion("hardware_bom.7.category", Op.EQ, "edge_band"),
+                Assertion("hardware_bom.7.name", Op.CONTAINS, "white oak"),
+                Assertion("hardware_bom.7.pieces_needed", Op.EQ, 28),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 800, "height": 700, "depth": 457,
+                  "edge_band_mode": "hot_melt",
+                  "edge_band_thickness_mm": 6.4,
+                  "drawer_config": [[300, "drawer"], [364, "drawer"]]},
+            label="6.4mm hot-melt draws a warning",
+            assertions=[Assertion("summary.warnings", Op.GTE, 1)],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

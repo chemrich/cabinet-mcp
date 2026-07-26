@@ -60,4 +60,4 @@ uv run python -m evals --name overflow_drawer_stack --verbose   # your scenario
 uv run python -m evals                            # full suite stays green
 ```
 
-Baseline is 298 scenarios / 1094 assertions; expect your additions to raise both counts. Remember evals run in **lite CI too** — CadQuery-only tools (visualize_*) cannot be scenario-covered at all: the harness treats an `ERROR:`-prefixed response as a failed call (there is no expect-error mechanism), so stick to tools with pure-Python paths. Cutlist scenarios must pass an `eval_`-prefixed `name` — the default stem ("cabinet") overwrites real user files under ~/.cabinet-mcp/cutlists/.
+Baseline is 299 scenarios / 1103 assertions; expect your additions to raise both counts. Remember evals run in **lite CI too** — CadQuery-only tools (visualize_*) cannot be scenario-covered at all: the harness treats an `ERROR:`-prefixed response as a failed call (there is no expect-error mechanism), so stick to tools with pure-Python paths. Cutlist scenarios must pass an `eval_`-prefixed `name` — the default stem ("cabinet") overwrites real user files under ~/.cabinet-mcp/cutlists/.
