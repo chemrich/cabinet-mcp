@@ -2250,6 +2250,16 @@ def generate_sheet_layout_pdf(
                                 fontSize=8.5, leading=11)
     small_sty = _ParagraphStyle("cs", parent=styles["Normal"],
                                 fontSize=7.5, leading=10)
+    # Free-text table cells (material names, notes, per-project breakdowns)
+    # must be Paragraphs: reportlab never wraps plain strings, so long text
+    # overprints neighbouring columns or runs off the page.
+    cell_sty  = _ParagraphStyle("ccell", parent=styles["Normal"],
+                                fontSize=7.5, leading=9)
+    cell_sm_sty = _ParagraphStyle("ccellsm", parent=styles["Normal"],
+                                  fontSize=6.5, leading=8)
+
+    def _wrap_cell(text: str, small: bool = False):
+        return _Paragraph(_xml_escape(text), cell_sm_sty if small else cell_sty)
 
     def _tbl_style(small: bool = False, align_right_from: int = 1) -> _TableStyle:
         fs = 7.5 if small else 9
@@ -2262,6 +2272,7 @@ def generate_sheet_layout_pdf(
             ("GRID",          (0, 0), (-1, -1), 0.5, _HexColor("#cccccc")),
             ("ALIGN",         (0, 0), (0,  -1), "LEFT"),
             ("ALIGN",         (align_right_from, 0), (-1, -1), "CENTER"),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("TOPPADDING",    (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ("LEFTPADDING",   (0, 0), (-1, -1), 5),
@@ -2315,7 +2326,7 @@ def generate_sheet_layout_pdf(
         mat = result.stock_sheet.material.replace("_", " ").title()
         first, _no = _no + 1, _no + result.sheets_used
         sg_data.append([
-            f"{label}  ({mat})",
+            _wrap_cell(f"{label}  ({mat})"),
             f"{result.stock_sheet.thickness:.0f} mm",
             str(result.sheets_used),
             f"#{first}–#{_no}" if _no > first else f"#{first}",
@@ -2351,17 +2362,17 @@ def generate_sheet_layout_pdf(
     for p in all_panels:
         row = [
             p.part_id or "—",
-            p.name,
+            _wrap_cell(p.name, small=True),
             _dim_cell(f"{p.length:.0f}", _inch_frac(p.length) + '\"'),
             _dim_cell(f"{p.width:.0f}", _inch_frac(p.width) + '\"'),
             _dim_cell(f"{p.thickness:.0f}", _thickness_imperial(p.thickness)),
             str(p.quantity),
-            p.material.replace("_", " ").title(),
+            _wrap_cell(p.material.replace("_", " ").title(), small=True),
             ", ".join(p.edge_band) if p.edge_band else "—",
-            p.notes or "—",
+            _wrap_cell(p.notes, small=True) if p.notes else "—",
         ]
         if project_mode:
-            row = [p.source or "—"] + row
+            row = [_wrap_cell(p.source, small=True) if p.source else "—"] + row
         parts_data.append(row)
     if project_mode:
         parts_col_w = [CW * x for x in (0.11, 0.07, 0.15, 0.09, 0.09, 0.07,
@@ -2483,23 +2494,23 @@ def generate_sheet_layout_pdf(
             line_total = round(h.packs_to_order * unit, 2)
             hw_total += line_total
             row = [
-                h.category.title(),
-                h.name,
-                h.brand,
-                h.model_number,
+                _wrap_cell(h.category.title(), small=True),
+                _wrap_cell(h.name, small=True),
+                _wrap_cell(h.brand, small=True),
+                _wrap_cell(h.model_number, small=True),
                 str(h.pieces_needed),
                 str(h.pack_quantity),
                 str(h.packs_to_order),
                 f"${unit:.2f}" if unit else "—",
                 f"${line_total:.2f}" if line_total else "—",
                 str(h.leftover) if h.leftover else "—",
-                h.notes or "—",
+                _wrap_cell(h.notes, small=True) if h.notes else "—",
             ]
             if hw_project_mode:
                 breakdown = ", ".join(
                     f"{src} ×{n}" for src, n in h.source_counts.items()
-                ) or "—"
-                row.insert(4, breakdown)
+                )
+                row.insert(4, _wrap_cell(breakdown, small=True) if breakdown else "—")
             hw_data.append(row)
         total_pad = [""] * (5 if hw_project_mode else 4)
         hw_data.append(total_pad + ["", "", "", "Total:", f"${hw_total:.2f}", "", ""])
@@ -2599,16 +2610,42 @@ if _REPORTLAB_AVAILABLE:
                 cy_pt = py_pt + ph_pt / 2
                 tall  = p.placed_width > p.placed_length
 
+                # Fit text to the panel's drawn extent: font size above is
+                # derived from the short side only, so a long label on a
+                # narrow panel spills into neighbours (or off the sheet)
+                # unless measured and shrunk/truncated here.
+                along_pt = (ph_pt if tall else pw_pt) - 4.0
+                across_pt = (pw_pt if tall else ph_pt)
+                while (font_pt > 4.0
+                       and canvas.stringWidth(label, "Helvetica", font_pt) > along_pt):
+                    font_pt -= 0.5
+                if canvas.stringWidth(label, "Helvetica", font_pt) > along_pt:
+                    while (len(label) > 1
+                           and canvas.stringWidth(label + "…", "Helvetica",
+                                                  font_pt) > along_pt):
+                        label = label[:-1]
+                    label += "…"
+                show_label = along_pt > 0 and len(label.rstrip("…")) >= 2
+                show_dims = (
+                    show_label
+                    and canvas.stringWidth(dim_text, "Helvetica", dim_pt) <= along_pt
+                    and across_pt >= font_pt * 1.5 + dim_pt * 2.6
+                )
+
                 canvas.saveState()
                 canvas.translate(cx_pt, cy_pt)
                 if tall:
                     canvas.rotate(90)
                 # Solid black labels (matches the HTML renderer).
                 canvas.setFillColor(_HexColor("#000000"))
-                canvas.setFont("Helvetica", font_pt)
-                canvas.drawCentredString(0, font_pt * 0.25, label)
-                canvas.setFont("Helvetica", dim_pt)
-                canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
+                if show_label:
+                    canvas.setFont("Helvetica", font_pt)
+                    if show_dims:
+                        canvas.drawCentredString(0, font_pt * 0.25, label)
+                        canvas.setFont("Helvetica", dim_pt)
+                        canvas.drawCentredString(0, -dim_pt * 1.6, dim_text)
+                    else:
+                        canvas.drawCentredString(0, -font_pt * 0.35, label)
                 canvas.restoreState()
 
             # Guillotine cut lines
@@ -2652,25 +2689,37 @@ if _REPORTLAB_AVAILABLE:
                     canvas.setFont("Helvetica-Bold", max(4.0, label_r_pt * 1.1))
                     canvas.drawCentredString(bx, by - label_r_pt * 0.38, str(seq))
 
-                    # Dimension label on the shorter side of the cut
+                    # Dimension label on the shorter side of the cut, on a
+                    # solid white chip so it stays legible over panel fills
+                    # and labels (Charlie, Jul 2026).
                     short_dim = min(dim_a, dim_b)
                     dim_label = f"{short_dim:.0f}mm"
                     dim_font_pt = max(4.0, label_r_pt * 0.85)
                     pad_pt = label_r_pt * 1.8
+                    dim_w_pt = canvas.stringWidth(dim_label, "Helvetica", dim_font_pt)
 
-                    canvas.setFillColor(lc)
-                    canvas.setFont("Helvetica", dim_font_pt)
+                    def _chip_and_text(x_pt: float, y_pt: float) -> None:
+                        # x_pt/y_pt = text baseline origin in the current frame
+                        canvas.setFillColor(_HexColor("#ffffff"))
+                        canvas.roundRect(x_pt - 1.5, y_pt - dim_font_pt * 0.30,
+                                         dim_w_pt + 3.0, dim_font_pt * 1.35,
+                                         1.5, fill=1, stroke=0)
+                        canvas.setFillColor(lc)
+                        canvas.setFont("Helvetica", dim_font_pt)
+                        canvas.drawString(x_pt, y_pt, dim_label)
+
                     if orient == "h":
                         tx = bx + label_r_pt * 1.5
                         ty = by + (pad_pt if dim_a > dim_b else -pad_pt)
-                        canvas.drawString(tx, ty, dim_label)
+                        _chip_and_text(tx, ty)
                     else:
-                        tx = bx
-                        ty = by + pad_pt
+                        # Rotated label starts clear of the marker circle —
+                        # centring it at the circle's edge hid the leading
+                        # digits under the circle.
                         canvas.saveState()
-                        canvas.translate(tx, ty)
+                        canvas.translate(bx, by + label_r_pt * 1.5)
                         canvas.rotate(90)
-                        canvas.drawCentredString(0, 0, dim_label)
+                        _chip_and_text(0, -dim_font_pt * 0.35)
                         canvas.restoreState()
 
             # Bottom ruler
