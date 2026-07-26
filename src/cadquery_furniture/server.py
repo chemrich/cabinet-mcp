@@ -453,6 +453,19 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -672,6 +685,19 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
+                        ),
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -820,6 +846,19 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -1089,6 +1128,19 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1260,6 +1312,19 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -1585,6 +1650,19 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1705,6 +1783,19 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -1901,6 +1992,19 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "carcass_corner_style": {
+                        "type": "string",
+                        "enum": ["butt", "miter"],
+                        "default": "butt",
+                        "description": (
+                            "'miter': the four exterior corners are 45° "
+                            "miters — top/bottom cut to FULL exterior "
+                            "width (long-point dims), all four panels "
+                            "beveled; divider/shelf joints stay butt "
+                            "tenons. Floating-tenon carcasses only. Also "
+                            "a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -3154,6 +3258,10 @@ def _raw_panels_for_cabinet(
     # (~0.6 mm veneer) leaves cut dims alone.
     band_t = (float(getattr(cfg, "edge_band_thickness_mm", 0.6))
               if getattr(cfg, "edge_band_mode", "none") == "hardwood" else 0.0)
+    miter = getattr(cfg, "carcass_corner_style", "butt") == "miter"
+    # Mitered corners: top/bottom run to FULL exterior width (long-point),
+    # and all four exterior panels get 45° bevels on their ends.
+    tb_length = cfg.width if miter else interior_width
 
     def _core_note(finished_l: float, finished_w: float, edges: str) -> str:
         if not band_t:
@@ -3161,26 +3269,36 @@ def _raw_panels_for_cabinet(
         return (f"core — band {edges} to finished "
                 f"{finished_l:g}×{finished_w:g}")
 
+    def _notes(*parts: str) -> str:
+        return "; ".join(p for p in parts if p)
+
+    side_bevel = "45° bevels top+bottom ends (long-point dims)" if miter else ""
+    tb_bevel = "45° bevels both ends (long-point dims)" if miter else ""
+
     raw_carcass: list[CutlistPanel] = [
         CutlistPanel(name="side", length=cfg.height, width=cfg.depth - band_t,
                      thickness=cfg.side_thickness, quantity=2,
                      grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"],
-                     notes=_core_note(cfg.height, cfg.depth, "front edge")),
-        CutlistPanel(name="bottom", length=interior_width,
+                     notes=_notes(side_bevel,
+                                  _core_note(cfg.height, cfg.depth,
+                                             "front edge"))),
+        CutlistPanel(name="bottom", length=tb_length,
                      width=interior_depth - band_t,
                      thickness=cfg.bottom_thickness, quantity=1,
                      grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"],
-                     notes=_core_note(interior_width, interior_depth,
-                                      "front edge")),
-        CutlistPanel(name="top", length=interior_width,
+                     notes=_notes(tb_bevel,
+                                  _core_note(tb_length, interior_depth,
+                                             "front edge"))),
+        CutlistPanel(name="top", length=tb_length,
                      width=interior_depth - band_t,
                      thickness=cfg.top_thickness, quantity=1,
                      grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"],
-                     notes=_core_note(interior_width, interior_depth,
-                                      "front edge")),
+                     notes=_notes(tb_bevel,
+                                  _core_note(tb_length, interior_depth,
+                                             "front edge"))),
     ]
     for i, _ in enumerate(cfg.fixed_shelf_positions):
         raw_carcass.append(CutlistPanel(

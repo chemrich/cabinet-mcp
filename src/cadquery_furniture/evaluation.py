@@ -652,6 +652,69 @@ def check_edge_banding(cab_cfg: CabinetConfig) -> list[Issue]:
     return issues
 
 
+def check_miter_corners(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Validate mitered exterior corners.
+
+    Miters need equal mating thicknesses, floating-tenon joinery (the only
+    reinforcement modeled), and stock thick enough for the carcass tenon's
+    plunge depth in a 45° face (solved by
+    ``joinery.miter_mortise_placement``).
+    """
+    issues: list[Issue] = []
+    style = getattr(cab_cfg, "carcass_corner_style", "butt")
+    if style == "butt":
+        return issues
+    if style != "miter":
+        issues.append(Issue(
+            check="miter_corners",
+            severity=Severity.ERROR,
+            message=(f"Unknown carcass_corner_style {style!r} — "
+                     "use 'butt' or 'miter'."),
+        ))
+        return issues
+
+    from .joinery import (
+        CarcassJoinery as _CJ,
+        carcass_domino_size_for_thickness,
+        get_domino_size,
+        miter_mortise_placement,
+    )
+
+    if cab_cfg.carcass_joinery != _CJ.FLOATING_TENON:
+        issues.append(Issue(
+            check="miter_corners",
+            severity=Severity.ERROR,
+            message=("Mitered corners are modeled for floating-tenon "
+                     "carcasses only; this cabinet uses "
+                     f"'{cab_cfg.carcass_joinery.value}'."),
+        ))
+        return issues
+
+    t = cab_cfg.side_thickness
+    if not (t == cab_cfg.top_thickness == cab_cfg.bottom_thickness):
+        issues.append(Issue(
+            check="miter_corners",
+            severity=Severity.ERROR,
+            message=(f"Mitered corners need equal mating thicknesses; got "
+                     f"side {t:g} / top {cab_cfg.top_thickness:g} / "
+                     f"bottom {cab_cfg.bottom_thickness:g} mm."),
+            value=t,
+        ))
+        return issues
+
+    size = get_domino_size(carcass_domino_size_for_thickness(t))
+    try:
+        miter_mortise_placement(size, t)
+    except ValueError as exc:
+        issues.append(Issue(
+            check="miter_corners",
+            severity=Severity.ERROR,
+            message=str(exc),
+            value=t,
+        ))
+    return issues
+
+
 def check_carcass_joinery(cab_cfg: CabinetConfig) -> list[Issue]:
     """Run all carcass-joinery checks appropriate for the selected method.
 
@@ -1886,6 +1949,7 @@ def evaluate_cabinet(
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_door_overlay_collisions(cab_cfg))
     all_issues.extend(check_edge_banding(cab_cfg))
+    all_issues.extend(check_miter_corners(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     if cab_cfg.columns:
         # Run carcass clearance checks per-column using correct per-column width.
