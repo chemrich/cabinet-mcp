@@ -1478,18 +1478,24 @@ def joinery_lines_for_cabinet_config(
     n_joints = 4 + 2 * n_dividers + 2 * global_shelves + 2 * col_shelves
 
     if joinery == CarcassJoinery.FLOATING_TENON:
-        spec = DominoSpec(size_key="8x40", max_spacing=150.0)
+        from .joinery import (
+            DOMINO_PACK_QUANTITIES, carcass_domino_size_for_thickness,
+        )
+        # Tenon size follows carcass stock thickness: 5×30 for ≤19 mm
+        # (3/4" ply), 8×40 above that.
+        size_key = carcass_domino_size_for_thickness(side_t)
+        size = get_domino_size(size_key)
+        spec = DominoSpec(size_key=size_key, max_spacing=150.0)
         per_joint = spec.count_for_span(interior_depth)
         total = n_joints * per_joint
-        # Domino 8×40 mm — Festool 493298, 780-piece bulk pack
         return consolidate_hardware_lines([HardwareLine(
-            sku="festool-493298",
+            sku=f"festool-{size.part_number}",
             category="joinery",
-            name="Festool Domino 8×40 mm",
+            name=f"Festool Domino {size_key.replace('x', '×')} mm",
             brand="Festool",
-            model_number="493298",
+            model_number=size.part_number,
             pieces_needed=total,
-            pack_quantity=780,
+            pack_quantity=DOMINO_PACK_QUANTITIES[size_key],
             notes=f"{per_joint} per joint × {n_joints} joints",
         )])
 

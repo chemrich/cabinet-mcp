@@ -346,7 +346,9 @@ DOMINO_SIZES: dict[str, DominoSize] = {
     "5x30": DominoSize(
         tenon_length=30, tenon_thickness=5,
         mortise_length=30.5, mortise_width=5.5, mortise_depth_per_side=15,
-        min_edge_distance=9, machine="DF 500", part_number="498889",
+        # 494938 = "D 5x30/300 BU" — verified against US Tool & Fastener and
+        # Taco Tools listings, Jul 2026 (the previous 498889 was wrong).
+        min_edge_distance=9, machine="DF 500", part_number="494938",
     ),
     "6x40": DominoSize(
         tenon_length=40, tenon_thickness=6,
@@ -690,6 +692,21 @@ class DowelSpec:
             return [start, end]
         step = (end - start) / (n - 1)
         return [start + i * step for i in range(n)]
+
+
+# Bulk-pack quantities for the carcass tenon sizes (Festool catalog packs
+# matching the part_number on each DominoSize).
+DOMINO_PACK_QUANTITIES: dict[str, int] = {"5x30": 300, "8x40": 780}
+
+
+def carcass_domino_size_for_thickness(panel_thickness: float) -> str:
+    """DOMINO_SIZES key for carcass butt joints in stock of the given thickness.
+
+    5×30 for panels up to 19 mm (3/4" plywood — Charlie's shop standard,
+    Jul 2026: ~1/3-of-stock tenon thickness, 15 mm bite each side); 8×40
+    for anything thicker.
+    """
+    return "5x30" if panel_thickness <= 19.0 else "8x40"
 
 
 # ─── Default spec instances ───────────────────────────────────────────────────
