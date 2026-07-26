@@ -8817,6 +8817,84 @@ _s(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="carcass_assembly_instructions",
+    prompt=(
+        "Two identical 2-column tenon-joined cabinets — generate carcass "
+        "assembly instructions: 5x30 dominos for 3/4\" ply, mortise centres "
+        "from the front edge, PETG dry-fit count, and a cutlist whose "
+        "divider is cut to interior height (butt construction)."
+    ),
+    tags=["assembly", "project", "joinery", "workflow"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_assembly", "overwrite": True, "cabinets": [
+                {"name": "left", "config": {
+                    "width": 800, "height": 700, "depth": 457,
+                    "columns": [
+                        {"width_mm": 373,
+                         "drawer_config": [[664, "door"]],
+                         "fixed_shelf_positions": [320]},
+                        {"width_mm": 373,
+                         "drawer_config": [[664, "door"]]},
+                    ]}},
+                {"name": "right", "config": {
+                    "width": 800, "height": 700, "depth": 457,
+                    "columns": [
+                        {"width_mm": 373,
+                         "drawer_config": [[664, "door"]],
+                         "fixed_shelf_positions": [320]},
+                        {"width_mm": 373,
+                         "drawer_config": [[664, "door"]]},
+                    ]}},
+            ]},
+            label="save a two-cabinet tenon project",
+            assertions=[Assertion("cabinet_count", Op.EQ, 2)],
+        ),
+        ToolCall(
+            tool="generate_assembly_instructions",
+            args={"project_name": "eval_assembly", "format": "html"},
+            label="generate carcass assembly instructions",
+            assertions=[
+                # Identical cabinets collapse into ONE design section ×2.
+                Assertion("designs", Op.LEN_EQ, 1),
+                Assertion("designs.0.copies", Op.EQ, 2),
+                # 3/4" ply → 5×30 rule, correct Festool PN (494938, not the
+                # old wrong 498889).
+                Assertion("designs.0.domino_size", Op.EQ, "5x30"),
+                Assertion("designs.0.festool_part_number", Op.EQ, "494938"),
+                # 4 top/bottom↔side + 2 divider + 2 col-shelf joints.
+                Assertion("designs.0.joints", Op.EQ, 8),
+                # span 448 mm → 4 tenons; first centre = min_edge_distance
+                # (9) + mortise_length/2 (15.25) from the front edge.
+                Assertion("designs.0.tenons_per_joint", Op.EQ, 4),
+                Assertion("designs.0.mortise_centers_from_front_mm.0",
+                          Op.APPROX, 24.2),
+                Assertion("designs.0.tenons_per_cabinet", Op.EQ, 32),
+                Assertion("beech_tenons_total", Op.EQ, 64),
+                # PETG prints cover ONE cabinet dry-fit, reused across copies.
+                Assertion("dry_fit_tenons_to_print", Op.EQ, 32),
+                Assertion("dry_fit_tenon_model", Op.CONTAINS, "689403"),
+                Assertion("files", Op.HAS_KEY, "html"),
+            ],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_assembly", "name": "eval_assembly"},
+            label="cutlist divider is cut to interior height",
+            assertions=[
+                # Butt construction: divider length = 700 − 18 − 18, not the
+                # dado-era full height (700).
+                Assertion("panels_summary.3.name", Op.EQ, "column_divider"),
+                Assertion("panels_summary.3.length_mm", Op.EQ, 664),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

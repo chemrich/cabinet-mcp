@@ -2163,6 +2163,49 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="generate_assembly_instructions",
+            description=textwrap.dedent("""\
+                Generate step-by-step CARCASS ASSEMBLY instructions for every
+                cabinet in a project — floating-tenon (Festool Domino)
+                construction only.
+
+                For each structurally distinct cabinet design (identical
+                cabinets collapse into one section with a ×N count) the
+                document contains: DF 500 machine settings (cutter, plunge
+                depth, fence height, tight/slotted width strategy), a joint
+                schedule with tenon counts and mortise centres measured from
+                the FRONT edge, per-panel mortise maps (SVG/PDF drawings —
+                red = face mortises, blue = edge mortises), a consumables
+                count (beech tenons plus how many PETG dry-fit tenons to
+                print), and an ordered assembly sequence in which a full
+                no-glue DRY FIT with 3D-printed reduced-size tenons
+                (printables.com model 689403) always precedes glue-up.
+
+                Tenon size follows carcass stock thickness: 5×30 for panels
+                up to 19 mm (3/4" ply), 8×40 above — matching the hardware
+                BOM. Part IDs match the project's cutlist. Files land in
+                ~/.cabinet-mcp/assembly/<project>/.
+            """),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Name of a previously persisted project (see design_project).",
+                    },
+                    "project": {
+                        "type": "object",
+                        "description": "Inline project payload — same shape as design_project input.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["html", "pdf", "both"],
+                        "default": "both",
+                    },
+                },
+            },
+        ),
+        types.Tool(
             name="visualize_project",
             description=textwrap.dedent("""\
                 Render every cabinet in a project as one 3D scene: cabinets are
@@ -2310,6 +2353,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             return await _tool_evaluate_project(arguments)
         elif name == "generate_project_cutlist":
             return await _tool_generate_project_cutlist(arguments)
+        elif name == "generate_assembly_instructions":
+            return await _tool_generate_assembly_instructions(arguments)
         elif name == "visualize_project":
             return await _tool_visualize_project(arguments)
         else:
@@ -2901,7 +2946,15 @@ def _raw_panels_for_cabinet(
         if num_dividers > 0:
             raw_carcass.append(CutlistPanel(
                 name="column_divider",
-                length=cfg.height,
+                # Butt-joint carcasses (floating tenon, pocket screw,
+                # biscuit, dowel) seat dividers BETWEEN the bottom and top
+                # panels, so they're cut to interior height (Charlie,
+                # 2026-07-26). Only dado/rabbet construction keeps the
+                # dado-era full-height divider.
+                length=(cfg.height
+                        if cfg.carcass_joinery == CarcassJoinery.DADO_RABBET
+                        else cfg.height - cfg.bottom_thickness
+                        - cfg.top_thickness),
                 width=cfg.depth - cfg.back_thickness,
                 thickness=cfg.side_thickness,
                 quantity=num_dividers,
@@ -4443,6 +4496,129 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         result = {"projects": [p.name for p in projects], **result}
     if result_notes:
         result["notes"] = result_notes
+    return _ok(result)
+
+
+async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextContent]:
+    from .assembly import (
+        build_assembly_plan, generate_assembly_html, generate_assembly_pdf,
+        DRY_FIT_TENON_URL,
+    )
+    from .cutlist import assign_part_ids, consolidate_bom
+
+    project = _project_from_args(args)
+    _safe_stem(project.name, kind="project name")
+    fmt = str(args.get("format", "both"))
+
+    # Part IDs must match the project's own cutlist. Mirror the single-project
+    # cutlist path: raw panels per cabinet → consolidate_bom per list →
+    # assign_part_ids over the same concatenation order. (The pipeline's
+    # face-pooling appends show-face panels AFTER the carcass list, and no
+    # carcass part family (S/B/T/CD/SH/BK) occurs outside it, so carcass IDs
+    # are unaffected by pooling.)
+    raw_carcass: list[CutlistPanel] = []
+    raw_6mm: list[CutlistPanel] = []
+    raw_box: list[CutlistPanel] = []
+    raw_false: list[CutlistPanel] = []
+    per_cab: list[tuple[str, object, list[CutlistPanel]]] = []
+    for cname, cfg in project.resolved():
+        columns_raw = _columns_dict_from_cfg(cfg)
+        c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
+        per_cab.append((cname, cfg, c))
+        raw_carcass.extend(c)
+        raw_6mm.extend(b)
+        raw_box.extend(x)
+        raw_false.extend(f)
+    carcass_panels = consolidate_bom(raw_carcass)
+    assign_part_ids(
+        carcass_panels + consolidate_bom(raw_box)
+        + consolidate_bom(raw_6mm) + consolidate_bom(raw_false))
+
+    def _dims_key(pl: CutlistPanel) -> tuple:
+        return (pl.name, round(min(pl.length, pl.width), 1),
+                round(max(pl.length, pl.width), 1))
+
+    id_lookup = {_dims_key(pl): pl.part_id for pl in carcass_panels}
+
+    # One plan per structurally identical cabinet design; identical cabinets
+    # collapse into a single section with copies × N.
+    plans = []
+    by_signature: dict = {}
+    skipped: list[str] = []
+    for cname, cfg, craw in per_cab:
+        id_map: dict[str, str] = {}
+        for pl in craw:
+            pid = id_lookup.get(_dims_key(pl))
+            if pid and pl.name not in id_map:
+                id_map[pl.name] = pid
+        try:
+            plan = build_assembly_plan(
+                cfg, cabinet_name=cname, copies=1, id_map=id_map)
+        except ValueError as exc:
+            skipped.append(f"{cname}: {exc}")
+            continue
+        sig = (
+            plan.size_key, round(plan.span, 1),
+            tuple(j.name for j in plan.joints),
+            tuple((pm.panel, round(pm.draw_width, 1),
+                   round(pm.draw_height, 1), pm.rows) for pm in plan.panels),
+        )
+        if sig in by_signature:
+            prev = by_signature[sig]
+            prev.copies += 1
+            prev.cabinet_name = f"{prev.cabinet_name}, {cname}"
+        else:
+            by_signature[sig] = plan
+            plans.append(plan)
+
+    if not plans:
+        return _err(
+            "No floating-tenon cabinets in this project — "
+            + "; ".join(skipped))
+
+    out_dir = Path.home() / ".cabinet-mcp" / "assembly" / project.name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str] = {}
+    if fmt in ("html", "both"):
+        p = out_dir / f"{project.name}_assembly.html"
+        p.write_text(generate_assembly_html(plans, project.name))
+        files["html"] = str(p)
+    notes: list[str] = []
+    if fmt in ("pdf", "both"):
+        try:
+            p = out_dir / f"{project.name}_assembly.pdf"
+            p.write_bytes(generate_assembly_pdf(plans, project.name))
+            files["pdf"] = str(p)
+        except ImportError:
+            notes.append(
+                "PDF skipped — reportlab not installed (lite mode).")
+
+    result = {
+        "project": project.name,
+        "designs": [
+            {
+                "cabinets": plan.cabinet_name,
+                "copies": plan.copies,
+                "domino_size": plan.size_key,
+                "festool_part_number": plan.size.part_number,
+                "joints": len(plan.joints),
+                "tenons_per_joint": plan.per_joint,
+                "mortise_centers_from_front_mm": list(plan.positions),
+                "tenons_per_cabinet": plan.tenons_per_cabinet,
+                "tenons_total": plan.tenons_total,
+            }
+            for plan in plans
+        ],
+        "beech_tenons_total": sum(p.tenons_total for p in plans),
+        "dry_fit_tenons_to_print": max(
+            p.dry_fit_tenons_needed for p in plans),
+        "dry_fit_tenon_model": DRY_FIT_TENON_URL,
+        "files": files,
+    }
+    if skipped:
+        result["skipped"] = skipped
+    if notes:
+        result["notes"] = notes
     return _ok(result)
 
 

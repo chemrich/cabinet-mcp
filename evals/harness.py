@@ -66,6 +66,7 @@ from cadquery_furniture.server import (
     _tool_load_project,
     _tool_evaluate_project,
     _tool_generate_project_cutlist,
+    _tool_generate_assembly_instructions,
     _tool_visualize_cabinet,
     _tool_visualize_project,
 )
@@ -100,6 +101,7 @@ TOOL_DISPATCH = {
     "load_project":                 _tool_load_project,
     "evaluate_project":             _tool_evaluate_project,
     "generate_project_cutlist":     _tool_generate_project_cutlist,
+    "generate_assembly_instructions": _tool_generate_assembly_instructions,
     "visualize_cabinet":            _tool_visualize_cabinet,
     "visualize_project":            _tool_visualize_project,
 }
