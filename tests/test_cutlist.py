@@ -223,3 +223,26 @@ class TestImperialAnnotations:
         assert "alpha" in keys[0] and "beta" in keys[0]      # both on sheet 1
         assert "beta" in keys[1] and "alpha" not in keys[1]  # only beta on g2
         assert "A · alpha" in keys[0] and "B · beta" in keys[0]
+
+    def test_global_sheet_numbers_across_groups(self):
+        # Numbers run 1..N across ALL groups (never reset per material) so
+        # Charlie can pencil them on the physical sheet edges.
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        stock = SheetStock(name="s", length=2440, width=1220, thickness=18)
+        # Two panels too big to share a sheet -> group 1 uses 2 sheets.
+        g1p = [CutlistPanel(name="side", length=2200, width=1100, thickness=18,
+                            quantity=2)]
+        g2p = [CutlistPanel(name="top", length=600, width=400, thickness=18)]
+        assign_part_ids(g1p + g2p)
+        g1 = optimize_cutlist(g1p, stock_sheet=stock, kerf=3.2)
+        g2 = optimize_cutlist(g2p, stock_sheet=stock, kerf=3.2)
+        assert g1.sheets_used == 2
+        html = generate_sheet_layout_html(
+            [("g1", g1p, g1), ("g2", g2p, g2)],
+            cabinet_name="num_test", kerf=3.2)
+        assert "Sheet #1 " in html and "Sheet #2 " in html
+        assert "Sheet #3 " in html          # group 2 continues, not resets
+        assert html.count("Sheet #") == 3
+        assert "(#1–#2)" in html and "(#3–#3)" in html or "(#3)" in html

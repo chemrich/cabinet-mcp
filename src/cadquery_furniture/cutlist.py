@@ -1967,6 +1967,10 @@ def generate_sheet_layout_html(
     # ── Build tab HTML ─────────────────────────────────────────────────────────
     tab_buttons: list[str] = []
     tab_panes: list[str] = []
+    # Globally unique sheet number across ALL groups, in generation order —
+    # Charlie pencils it on each physical sheet's edge (Jul 2026). The PDF
+    # renderer iterates groups/sheets in the same order, so numbers agree.
+    global_sheet_no = 0
 
     for tab_idx, (label, _panels, opt) in enumerate(groups):
         active = "active" if tab_idx == 0 else ""
@@ -1983,7 +1987,9 @@ def generate_sheet_layout_html(
             by_sheet.setdefault(p.sheet_index, []).append(p)
 
         sheet_svgs: list[str] = []
+        group_first_no = global_sheet_no + 1
         for si in sorted(by_sheet.keys()):
+            global_sheet_no += 1
             # Per-sheet project key — only the projects cut from THIS sheet.
             sheet_key = ""
             if project_mode:
@@ -2003,8 +2009,9 @@ def generate_sheet_layout_html(
                     sheet_key = f'<div class="sheet-key">{items}</div>'
             sheet_svgs.append(
                 f'<div class="sheet-card">'
-                f'<h3>Sheet {si + 1} of {sheets_count} '
+                f'<h3>Sheet #{global_sheet_no} '
                 f'<span class="dim">'
+                f'({si + 1} of {sheets_count} in group) · '
                 f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
                 f'— {_esc(opt.stock_sheet.name)}</span></h3>'
                 f'{sheet_key}'
@@ -2027,7 +2034,8 @@ def generate_sheet_layout_html(
         tab_panes.append(
             f'<div class="tab-pane {active}" id="pane-{tab_idx}">'
             f'<div class="group-stats">'
-            f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} · '
+            f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} '
+            f'(#{group_first_no}–#{global_sheet_no}) · '
             f'{opt.waste_pct:.1f}% waste'
             f'</div>'
             f'{notes_html}'
@@ -2301,17 +2309,20 @@ def generate_sheet_layout_pdf(
 
     # Sheet goods table
     story.append(_Paragraph("Sheet Goods Required", h1_sty))
-    sg_data = [["Material", "Thickness", "Sheets", "Waste", "Unplaced"]]
+    sg_data = [["Material", "Thickness", "Sheets", "Sheet #s", "Waste", "Unplaced"]]
+    _no = 0
     for label, _pnls, result in groups:
         mat = result.stock_sheet.material.replace("_", " ").title()
+        first, _no = _no + 1, _no + result.sheets_used
         sg_data.append([
             f"{label}  ({mat})",
             f"{result.stock_sheet.thickness:.0f} mm",
             str(result.sheets_used),
+            f"#{first}–#{_no}" if _no > first else f"#{first}",
             f"{result.waste_pct:.1f}%",
             str(len(result.unplaced)) if result.unplaced else "—",
         ])
-    sg_col_w = [CW * x for x in (0.42, 0.16, 0.14, 0.14, 0.14)]
+    sg_col_w = [CW * x for x in (0.36, 0.14, 0.10, 0.14, 0.13, 0.13)]
     sg_tbl = _Table(sg_data, colWidths=sg_col_w)
     sg_tbl.setStyle(_tbl_style())
     story.append(sg_tbl)
@@ -2368,6 +2379,7 @@ def generate_sheet_layout_pdf(
     DRAW_H = PAGE[1] - 2 * MARGIN - HEADER_RESERVE - CUT_TABLE_RESERVE
 
     pdf_src_letters = _source_letters_from_groups(groups)
+    pdf_sheet_no = 0
 
     for group_label, _pnls, result in groups:
         by_sheet: dict[int, list[Placement]] = {}
@@ -2375,11 +2387,13 @@ def generate_sheet_layout_pdf(
             by_sheet.setdefault(pl.sheet_index, []).append(pl)
 
         for sheet_idx in sorted(by_sheet):
+            pdf_sheet_no += 1
             story.append(_PageBreak())
             pls = by_sheet[sheet_idx]
 
             story.append(_Paragraph(
-                f"{_xml_escape(group_label)} — Sheet {sheet_idx + 1} of {result.sheets_used}",
+                f"Sheet #{pdf_sheet_no} — {_xml_escape(group_label)} "
+                f"({sheet_idx + 1} of {result.sheets_used})",
                 h1_sty,
             ))
             warn = ""
