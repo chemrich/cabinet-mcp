@@ -24,7 +24,7 @@ uv run python -m evals --list          # print the catalogue without running
 
 ## Baseline
 
-Green is **301 scenarios / 1118 assertions / 100%**. Exit code 0 on all-pass, 1 on any failure. If your change moves the assertion count, that's expected only when you added/removed assertions — otherwise investigate.
+Green is **302 scenarios / 1122 assertions / 100%**. Exit code 0 on all-pass, 1 on any failure. If your change moves the assertion count, that's expected only when you added/removed assertions — otherwise investigate.
 
 ## Reading a failure
 
