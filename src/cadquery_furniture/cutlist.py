@@ -1424,6 +1424,85 @@ def leg_lines_for_cabinet_config(cab_cfg) -> list[HardwareLine]:
     )]
 
 
+# Band-material aliases: species-prefixed plys collapse to the veneer roll /
+# strip species actually purchased.
+_BAND_MATERIAL_ALIASES = {
+    "rift_white_oak": "white_oak",
+    "flat_sawn_white_oak": "white_oak",
+    "baltic_birch": "white_birch",
+    "baltic_birch_prefinished": "white_birch",
+}
+
+
+def _band_material_for(panel_material: str, cfg) -> str:
+    explicit = getattr(cfg, "edge_band_material", "") or ""
+    if explicit:
+        return explicit
+    base = panel_material.removesuffix("_ply")
+    return _BAND_MATERIAL_ALIASES.get(base, base)
+
+
+def edge_band_lines_for_panels(
+    panels: list["CutlistPanel"], cfg,
+) -> list[HardwareLine]:
+    """Edge-banding consumable lines from the panels' ``edge_band`` markers.
+
+    Marker semantics: ``"front"`` (and any other single-edge marker) is one
+    edge running along the panel's *length*; ``"all"`` is the full perimeter
+    (false fronts / door leaves). Footage carries a 15% trim/waste factor.
+    Hot-melt orders 7/8" × 50-ft pre-glued rolls; hardwood mode emits an
+    unpriced rip-from-stock line (strips cut proud for flush trimming).
+    """
+    mode = getattr(cfg, "edge_band_mode", "none")
+    if mode == "none":
+        return []
+    thk = float(getattr(cfg, "edge_band_thickness_mm", 0.6))
+    per_material: dict[str, float] = {}
+    for p in panels:
+        if not p.edge_band:
+            continue
+        length_mm = 0.0
+        for edge in p.edge_band:
+            if edge == "all":
+                length_mm += 2 * (p.length + p.width)
+            else:
+                length_mm += p.length
+        mat = _band_material_for(p.material, cfg)
+        per_material[mat] = per_material.get(mat, 0.0) + length_mm * p.quantity
+
+    MM_PER_FT = 304.8
+    lines: list[HardwareLine] = []
+    for mat, mm in sorted(per_material.items()):
+        ft = math.ceil(mm / MM_PER_FT * 1.15)
+        pretty = mat.replace("_", " ")
+        if mode == "hot_melt":
+            lines.append(HardwareLine(
+                sku=f"edgeband-hotmelt-{mat}",
+                category="edge_band",
+                name=f'Iron-on edge banding, {pretty} 7/8" pre-glued',
+                brand="",
+                model_number="",
+                pieces_needed=ft,
+                pack_quantity=50,
+                notes=(f"{mm / 1000:.1f} m of edges (+15% waste); "
+                       f'7/8" width covers 18 mm edges (trim flush)'),
+            ))
+        else:
+            lines.append(HardwareLine(
+                sku=f"edgeband-hardwood-{mat}",
+                category="edge_band",
+                name=f"Hardwood edge banding, {pretty} {thk:g} mm strips",
+                brand="",
+                model_number="",
+                pieces_needed=ft,
+                pack_quantity=1,
+                notes=(f"{mm / 1000:.1f} m of edges (+15% waste); rip "
+                       f"{thk:g} mm × ~20 mm strips from solid stock/offcuts "
+                       "(proud, flush-trim after glue-up)"),
+            ))
+    return lines
+
+
 def joinery_lines_for_cabinet_config(
     cab_cfg, columns_raw: list | None = None
 ) -> list[HardwareLine]:

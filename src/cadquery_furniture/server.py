@@ -423,6 +423,36 @@ async def list_tools() -> list[types.Tool]:
                             "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -612,6 +642,36 @@ async def list_tools() -> list[types.Tool]:
                             "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -730,6 +790,36 @@ async def list_tools() -> list[types.Tool]:
                             "birch stocks or names ending '_ply') pack per "
                             "(material, thickness) and price from PRICE_LIST when "
                             "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
                     "drawer_config": {
@@ -969,6 +1059,36 @@ async def list_tools() -> list[types.Tool]:
                             "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1110,6 +1230,36 @@ async def list_tools() -> list[types.Tool]:
                             "birch stocks or names ending '_ply') pack per "
                             "(material, thickness) and price from PRICE_LIST when "
                             "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
                     "drawer_config": {
@@ -1405,6 +1555,36 @@ async def list_tools() -> list[types.Tool]:
                             "listed. Backs and drawer boxes keep their own stock."
                         ),
                     },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1495,6 +1675,36 @@ async def list_tools() -> list[types.Tool]:
                             "birch stocks or names ending '_ply') pack per "
                             "(material, thickness) and price from PRICE_LIST when "
                             "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
                     "drawer_config": {
@@ -1661,6 +1871,36 @@ async def list_tools() -> list[types.Tool]:
                             "birch stocks or names ending '_ply') pack per "
                             "(material, thickness) and price from PRICE_LIST when "
                             "listed. Backs and drawer boxes keep their own stock."
+                        ),
+                    },
+                    "edge_band_mode": {
+                        "type": "string",
+                        "enum": ["none", "hot_melt", "hardwood"],
+                        "default": "none",
+                        "description": (
+                            "Edge banding for exposed ply edges (fronts of "
+                            "carcass panels + all four edges of faces/doors). "
+                            "'hot_melt' = iron-on veneer rolls, dims "
+                            "unchanged; 'hardwood' = solid strips, panel "
+                            "CORES cut smaller so finished dims hold. "
+                            "Also a SharedDesign token."
+                        ),
+                    },
+                    "edge_band_thickness_mm": {
+                        "type": "number",
+                        "default": 0.6,
+                        "description": (
+                            "Band thickness in mm (hardwood: 3.2–6.4 "
+                            "typical; hot-melt ~0.6)."
+                        ),
+                    },
+                    "edge_band_material": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Banding species; empty derives from each "
+                            "panel's material (rift white oak ply → "
+                            "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
                     "drawer_config": {
@@ -2909,25 +3149,47 @@ def _raw_panels_for_cabinet(
     interior_width = cfg.width - 2 * cfg.side_thickness
     interior_depth = cfg.depth - cfg.back_thickness
 
+    # Hardwood edge banding shrinks the CORE cut size by the band thickness
+    # per banded edge so finished dims (and face reveals) hold; hot-melt
+    # (~0.6 mm veneer) leaves cut dims alone.
+    band_t = (float(getattr(cfg, "edge_band_thickness_mm", 0.6))
+              if getattr(cfg, "edge_band_mode", "none") == "hardwood" else 0.0)
+
+    def _core_note(finished_l: float, finished_w: float, edges: str) -> str:
+        if not band_t:
+            return ""
+        return (f"core — band {edges} to finished "
+                f"{finished_l:g}×{finished_w:g}")
+
     raw_carcass: list[CutlistPanel] = [
-        CutlistPanel(name="side", length=cfg.height, width=cfg.depth,
+        CutlistPanel(name="side", length=cfg.height, width=cfg.depth - band_t,
                      thickness=cfg.side_thickness, quantity=2,
                      grain_direction="length", material=cfg.carcass_material,
-                     edge_band=["front"]),
-        CutlistPanel(name="bottom", length=interior_width, width=interior_depth,
+                     edge_band=["front"],
+                     notes=_core_note(cfg.height, cfg.depth, "front edge")),
+        CutlistPanel(name="bottom", length=interior_width,
+                     width=interior_depth - band_t,
                      thickness=cfg.bottom_thickness, quantity=1,
                      grain_direction="length", material=cfg.carcass_material,
-                     edge_band=["front"]),
-        CutlistPanel(name="top", length=interior_width, width=interior_depth,
+                     edge_band=["front"],
+                     notes=_core_note(interior_width, interior_depth,
+                                      "front edge")),
+        CutlistPanel(name="top", length=interior_width,
+                     width=interior_depth - band_t,
                      thickness=cfg.top_thickness, quantity=1,
                      grain_direction="length", material=cfg.carcass_material,
-                     edge_band=["front"]),
+                     edge_band=["front"],
+                     notes=_core_note(interior_width, interior_depth,
+                                      "front edge")),
     ]
     for i, _ in enumerate(cfg.fixed_shelf_positions):
         raw_carcass.append(CutlistPanel(
-            name=f"shelf_{i + 1}", length=interior_width, width=interior_depth,
+            name=f"shelf_{i + 1}", length=interior_width,
+            width=interior_depth - band_t,
             thickness=cfg.shelf_thickness, quantity=1,
             grain_direction="length", material=cfg.carcass_material,
+            edge_band=["front"],
+            notes=_core_note(interior_width, interior_depth, "front edge"),
         ))
 
     raw_6mm: list[CutlistPanel] = [
@@ -2955,11 +3217,17 @@ def _raw_panels_for_cabinet(
                         if cfg.carcass_joinery == CarcassJoinery.DADO_RABBET
                         else cfg.height - cfg.bottom_thickness
                         - cfg.top_thickness),
-                width=cfg.depth - cfg.back_thickness,
+                width=cfg.depth - cfg.back_thickness - band_t,
                 thickness=cfg.side_thickness,
                 quantity=num_dividers,
                 grain_direction="length",
                 material=cfg.carcass_material,
+                edge_band=["front"],
+                notes=_core_note(
+                    cfg.height - cfg.bottom_thickness - cfg.top_thickness
+                    if cfg.carcass_joinery != CarcassJoinery.DADO_RABBET
+                    else cfg.height,
+                    cfg.depth - cfg.back_thickness, "front edge"),
             ))
     elif cfg.openings:
         # Single-column cabinet: treat the opening stack as one full-width
@@ -2978,12 +3246,13 @@ def _raw_panels_for_cabinet(
                 raw_carcass.append(CutlistPanel(
                     name=f"shelf_{i + 1}",
                     length=col_width,
-                    width=interior_depth,
+                    width=interior_depth - band_t,
                     thickness=cfg.shelf_thickness,
                     quantity=1,
                     grain_direction="length",
                     material=cfg.carcass_material,
                     edge_band=["front"],
+                    notes=_core_note(col_width, interior_depth, "front edge"),
                 ))
             col_drawers = _stack_from_column(col)
             for row in col_drawers:
@@ -3001,17 +3270,24 @@ def _raw_panels_for_cabinet(
                         hinge_key=op.hinge_key or cfg.door_hinge,
                         door_thickness=op.door_thickness or 18.0,
                     )
+                    door_note = _face_note(
+                        cfg.face_material,
+                        f"{num_doors} leaf" if num_doors == 1
+                        else f"{num_doors} leaves")
+                    if band_t:
+                        door_note += "; " + _core_note(
+                            round(door_cfg.door_height, 1),
+                            round(door_cfg.door_width, 1), "4 edges")
                     raw_false_fronts.append(CutlistPanel(
                         name="door",
-                        length=round(door_cfg.door_height, 1),
-                        width=round(door_cfg.door_width, 1),
+                        length=round(door_cfg.door_height - 2 * band_t, 1),
+                        width=round(door_cfg.door_width - 2 * band_t, 1),
                         thickness=door_cfg.door_thickness,
                         quantity=num_doors,
                         grain_direction="length",
                         material=cfg.face_material,
-                        notes=_face_note(cfg.face_material,
-                                         f"{num_doors} leaf" if num_doors == 1
-                                         else f"{num_doors} leaves"),
+                        edge_band=["all"],
+                        notes=door_note,
                     ))
                     continue
                 if slot_type != "drawer":
@@ -3061,16 +3337,20 @@ def _raw_panels_for_cabinet(
 
                 face_w = round(col_width + 2 * dcfg.face_overlay_sides, 1)
                 face_h = round(opening_h + dcfg.face_overlay_top + dcfg.face_overlay_bottom, 1)
+                ff_note = _face_note(cfg.face_material,
+                                     "full-overlay 3 mm reveal")
+                if band_t:
+                    ff_note += "; " + _core_note(face_w, face_h, "4 edges")
                 raw_false_fronts.append(CutlistPanel(
                     name="false_front",
-                    length=face_w,
-                    width=face_h,
+                    length=round(face_w - 2 * band_t, 1),
+                    width=round(face_h - 2 * band_t, 1),
                     thickness=dcfg.face_thickness,
                     quantity=1,
                     grain_direction="length",
                     material=cfg.face_material,
-                    notes=_face_note(cfg.face_material,
-                                     "full-overlay 3 mm reveal"),
+                    edge_band=["all"],
+                    notes=ff_note,
                 ))
 
     return raw_carcass, raw_6mm, raw_box, raw_false_fronts
@@ -3382,6 +3662,9 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     false_fronts    = consolidate_bom(raw_false_fronts)
 
     hw_lines = hardware_bom_for_cabinet_config(cfg, columns_raw)
+    from .cutlist import edge_band_lines_for_panels
+    hw_lines += edge_band_lines_for_panels(
+        raw_carcass + raw_false_fronts, cfg)
 
     result = _cutlist_pipeline(
         name=name,
@@ -4428,6 +4711,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
             columns_raw = _columns_dict_from_cfg(cfg)
             c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
             hw = hardware_bom_for_cabinet_config(cfg, columns_raw)
+            from .cutlist import edge_band_lines_for_panels
+            hw += edge_band_lines_for_panels(c + f, cfg)
             if batch_names:
                 # Tag provenance so panels stay project-distinct rows through
                 # consolidation and the layout colours/labels by project.

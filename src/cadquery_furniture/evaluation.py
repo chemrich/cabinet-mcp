@@ -587,6 +587,71 @@ def check_pocket_screw_layout(
     return issues
 
 
+def check_edge_banding(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Validate the edge-banding configuration.
+
+    Hot-melt is thin iron-on veneer (~0.5–1 mm); hardwood strips run
+    3.2–6.4 mm typical. Order-out face materials (``finished_wood`` or any
+    non-sheet string) arrive with finished edges, so banding them is
+    usually double work — warn, don't error.
+    """
+    issues: list[Issue] = []
+    mode = getattr(cab_cfg, "edge_band_mode", "none")
+    if mode == "none":
+        return issues
+    thk = float(getattr(cab_cfg, "edge_band_thickness_mm", 0.6))
+
+    if mode not in ("hot_melt", "hardwood"):
+        issues.append(Issue(
+            check="edge_banding",
+            severity=Severity.ERROR,
+            message=(f"Unknown edge_band_mode {mode!r} — "
+                     "use 'none', 'hot_melt', or 'hardwood'."),
+        ))
+        return issues
+
+    if mode == "hot_melt" and thk > 1.5:
+        issues.append(Issue(
+            check="edge_banding",
+            severity=Severity.WARNING,
+            message=(f"edge_band_thickness_mm {thk:g} is too thick for "
+                     "iron-on veneer (≤ ~1 mm) — use mode 'hardwood' for "
+                     "solid strips."),
+            value=thk, limit=1.5,
+        ))
+    if mode == "hardwood":
+        if thk < 2.0:
+            issues.append(Issue(
+                check="edge_banding",
+                severity=Severity.WARNING,
+                message=(f"edge_band_thickness_mm {thk:g} is thin for solid "
+                         "strips (3.2–6.4 mm typical) — hot_melt veneer "
+                         "may be the better mode."),
+                value=thk, limit=2.0,
+            ))
+        elif thk > 8.0:
+            issues.append(Issue(
+                check="edge_banding",
+                severity=Severity.WARNING,
+                message=(f"edge_band_thickness_mm {thk:g} exceeds typical "
+                         "banding (1/4\" = 6.4 mm) — face cores shrink "
+                         f"{2 * thk:g} mm per axis."),
+                value=thk, limit=8.0,
+            ))
+
+    face_mat = getattr(cab_cfg, "face_material", "finished_wood")
+    is_sheet = face_mat.endswith("_ply") or face_mat.startswith("baltic_birch")
+    if not is_sheet:
+        issues.append(Issue(
+            check="edge_banding",
+            severity=Severity.WARNING,
+            message=(f"Edge banding is on but face_material {face_mat!r} is "
+                     "an order-out (arrives edge-finished) — face banding "
+                     "applies only to sheet-stock faces."),
+        ))
+    return issues
+
+
 def check_carcass_joinery(cab_cfg: CabinetConfig) -> list[Issue]:
     """Run all carcass-joinery checks appropriate for the selected method.
 
@@ -1820,6 +1885,7 @@ def evaluate_cabinet(
     all_issues.extend(check_back_panel_fit(cab_cfg))
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_door_overlay_collisions(cab_cfg))
+    all_issues.extend(check_edge_banding(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     if cab_cfg.columns:
         # Run carcass clearance checks per-column using correct per-column width.

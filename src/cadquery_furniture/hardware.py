@@ -1360,6 +1360,9 @@ PRICE_LIST: dict[str, float] = {
     # ── Joinery consumables — per pack ────────────────────────────────────────
     "festool-493298":         129.00,   # Domino 8×40, 780-piece bulk pack
     "festool-494938":          25.00,   # Domino 5×30, 300-piece pack (US Tool & Fastener / Taco Tools, Jul 2026)
+    # Iron-on pre-glued edge banding, 7/8" × 50' rolls (veneersupplies.com, Jul 2026)
+    "edgeband-hotmelt-white_oak":   14.80,
+    "edgeband-hotmelt-white_birch": 15.50,
     "kreg-sml-c32-100":        12.00,   # pocket screws 1-1/4", 100-pack
     "kreg-sml-c38-100":        12.00,
     "kreg-sml-c45-100":        12.00,

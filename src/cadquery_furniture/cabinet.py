@@ -154,6 +154,16 @@ class CabinetConfig:
     # Sheet groups are packed per (material, thickness) and priced from
     # PRICE_LIST when a matching sheet entry exists (price TBD otherwise).
     carcass_material: str = "baltic_birch"
+    # Edge banding for exposed ply edges (cutlist/BOM only — no 3D effect).
+    # "hot_melt": pre-glued iron-on veneer applied after assembly; cut dims
+    # unchanged. "hardwood": solid strips (typ. 3.2–6.4 mm) glued before
+    # joinery; panel CORES are cut smaller by the band thickness per banded
+    # edge so FINISHED dims (and face reveals) hold. Banded edges: fronts of
+    # sides/top/bottom/shelves/dividers + all four edges of false fronts and
+    # door leaves. All three are SharedDesign tokens.
+    edge_band_mode: str = "none"          # none | hot_melt | hardwood
+    edge_band_thickness_mm: float = 0.6   # hardwood: 3.2–6.4 typical
+    edge_band_material: str = ""          # "" → derive from panel material
 
     # Joinery
     dado_depth: float = 9.0  # half thickness dado for shelves/bottom
