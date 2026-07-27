@@ -9006,6 +9006,57 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="assembly_v2_miter_banding",
+    prompt=(
+        "Assembly instructions for a mitered, hardwood-banded carcass: "
+        "corner joints go miter with a solved DF fence placement, banding "
+        "happens before mortising, and the dry fit still precedes glue."
+    ),
+    tags=["assembly", "miter", "edge_band", "project", "workflow"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_asm_v2", "overwrite": True,
+                  "shared": {"carcass_corner_style": "miter",
+                             "edge_band_mode": "hardwood",
+                             "edge_band_thickness_mm": 6.4},
+                  "cabinets": [
+                      {"name": "a", "config": {
+                          "width": 1219.2, "height": 663.6, "depth": 457,
+                          "columns": [
+                              {"width_mm": 582.6,
+                               "drawer_config": [[300, "drawer"],
+                                                 [291.6, "drawer"]]},
+                              {"width_mm": 582.6,
+                               "drawer_config": [[591.6, "door"]]},
+                          ]}},
+                  ]},
+            label="save a v2-style project",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_assembly_instructions",
+            args={"project_name": "eval_asm_v2", "format": "html"},
+            label="miter placement + banding reflected in the plan",
+            assertions=[
+                Assertion("designs.0.corner_style", Op.EQ, "miter"),
+                Assertion("designs.0.edge_band_mode", Op.EQ, "hardwood"),
+                # Solved 5x30 seat in 18mm: ~3.8mm off the long point,
+                # ≥2mm inside wall.
+                Assertion("designs.0.miter_mortise_from_long_point_mm",
+                          Op.APPROX, 3.8),
+                Assertion("designs.0.miter_inner_wall_mm", Op.GTE, 2.0),
+                # Census unchanged by corner style: 4 + 2×1 divider = 6.
+                Assertion("designs.0.joints", Op.EQ, 6),
+                Assertion("files", Op.HAS_KEY, "html"),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

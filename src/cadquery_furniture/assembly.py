@@ -62,6 +62,7 @@ class CarcassJoint:
     face_part: str             # panel that takes FACE mortises
     span: float                # joint length (mm) — interior_depth
     positions: tuple[float, ...]
+    kind: str = "butt"         # "butt" | "miter" (both parts: 45° miter face)
 
 
 @dataclass(frozen=True)
@@ -71,8 +72,9 @@ class MortiseRow:
     ``axis`` — "h": the row runs along the panel's drawn width (offset is a
     height from the panel's bottom edge); "v": the row runs along the drawn
     height (offset is a distance from the panel's left edge).
-    ``kind`` — "face" (plunge into the face) or "edge" (plunge into the
-    panel end).  ``positions`` are mortise centres measured from the FRONT
+    ``kind`` — "face" (plunge into the face), "edge" (plunge into the
+    panel end), or "miter" (plunge perpendicular to a 45° beveled end).
+    ``positions`` are mortise centres measured from the FRONT
     edge of the panel (drawn left → right or bottom → top as noted per map).
     """
 
@@ -116,6 +118,10 @@ class AssemblyPlan:
     joints: list[CarcassJoint] = field(default_factory=list)
     panels: list[PanelMortiseMap] = field(default_factory=list)
     steps: list[AssemblyStep] = field(default_factory=list)
+    corner_style: str = "butt"          # butt | miter
+    miter_placement: Optional[object] = None   # MiterMortisePlacement
+    edge_band_mode: str = "none"        # none | hot_melt | hardwood
+    edge_band_thickness_mm: float = 0.0
 
     @property
     def tenons_per_cabinet(self) -> int:
@@ -172,6 +178,17 @@ def build_assembly_plan(
     positions = tuple(round(p, 1) for p in spec.positions_for_span(span))
     per_joint = len(positions)
 
+    corner_style = getattr(cab_cfg, "carcass_corner_style", "butt")
+    miter = corner_style == "miter"
+    miter_placement = None
+    if miter:
+        from .joinery import miter_mortise_placement
+        # Raises ValueError on infeasible stock — the caller reports it.
+        miter_placement = miter_mortise_placement(size, side_t)
+
+    band_mode = getattr(cab_cfg, "edge_band_mode", "none")
+    band_t = float(getattr(cab_cfg, "edge_band_thickness_mm", 0.6))
+
     id_map = id_map or {}
 
     def pid(panel_name: str) -> str:
@@ -180,17 +197,19 @@ def build_assembly_plan(
     # ── Joint census (mirrors the hardware-BOM count) ─────────────────────
     joints: list[CarcassJoint] = []
 
-    def add(name: str, edge_part: str, face_part: str) -> None:
+    def add(name: str, edge_part: str, face_part: str,
+            kind: str = "butt") -> None:
         joints.append(CarcassJoint(
             index=len(joints) + 1, name=name,
             edge_part=edge_part, face_part=face_part,
-            span=span, positions=positions,
+            span=span, positions=positions, kind=kind,
         ))
 
-    add("bottom ↔ left side", "bottom", "left side")
-    add("bottom ↔ right side", "bottom", "right side")
-    add("top ↔ left side", "top", "left side")
-    add("top ↔ right side", "top", "right side")
+    corner_kind = "miter" if miter else "butt"
+    add("bottom ↔ left side", "bottom", "left side", corner_kind)
+    add("bottom ↔ right side", "bottom", "right side", corner_kind)
+    add("top ↔ left side", "top", "left side", corner_kind)
+    add("top ↔ right side", "top", "right side", corner_kind)
 
     cols = list(getattr(cab_cfg, "columns", []) or [])
     n_cols = len(cols)
@@ -228,10 +247,18 @@ def build_assembly_plan(
     interior_w = float(cab_cfg.interior_width)
 
     # Side panels (inner face, front edge at LEFT of the drawing).
-    side_rows: list[MortiseRow] = [
-        MortiseRow("bottom (J1/J2)", "h", bottom_t / 2, positions, "face"),
-        MortiseRow("top (J3/J4)", "h", height - top_t / 2, positions, "face"),
-    ]
+    if miter:
+        side_rows: list[MortiseRow] = [
+            MortiseRow("bottom miter (J1/J2)", "h", 0.0, positions, "miter"),
+            MortiseRow("top miter (J3/J4)", "h", height, positions, "miter"),
+        ]
+    else:
+        side_rows = [
+            MortiseRow("bottom (J1/J2)", "h", bottom_t / 2, positions,
+                       "face"),
+            MortiseRow("top (J3/J4)", "h", height - top_t / 2, positions,
+                       "face"),
+        ]
     for si, z in enumerate(global_shelves, start=1):
         side_rows.append(MortiseRow(
             f"fixed shelf {si}", "h", float(z) + shelf_t / 2, positions,
@@ -252,10 +279,12 @@ def build_assembly_plan(
         panel="side (make 2, mirror-image)", part_id=pid("side"),
         draw_width=depth, draw_height=height,
         width_label="depth — front edge at left",
-        height_label="height",
+        height_label="height" + (" (long-point)" if miter else ""),
         rows=tuple(side_rows),
-        note=("Mortise the INNER face. The two sides are a mirrored pair — "
-              "mark them L and R before machining."),
+        note=(("Ends beveled 45° — mortise the MITER FACES top and bottom. "
+               if miter else "Mortise the INNER face. ")
+              + "The two sides are a mirrored pair — mark them L and R "
+              "before machining."),
     ))
 
     # Divider centrelines from the left END of the top/bottom panel.
@@ -267,25 +296,34 @@ def build_assembly_plan(
             div_centres.append(x + side_t / 2)
             x += side_t
 
+    tb_width = float(cab_cfg.width) if miter else interior_w
+    end_kind = "miter" if miter else "edge"
+    # Divider centrelines were measured from the panel's left end; under
+    # miter the panel end moves out by side_thickness (long point).
+    div_offset = side_t if miter else 0.0
     for pname, canonical in (("bottom", "bottom"), ("top", "top")):
-        # End rows carry no on-drawing label — the note text and the blue
-        # edge-mortise colour identify them, and a label at the panel end
-        # collides with the divider labels on narrow drawings.
-        rows = [MortiseRow("", "v", 0.0, positions, "edge"),
-                MortiseRow("", "v", interior_w, positions, "edge")]
+        # End rows carry no on-drawing label — the note text and the row
+        # colour identify them, and a label at the panel end collides with
+        # the divider labels on narrow drawings.
+        rows = [MortiseRow("", "v", 0.0, positions, end_kind),
+                MortiseRow("", "v", tb_width, positions, end_kind)]
         for di, cx in enumerate(div_centres, start=1):
             rows.append(MortiseRow(
-                f"divider {di} (face mortises)", "v", cx, positions, "face"))
+                f"divider {di} (face mortises)", "v", cx + div_offset,
+                positions, "face"))
+        end_txt = ("45° miter faces both ends"
+                   if miter else "Edge mortises in both ends")
         panels.append(PanelMortiseMap(
             panel=pname, part_id=pid(canonical),
-            draw_width=interior_w, draw_height=interior_panel_depth,
-            width_label="length (= interior width)",
+            draw_width=tb_width, draw_height=interior_panel_depth,
+            width_label=("length (= exterior width, long-point)" if miter
+                         else "length (= interior width)"),
             height_label="depth — front edge at bottom",
             rows=tuple(rows),
-            note=("Edge mortises in both ends; face mortises "
+            note=(f"{end_txt}; face mortises "
                   f"({'top face' if pname == 'bottom' else 'underside'}) at "
                   "each divider centreline." if div_centres else
-                  "Edge mortises in both ends."),
+                  f"{end_txt}."),
         ))
 
     if n_dividers:
@@ -331,6 +369,9 @@ def build_assembly_plan(
         size_key=size_key, size=size, stock_thickness=side_t,
         span=span, per_joint=per_joint, positions=positions,
         joints=joints, panels=panels,
+        corner_style=corner_style, miter_placement=miter_placement,
+        edge_band_mode=band_mode,
+        edge_band_thickness_mm=band_t if band_mode != "none" else 0.0,
     )
     plan.steps = _build_steps(plan, cab_cfg)
     return plan
@@ -342,14 +383,19 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
     pos_txt = ", ".join(f"{p:.0f}" for p in plan.positions)
     n_joints = len(plan.joints)
     fence_h = t / 2
+    miter = plan.corner_style == "miter"
+    n_butt = sum(1 for j in plan.joints if j.kind == "butt")
 
-    return [
+    steps = [
         AssemblyStep(
             "Inventory and label the parts",
             "Pull every carcass panel from the cutlist and pencil its part ID "
             "on a face that ends up hidden (outside back corner). Sides are a "
             "mirrored pair — mark L / R now. Check each panel for the show "
-            "face and orient the best face where it will be seen."),
+            "face and orient the best face where it will be seen."
+            + (" Beveled panels are cut LONG-POINT — verify each miter's "
+               "long point lands on the OUTSIDE face before any mortising."
+               if miter else "")),
         AssemblyStep(
             "Mark every joint",
             f"Dry-stack the carcass and mark all {n_joints} joints with a "
@@ -357,36 +403,75 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             "and its orientation is unambiguous after the panels separate. "
             "Mark the FRONT edge of every panel — every mortise position "
             "below is measured from the front."),
-        AssemblyStep(
-            "Set up the Domino machine",
-            f"DF 500 with the {s.tenon_thickness:.0f} mm cutter. Plunge depth "
-            f"{s.mortise_depth_per_side:.0f} mm (this leaves a "
-            f"{t - s.mortise_depth_per_side:.0f} mm wall behind face "
-            f"mortises in {t:.0f} mm stock). Fence 90°, height "
-            f"{fence_h:.0f} mm to centre the mortise in {t:.0f} mm panels. "
-            "Width setting: TIGHT for the front mortise of every joint, "
-            "middle (slotted) for all others — the front pair registers the "
-            "joint flush; slotted mates absorb tolerance."),
-        AssemblyStep(
-            "Cut the edge mortises",
-            f"Batch all panel-END mortises first (bottom, top, dividers, "
-            f"fixed shelves): centres at {pos_txt} mm from the front edge, "
+    ]
+
+    if plan.edge_band_mode == "hardwood":
+        bt = plan.edge_band_thickness_mm
+        steps.append(AssemblyStep(
+            "Band the front edges (hardwood strips)",
+            f"Glue {bt:g} mm hardwood strips (ripped ~20 mm wide, proud "
+            "both faces) to the FRONT edges of every carcass panel — "
+            "sides, top, bottom, dividers, fixed shelves. Clamp, cure, "
+            "then flush-trim both faces. Do this BEFORE any mortising: "
+            "the panels were cut short by the band thickness, and every "
+            "mortise position references the BANDED front edge. Face "
+            "panels get their 4-edge banding during finishing, not here; "
+            "footage is on the cutlist hardware BOM."))
+
+    steps.append(AssemblyStep(
+        "Set up the Domino machine",
+        f"DF 500 with the {s.tenon_thickness:.0f} mm cutter. Plunge depth "
+        f"{s.mortise_depth_per_side:.0f} mm (this leaves a "
+        f"{t - s.mortise_depth_per_side:.0f} mm wall behind face "
+        f"mortises in {t:.0f} mm stock). Fence 90°, height "
+        f"{fence_h:.0f} mm to centre the mortise in {t:.0f} mm panels. "
+        "Width setting: TIGHT for the front mortise of every joint, "
+        "middle (slotted) for all others — the front pair registers the "
+        "joint flush; slotted mates absorb tolerance."))
+
+    if n_butt:
+        steps.append(AssemblyStep(
+            "Cut the edge mortises (butt joints)",
+            f"Batch all square panel-END mortises first (dividers, fixed "
+            f"shelves{'' if miter else ', bottom, top'}): centres at "
+            f"{pos_txt} mm from the front edge, "
             f"{plan.per_joint} per end. Register the fence on the panel "
             "face, machine base on the end, and reference every row from "
-            "the front edge. One fence setting covers every edge mortise."),
-        AssemblyStep(
+            "the front edge. One fence setting covers every edge mortise."))
+        steps.append(AssemblyStep(
             "Cut the face mortises",
             "Lay out each face row with a square off the front edge at the "
             "same centres, clamp a straightedge (or use the panel that "
             "actually mates as a fence), stand the DF 500 on its base and "
-            "plunge at each mark. Cut every face row on the sides, then the "
-            "divider rows on top and bottom. Same tight/slotted pattern: "
-            "front mortise tight, the rest slotted."),
-        AssemblyStep(
-            "Prep interior surfaces",
-            "Vacuum every mortise. Sand interior faces now — flat panels "
-            "sand and finish far easier than an assembled box. If the "
-            "interiors get finish, mask the glue faces at each joint."),
+            "plunge at each mark. "
+            + ("Divider rows on top and bottom only — the corners are "
+               "mitered. " if miter else
+               "Cut every face row on the sides, then the divider rows on "
+               "top and bottom. ")
+            + "Same tight/slotted pattern: front mortise tight, the rest "
+            "slotted."))
+
+    if miter and plan.miter_placement is not None:
+        mp = plan.miter_placement
+        steps.append(AssemblyStep(
+            "Cut the miter mortises (corners)",
+            f"Tilt the DF 500 fence to 45° and stand it on each miter "
+            f"face. Set the fence so the mortise centreline sits "
+            f"{mp.from_long_point:.1f} mm from the LONG POINT "
+            f"({mp.from_heel:.1f} mm from the heel) along the "
+            f"{mp.face_width:.1f} mm face — that leaves "
+            f"{mp.inner_wall:.1f} mm of wall at the inside face at the "
+            f"full {mp.depth:.0f} mm plunge. Same centres from the front "
+            f"edge ({pos_txt} mm), same tight/slotted pattern. DIAL IN ON "
+            "A SCRAP MITER FIRST — a misplaced miter mortise exits the "
+            "show face."))
+
+    steps.append(AssemblyStep(
+        "Prep interior surfaces",
+        "Vacuum every mortise. Sand interior faces now — flat panels "
+        "sand and finish far easier than an assembled box. If the "
+        "interiors get finish, mask the glue faces at each joint."))
+    steps.extend([
         AssemblyStep(
             "DRY FIT — full carcass, no glue",
             f"Assemble the complete carcass with {plan.dry_fit_tenons_needed} "
@@ -406,19 +491,41 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             "damp rag in reach. Glue-up is a race; staging wins it."),
         AssemblyStep(
             "Glue up in stages",
-            "Stage 1 — inner structure: glue dividers and fixed shelves "
-            "into the BOTTOM panel (tenons glued in both mortises, glue on "
-            "the mating edge), then cap with the TOP panel. Stage 2 — add "
-            "the sides. Clamp across every joint line with cauls, check "
-            "diagonals immediately, and rack square before the glue tacks. "
-            "For a simple box (no dividers/shelves) do it in one stage."),
+            ("Stage 1 — inner structure: glue dividers and fixed shelves "
+             "into the BOTTOM panel (tenons glued in both mortises, glue "
+             "on the mating edge), then cap with the TOP panel. Stage 2 — "
+             "fold the mitered sides on: run painter's tape across each "
+             "miter's OUTSIDE corner as a hinge, glue the miter faces and "
+             "tenons, fold closed, and pull the corners tight with band "
+             "clamps (bar clamps + cauls across the case as backup). "
+             "Check diagonals immediately and rack square before the "
+             "glue tacks."
+             if miter else
+             "Stage 1 — inner structure: glue dividers and fixed shelves "
+             "into the BOTTOM panel (tenons glued in both mortises, glue "
+             "on the mating edge), then cap with the TOP panel. Stage 2 — "
+             "add the sides. Clamp across every joint line with cauls, "
+             "check diagonals immediately, and rack square before the "
+             "glue tacks. For a simple box (no dividers/shelves) do it "
+             "in one stage.")),
         AssemblyStep(
             "Square with the back, then cure",
             "While the clamps are on, glue/pin the back panel into its "
             "rabbet — a square back holds the carcass square as it cures. "
             "Re-check diagonals, wipe squeeze-out, leave clamped for the "
             "glue's clamp time (30–60 min PVA) and unstressed for 24 h."),
-    ]
+    ])
+
+    if plan.edge_band_mode == "hot_melt":
+        steps.append(AssemblyStep(
+            "Iron on the edge banding",
+            "With the carcass cured, iron pre-glued banding onto every "
+            "exposed front edge (sides, top, bottom, dividers, fixed "
+            "shelves), then trim flush and break the corners. Face panels "
+            "get all four edges banded before hardware goes on. Roll "
+            "footage is on the cutlist hardware BOM."))
+
+    return steps
 
 
 # ─── Rendering helpers ────────────────────────────────────────────────────────
@@ -448,12 +555,25 @@ def _machine_rows(plan: AssemblyPlan) -> list[tuple[str, str]]:
         ("Registration", "Every mortise measured from the FRONT edge on "
                          "both mating parts"),
         ("Mortise slot", f"{s.mortise_length:.1f} × {s.mortise_width:.1f} mm"),
-    ]
+    ] + ([
+        ("Miter corners", "Fence tilted 45°, standing on the miter face — "
+                          "dial in on a scrap miter first"),
+        ("Miter placement",
+         f"centreline {plan.miter_placement.from_long_point:.1f} mm from "
+         f"the LONG POINT ({plan.miter_placement.from_heel:.1f} mm from "
+         f"the heel) along the {plan.miter_placement.face_width:.1f} mm "
+         f"face — {plan.miter_placement.inner_wall:.1f} mm inside wall at "
+         f"the full {plan.miter_placement.depth:.0f} mm plunge"),
+    ] if plan.corner_style == "miter" and plan.miter_placement is not None
+       else [])
 
 
 # ─── SVG mortise maps (HTML) ─────────────────────────────────────────────────
 
 _SVG_W = 460.0   # px drawing width per panel
+
+#: Mortise-row colours by kind (shared by the SVG and PDF renderers).
+_ROW_COLOURS = {"face": "#c0392b", "edge": "#2471a3", "miter": "#8e44ad"}
 
 
 def _panel_svg(pm: PanelMortiseMap) -> str:
@@ -485,7 +605,7 @@ def _panel_svg(pm: PanelMortiseMap) -> str:
         'fill="#f7efd8" stroke="#7a6a4f" stroke-width="1" rx="3"/>',
     ]
     for row in pm.rows:
-        colour = "#c0392b" if row.kind == "face" else "#2471a3"
+        colour = _ROW_COLOURS.get(row.kind, "#2471a3")
         if row.axis == "h":
             y = Y(row.offset)
             y = min(max(y, pad + 3), pad + ph - 3)
@@ -608,10 +728,15 @@ def generate_assembly_html(
         out.append("<table><tr><th>#</th><th>Joint</th>"
                    "<th>Edge mortises in</th><th>Face mortises in</th></tr>")
         for j in plan.joints:
+            if j.kind == "miter":
+                a = f"{j.edge_part} — 45° miter face"
+                b = f"{j.face_part} — 45° miter face"
+            else:
+                a, b = j.edge_part, j.face_part
             out.append(
                 f"<tr><td>J{j.index}</td><td>{escape(j.name)}</td>"
-                f"<td>{escape(j.edge_part)}</td>"
-                f"<td>{escape(j.face_part)}</td></tr>")
+                f"<td>{escape(a)}</td>"
+                f"<td>{escape(b)}</td></tr>")
         out.append("</table>")
 
         # Consumables
@@ -634,9 +759,13 @@ def generate_assembly_html(
 
         # Mortise maps
         out.append("<h3>Mortise maps</h3>")
-        out.append("<p class='legend'><span class='f'>◗ red = face "
-                   "mortises</span> · <span class='e'>◗ blue = edge "
-                   "mortises (into the panel end)</span></p>")
+        legend = ("<p class='legend'><span class='f'>◗ red = face "
+                  "mortises</span> · <span class='e'>◗ blue = edge "
+                  "mortises (into the panel end)</span>")
+        if plan.corner_style == "miter":
+            legend += (" · <span style='color:#8e44ad'>◗ purple = miter "
+                       "mortises (into the 45° beveled end)</span>")
+        out.append(legend + "</p>")
         out.append("<div class='maps'>")
         for pm in plan.panels:
             pid_txt = f" · {escape(pm.part_id)}" if pm.part_id else ""
@@ -755,8 +884,7 @@ def generate_assembly_pdf(
             c.roundRect(x0, y0, pw, ph, 2, fill=1, stroke=1)
 
             for row in pm.rows:
-                col = _HexColor("#c0392b" if row.kind == "face"
-                                else "#2471a3")
+                col = _HexColor(_ROW_COLOURS.get(row.kind, "#2471a3"))
                 c.setStrokeColor(col)
                 c.setFillColor(col)
                 c.setLineWidth(0.5)
@@ -837,7 +965,11 @@ def generate_assembly_pdf(
             + ", ".join(_inch(p) for p in plan.positions)
             + " in) from the front edge.", norm))
         data = [["#", "Joint", "Edge mortises in", "Face mortises in"]] + [
-            [f"J{j.index}", wc(j.name), wc(j.edge_part), wc(j.face_part)]
+            [f"J{j.index}", wc(j.name),
+             wc(f"{j.edge_part} — 45° miter face" if j.kind == "miter"
+                else j.edge_part),
+             wc(f"{j.face_part} — 45° miter face" if j.kind == "miter"
+                else j.face_part)]
             for j in plan.joints]
         t = _Table(data, colWidths=[CW * 0.06, CW * 0.40, CW * 0.27,
                                     CW * 0.27], repeatRows=1)
@@ -867,7 +999,10 @@ def generate_assembly_pdf(
             f"Mortise maps — {xesc(plan.cabinet_name)}", h1))
         story.append(_Paragraph(
             "Red = face mortises · blue = edge mortises (into the panel "
-            "end).", norm))
+            "end)"
+            + (" · purple = miter mortises (into the 45° beveled end)"
+               if plan.corner_style == "miter" else "")
+            + ".", norm))
         map_h = 62 * _rl_mm
         for pm in plan.panels:
             pid_txt = f" · {pm.part_id}" if pm.part_id else ""
