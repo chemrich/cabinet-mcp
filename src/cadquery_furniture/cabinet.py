@@ -215,6 +215,12 @@ class CabinetConfig:
 
     # Carcass joinery method
     carcass_joinery: CarcassJoinery = CarcassJoinery.FLOATING_TENON
+    # Exterior corner construction. "butt": top/bottom seat between the
+    # sides (the default). "miter": the four exterior corners are 45°
+    # miters — top/bottom are cut to FULL exterior width (long-point dims)
+    # and all four panels get beveled ends; divider and shelf joints stay
+    # butt tenons. Floating-tenon carcasses only. Also a SharedDesign token.
+    carcass_corner_style: str = "butt"    # butt | miter
 
     # Drawer box corner joinery
     drawer_joinery: DrawerJoineryStyle = DrawerJoineryStyle.HALF_LAP

@@ -8953,6 +8953,59 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="mitered_carcass_corners",
+    prompt=(
+        "Waterfall-miter a tenon carcass: top/bottom grow to full exterior "
+        "width (long-point), sides note their bevels, thin stock is "
+        "rejected because a 5x30 cannot seat in a 45° miter of 12 mm ply."
+    ),
+    tags=["miter", "cutlist", "project", "evaluation", "joinery"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_miter", "overwrite": True,
+                  "shared": {"carcass_corner_style": "miter"},
+                  "cabinets": [
+                      {"name": "a", "config": {
+                          "width": 1219.2, "height": 663.6, "depth": 457,
+                          "drawer_config": [[300, "drawer"],
+                                            [327.6, "drawer"]]}},
+                  ]},
+            label="save a mitered-corner project",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_miter"},
+            label="top/bottom cut long-point to full width",
+            assertions=[
+                Assertion("panels_summary.0.name", Op.EQ, "side"),
+                Assertion("panels_summary.1.name", Op.EQ, "bottom"),
+                # Long-point = full exterior width, not interior (1183.2).
+                Assertion("panels_summary.1.length_mm", Op.APPROX, 1219.2),
+                Assertion("panels_summary.2.name", Op.EQ, "top"),
+                Assertion("panels_summary.2.length_mm", Op.APPROX, 1219.2),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 800, "height": 700, "depth": 457,
+                  "carcass_corner_style": "miter",
+                  "side_thickness": 12, "top_thickness": 12,
+                  "bottom_thickness": 12,
+                  "drawer_config": [[300, "drawer"], [376, "drawer"]]},
+            label="12mm stock cannot miter with a 5x30",
+            assertions=[
+                Assertion("summary.errors", Op.GTE, 1),
+                Assertion("summary.pass", Op.IS_FALSE),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

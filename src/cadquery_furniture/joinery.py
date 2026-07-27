@@ -709,6 +709,68 @@ def carcass_domino_size_for_thickness(panel_thickness: float) -> str:
     return "5x30" if panel_thickness <= 19.0 else "8x40"
 
 
+@dataclass(frozen=True)
+class MiterMortisePlacement:
+    """Solved Domino placement in a 45° miter face.
+
+    All distances in mm. ``from_heel`` / ``from_long_point`` locate the
+    mortise CENTRELINE along the miter face (face width = t·√2), measured
+    from the inside corner (heel) and the outside tip respectively.
+    ``inner_wall`` is the remaining material between the mortise and the
+    panel's inside face at full plunge depth.
+    """
+    face_width: float
+    from_heel: float
+    from_long_point: float
+    inner_wall: float
+    depth: float               # plunge depth per side (mm)
+
+
+def miter_mortise_placement(
+    size: DominoSize,
+    stock_thickness: float,
+    wall_mm: float = 2.0,
+) -> MiterMortisePlacement:
+    """Solve where a Domino mortise fits in a 45° miter of the given stock.
+
+    The DF plunges perpendicular to the miter face; the plunge axis runs at
+    45° to both panel faces, so depth eats toward the INSIDE face at
+    cos 45° per mm. The mortise must (a) keep ``wall_mm`` of material at
+    the inside face at full depth and (b) stay inside the face at entry.
+    Feasible placements bias toward the LONG POINT; the solver returns the
+    midpoint of the feasible window.
+
+    Raises ``ValueError`` when the stock is too thin for the tenon's depth
+    (e.g. 5×30 @ 15 mm needs ≥ ~16.6 mm stock at a 2 mm wall).
+    """
+    c = math.cos(math.radians(45))
+    t = float(stock_thickness)
+    hw = (size.mortise_width / 2) * c          # slot half-extent across faces
+    depth = size.mortise_depth_per_side
+    # y = perpendicular distance of the mortise centreline entry point from
+    # the inside face; feasible window:
+    low = wall_mm + hw + c * depth             # inner wall survives at depth
+    high = t - hw                              # slot stays inside the face
+    if low > high:
+        min_t = wall_mm + 2 * hw + c * depth
+        raise ValueError(
+            f"Domino {size.tenon_thickness:g}×{size.tenon_length:g} at "
+            f"{depth:g} mm depth does not fit a 45° miter in "
+            f"{t:g} mm stock (needs ≥ {min_t:.1f} mm with a "
+            f"{wall_mm:g} mm inside wall)."
+        )
+    y0 = (low + high) / 2
+    face_w = t / c
+    from_heel = y0 / c
+    return MiterMortisePlacement(
+        face_width=round(face_w, 1),
+        from_heel=round(from_heel, 1),
+        from_long_point=round(face_w - from_heel, 1),
+        inner_wall=round(y0 - c * depth - hw, 1),
+        depth=depth,
+    )
+
+
 # ─── Default spec instances ───────────────────────────────────────────────────
 
 #: Default Domino spec for structural carcass joints (8×40, 150 mm spacing)
