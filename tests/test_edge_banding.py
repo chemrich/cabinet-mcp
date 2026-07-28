@@ -62,8 +62,17 @@ class TestCoreShrink:
             assert banded.edge_band == ["all"]
             assert "4 edges" in banded.notes
 
-    def test_markers_present_without_banding(self):
+    def test_markers_stripped_without_banding(self):
+        # Markers mean "this edge WILL be banded". With mode=none they are
+        # stripped so band BOM lines, the banding cutlist doc, and CSV
+        # markers can never claim banding on an unbanded build (the first
+        # mixed batch swept kapex/kid panels into the banding doc).
         c, f = _panels(_cfg())
+        assert all(p.edge_band == [] for p in c + f)
+
+    def test_markers_present_with_banding(self):
+        cfg = _cfg(edge_band_mode="hardwood", edge_band_thickness_mm=3.2)
+        c, f = _panels(cfg)
         assert all(p.edge_band == ["front"] for p in c
                    if p.name in ("side", "bottom", "top", "column_divider",
                                  "shelf_1"))
