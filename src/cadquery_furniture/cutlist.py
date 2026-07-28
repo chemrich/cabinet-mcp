@@ -1617,6 +1617,13 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
             if count <= 0:
                 continue
             sku = hinge_spec.part_number or hinge_key
+            # State the leaf census so the count is checkable against the
+            # physical build — "12 hinges" alone read as under-bought to
+            # Charlie (2026-07-28); hinges are sold EACH, never in pairs.
+            per_leaf = count // num_doors if num_doors else count
+            cup = ("INSERTA tool-free cup — no screws"
+                   if hinge_spec.mounting_plate_part
+                   and not hinge_spec.cup_screws else "screw-on cup")
             lines.append(HardwareLine(
                 sku=sku,
                 category="hinge",
@@ -1625,7 +1632,39 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 model_number=sku,
                 pieces_needed=count,
                 pack_quantity=1,
+                notes=(f"(sold each; {per_leaf} per leaf × {num_doors} "
+                       f"leaf/leaves @ {opening_h:.0f} mm; {cup})"),
             ))
+            # The hinge SKU is the cup/arm only — the CLIP mounting plate
+            # is a separate purchase, one per hinge (caught at order time,
+            # 2026-07-28). 173L8100 ships with pre-mounted 5 mm Euro
+            # system screws, so no plate-screw line is needed.
+            if hinge_spec.mounting_plate_part:
+                plate = hinge_spec.mounting_plate_part
+                lines.append(HardwareLine(
+                    sku=f"blum_{plate.lower()}",
+                    category="hinge_accessory",
+                    name='Blum CLIP 0mm wing mounting plate',
+                    brand=hinge_spec.manufacturer,
+                    model_number=plate,
+                    pieces_needed=count,
+                    pack_quantity=1,
+                    notes=("(1 per hinge; pre-mounted 5 mm Euro system "
+                           "screws — drill 5 mm pilots 37 mm from the "
+                           "front edge)"),
+                ))
+            if hinge_spec.cup_screws:
+                lines.append(HardwareLine(
+                    sku="blum_606n",
+                    category="fastener",
+                    name='Blum #6 x 5/8" flat head screws (100-pack)',
+                    brand="Blum",
+                    model_number="606N100",
+                    pieces_needed=count * hinge_spec.cup_screws,
+                    pack_quantity=100,
+                    notes=(f"({hinge_spec.cup_screws} per screw-on hinge "
+                           f"cup — {sku})"),
+                ))
 
     if columns_raw:
         for col in columns_raw:

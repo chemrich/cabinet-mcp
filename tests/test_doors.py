@@ -87,10 +87,13 @@ class TestHingeSpecStructure:
         assert BLUM_CLIP_TOP_BLUMOTION_110_FULL.max_door_weight_kg > BLUM_CLIP_TOP_110_FULL.max_door_weight_kg
 
     def test_part_numbers_present(self):
-        assert BLUM_CLIP_TOP_110_FULL.part_number == "71B3550"
+        # Real Blum numbering (corrected 2026-07-28 at order time): 71T = plain,
+        # 71B = BLUMOTION; ..3590/3690/3790 = full/half/inset INSERTA. The old
+        # 71H/71N scheme was invented and unorderable.
+        assert BLUM_CLIP_TOP_110_FULL.part_number == "71T3590"
         assert BLUM_CLIP_TOP_BLUMOTION_110_FULL.part_number == "71B3590"
-        assert BLUM_CLIP_TOP_110_HALF.part_number == "71H3550"
-        assert BLUM_CLIP_TOP_110_INSET.part_number == "71N3550"
+        assert BLUM_CLIP_TOP_110_HALF.part_number == "71T3690"
+        assert BLUM_CLIP_TOP_110_INSET.part_number == "71T3790"
 
     def test_cup_edge_clearance_valid(self):
         """Cup boring must leave ≥ 3 mm of material at the door edge."""
