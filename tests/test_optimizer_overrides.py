@@ -64,7 +64,9 @@ class TestMixedRun:
             "carcass_material": "rift_white_oak_ply",
             "drawer_config": [[300, "drawer"], [364, "drawer"]],
             "optimizer": "rips_first",
-            "optimizer_overrides": {"@6": "opcut"},
+            # 'strip' is always installed, so this test runs in lite CI;
+            # Charlie's real mix uses opcut for the 6 mm groups.
+            "optimizer_overrides": {"@6": "strip"},
         }))[0].text)
         algs = {g["material"]: g.get("algorithm")
                 for g in d.get("sheet_goods", [])
@@ -72,4 +74,4 @@ class TestMixedRun:
         oak = next(v for k, v in algs.items() if "Oak" in k)
         six = next(v for k, v in algs.items() if '1/4"' in k)
         assert oak == "rips_first"
-        assert six == "opcut"
+        assert six == "strip"

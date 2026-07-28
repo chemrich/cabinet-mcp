@@ -9115,13 +9115,15 @@ SCENARIOS.append(Scenario(
                   "carcass_material": "rift_white_oak_ply",
                   "drawer_config": [[300, "drawer"], [364, "drawer"]],
                   "optimizer": "rips_first",
-                  "optimizer_overrides": {"@6": "opcut"}},
-            label="18mm rides rips_first while 6mm stays on opcut",
+                  # strip (always installed) keeps this lite-CI-safe; the
+                  # real-world mix pairs rips_first with opcut.
+                  "optimizer_overrides": {"@6": "strip"}},
+            label="18mm rides rips_first while 6mm resolves its override",
             assertions=[
                 Assertion("sheet_goods.0.algorithm", Op.EQ, "rips_first"),
                 Assertion("sheet_goods.0.unplaced", Op.LEN_EQ, 0),
                 # The 6 mm backs/bottoms group resolves the wildcard.
-                Assertion("sheet_goods.3.algorithm", Op.EQ, "opcut"),
+                Assertion("sheet_goods.3.algorithm", Op.EQ, "strip"),
                 Assertion("sheet_goods.3.unplaced", Op.LEN_EQ, 0),
             ],
         ),
