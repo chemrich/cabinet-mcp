@@ -19,7 +19,10 @@ Salice Progressa+  : Salice PROGRESSA catalog D0CASAA36USA; cabinetparts.com spe
 
 Blum Clip Top hinge family:
   Hinge arm suffix: B = full overlay, H = half overlay, N = inset (cranked)
-  BLUMOTION variants: 71B3590 / 71H3590 / 71N3590 (integrated soft-close)
+  BLUMOTION variants: 71B3590 / 71B3690 / 71B3790 (full/half/inset,
+  integrated soft-close); plain = 71T35/36/3790. Suffix ..50 = screw-on
+  cup, ..90 = INSERTA (tool-free). Numbers corrected 2026-07-28 — the
+  old 71H/71N scheme was not real Blum numbering (caught at order time).
   Source: Blum CLIP top datasheet (d2.blum.com/en/HingeDataSheet_cliptop.pdf);
           Blum catalog "Kitchen & Bedroom" © 2023; hardware.com / hafele.com SKUs.
 
@@ -207,6 +210,13 @@ class HingeSpec:
     soft_close: bool             # integrated soft-close / BLUMOTION
     max_door_weight_kg: float    # max door weight per *pair* of hinges
     part_number: str = ""        # manufacturer part number
+    # The hinge SKU is the cup/arm ONLY — CLIP mounting plates are a
+    # separate purchase (found when Charlie went to order, 2026-07-28).
+    mounting_plate_part: str = ""  # e.g. "173L8100" (one plate per hinge)
+    # Cup attachment screws: 0 for INSERTA (tool-free expanding cup),
+    # 2 for screw-on cups. Plates need no line — 173L8100 ships with
+    # pre-mounted 5 mm Euro system screws.
+    cup_screws: int = 0
 
     # Hinge placement constants (from door top / bottom edge)
     hinge_inset_top: float = 100.0     # distance of top hinge from door top
@@ -695,7 +705,8 @@ SALICE_PROGRESSA_PLUS_SMOVE = DrawerSlideSpec(
 
 BLUM_CLIP_TOP_110_FULL = HingeSpec(
     # Standard (no soft-close), full overlay, straight arm.
-    # Source: Blum CLIP top datasheet; hafele.com SKU 329.01.600 (71B3550)
+    # Source: Blum CLIP top datasheet. 71T3590 = plain 110° full INSERTA
+    # (71B3550 is the BLUMOTION screw-on, NOT plain — fixed 2026-07-28).
     name="Blum Clip Top 110° Full Overlay",
     manufacturer="Blum",
     overlay_type=OverlayType.FULL,
@@ -708,12 +719,13 @@ BLUM_CLIP_TOP_110_FULL = HingeSpec(
     opening_angle=110,
     soft_close=False,
     max_door_weight_kg=20.0,
-    part_number="71B3550",
+    part_number="71T3590",
+    mounting_plate_part="173L8100",
 )
 
 BLUM_CLIP_TOP_BLUMOTION_110_FULL = HingeSpec(
     # Integrated BLUMOTION soft-close, full overlay.
-    # Source: Blum CLIP top BLUMOTION datasheet; hafele.com SKU 329.01.650 (71B3590)
+    # Source: Blum CLIP top BLUMOTION datasheet; cabinetparts BH71B3590.
     name="Blum Clip Top BLUMOTION 110° Full Overlay",
     manufacturer="Blum",
     overlay_type=OverlayType.FULL,
@@ -727,13 +739,14 @@ BLUM_CLIP_TOP_BLUMOTION_110_FULL = HingeSpec(
     soft_close=True,
     max_door_weight_kg=25.0,
     part_number="71B3590",
+    mounting_plate_part="173L8100",
 )
 
 # ── Blum Clip Top 110° — Half Overlay ─────────────────────────────────────────
 
 BLUM_CLIP_TOP_110_HALF = HingeSpec(
     # Half overlay (9.5 mm) — for shared partition between two adjacent cabinets.
-    # Source: Blum catalog; cabinetparts.com SKU for 71H3550 (half overlay arm)
+    # Source: Blum catalog; 71T3690 = plain half-overlay INSERTA.
     name="Blum Clip Top 110° Half Overlay",
     manufacturer="Blum",
     overlay_type=OverlayType.HALF,
@@ -746,7 +759,8 @@ BLUM_CLIP_TOP_110_HALF = HingeSpec(
     opening_angle=110,
     soft_close=False,
     max_door_weight_kg=20.0,
-    part_number="71H3550",
+    part_number="71T3690",
+    mounting_plate_part="173L8100",
 )
 
 BLUM_CLIP_TOP_BLUMOTION_110_HALF = HingeSpec(
@@ -764,7 +778,8 @@ BLUM_CLIP_TOP_BLUMOTION_110_HALF = HingeSpec(
     opening_angle=110,
     soft_close=True,
     max_door_weight_kg=25.0,
-    part_number="71H3590",
+    part_number="71B3690",
+    mounting_plate_part="173L8100",
 )
 
 # ── Blum Clip Top 110° — Inset ────────────────────────────────────────────────
@@ -772,7 +787,7 @@ BLUM_CLIP_TOP_BLUMOTION_110_HALF = HingeSpec(
 BLUM_CLIP_TOP_110_INSET = HingeSpec(
     # Inset / cranked arm (N arm) — door sits flush inside opening.
     # Overlay = 0; door is narrower than opening by the reveal gap on each side.
-    # Source: Blum catalog; hafele.com SKU for 71N3550 (inset/cranked arm)
+    # Source: Blum catalog; 71T3790 = plain inset INSERTA (cranked arm).
     name="Blum Clip Top 110° Inset",
     manufacturer="Blum",
     overlay_type=OverlayType.INSET,
@@ -785,7 +800,8 @@ BLUM_CLIP_TOP_110_INSET = HingeSpec(
     opening_angle=110,
     soft_close=False,
     max_door_weight_kg=20.0,
-    part_number="71N3550",
+    part_number="71T3790",
+    mounting_plate_part="173L8100",
 )
 
 BLUM_CLIP_TOP_BLUMOTION_110_INSET = HingeSpec(
@@ -803,7 +819,8 @@ BLUM_CLIP_TOP_BLUMOTION_110_INSET = HingeSpec(
     opening_angle=110,
     soft_close=True,
     max_door_weight_kg=25.0,
-    part_number="71N3590",
+    part_number="71B3790",
+    mounting_plate_part="173L8100",
 )
 
 # ── Blum Clip Top 170° — Full Overlay (wide-angle / corner) ───────────────────
@@ -825,7 +842,9 @@ BLUM_CLIP_TOP_170_FULL = HingeSpec(
     opening_angle=170,
     soft_close=False,
     max_door_weight_kg=20.0,
-    part_number="71B3750",
+    part_number="71T6550",
+    mounting_plate_part="173L8100",
+    cup_screws=2,
 )
 
 # Legacy aliases kept for backward compatibility with existing code.
@@ -1300,6 +1319,10 @@ PRICE_LIST: dict[str, float] = {
     "blum_clip_top_170_full":            12.00,
     "blum_clip_top_110":                  9.50,
     "blum_clip_top_170":                 12.00,
+    # CLIP 0mm wing mounting plate, one per hinge — sold separately from
+    # the cup/arm; ships with pre-mounted 5 mm Euro system screws.
+    # (rokhardware.com single-qty price, Jul 2026)
+    "blum_173l8100":                      0.91,
 
     # ── Legs — each ───────────────────────────────────────────────────────────
     "richelieu_176138106":      18.00,

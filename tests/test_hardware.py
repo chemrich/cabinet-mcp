@@ -273,3 +273,55 @@ class TestSlideExtension:
         slide = next(l for l in slide_lines_for_cabinet_config(cfg)
                      if l.category == "slide")
         assert "full extension" in slide.notes
+
+
+class TestHingeSystemBOM:
+    """The hinge SKU is the cup/arm ONLY — Charlie caught the missing CLIP
+    plates at order time (2026-07-28). One 173L8100 per hinge (ships with
+    pre-mounted Euro screws); INSERTA cups are tool-free, screw-on cups
+    add a 606N fastener line."""
+
+    def _lines(self, hinge_key):
+        from cadquery_furniture.cabinet import build_cabinet_config
+        from cadquery_furniture.cutlist import hinge_lines_for_cabinet_config
+        cfg = build_cabinet_config({
+            "width": 600, "height": 720, "depth": 550,
+            "door_hinge": hinge_key,
+            "drawer_config": [[684, "door"]]})
+        return hinge_lines_for_cabinet_config(cfg)
+
+    def test_plate_line_one_per_hinge(self):
+        lines = self._lines("blum_clip_top_blumotion_110_half")
+        hinge = next(l for l in lines if l.category == "hinge")
+        plate = next(l for l in lines if l.category == "hinge_accessory")
+        assert hinge.sku == "71B3690"          # real Blum number, not 71H3590
+        assert plate.model_number == "173L8100"
+        assert plate.pieces_needed == hinge.pieces_needed
+        assert plate.unit_price == 0.91
+        assert "pre-mounted" in plate.notes and "37 mm" in plate.notes
+
+    def test_inserta_cup_needs_no_screws(self):
+        lines = self._lines("blum_clip_top_blumotion_110_full")
+        hinge = next(l for l in lines if l.category == "hinge")
+        assert "INSERTA" in hinge.notes
+        assert not [l for l in lines if l.category == "fastener"]
+
+    def test_screw_on_cup_adds_fastener_line(self):
+        lines = self._lines("blum_clip_top_170_full")
+        hinge = next(l for l in lines if l.category == "hinge")
+        assert hinge.sku == "71T6550"          # was the bogus 71B3750
+        screws = next(l for l in lines if l.category == "fastener")
+        assert screws.model_number == "606N100"
+        assert screws.pieces_needed == hinge.pieces_needed * 2
+        assert screws.notes.startswith("(")    # survives note-dedup joins
+
+    def test_all_clip_top_part_numbers_are_real_blum(self):
+        # Suffix scheme: 71T=plain / 71B=BLUMOTION; 35/36/37 = full/half/
+        # inset; ..90 INSERTA, ..50 screw-on; 71T6550 = 170°.
+        from cadquery_furniture.hardware import HINGES
+        real = {"71T3590", "71B3590", "71T3690", "71B3690",
+                "71T3790", "71B3790", "71T6550"}
+        clip_tops = {k: s for k, s in HINGES.items() if "clip_top" in k}
+        assert {s.part_number for s in clip_tops.values()} == real
+        assert all(s.mounting_plate_part == "173L8100"
+                   for s in clip_tops.values())
