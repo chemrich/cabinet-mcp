@@ -1172,6 +1172,22 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Sheet stock width in mm (default 1220 / 4×8).",
                         "default": 1220,
                     },
+                    "sheet_size_overrides": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "description": (
+                            "Per-material sheet size overrides, "
+                            "{material: [length_mm, width_mm]} — e.g. "
+                            "{'rift_white_oak_ply': [2453, 1234]} when one "
+                            "stock runs oversize while the rest stay at "
+                            "sheet_length x sheet_width."
+                        ),
+                    },
                     "kerf": {
                         "type": "number",
                         "description": "Saw-blade kerf in mm added to each panel for layout. Default 3.2 mm.",
@@ -2500,6 +2516,22 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "sheet_length": {"type": "number", "default": 2440},
                     "sheet_width":  {"type": "number", "default": 1220},
+                    "sheet_size_overrides": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "description": (
+                            "Per-material sheet size overrides, "
+                            "{material: [length_mm, width_mm]} — e.g. "
+                            "{'rift_white_oak_ply': [2453, 1234]} when one "
+                            "stock runs oversize while the rest stay at "
+                            "sheet_length x sheet_width."
+                        ),
+                    },
                     "kerf":         {"type": "number", "default": 3.2},
                     "format":       {"type": "string", "enum": ["json", "csv", "both"], "default": "both"},
                     "optimizer":    {"type": "string", "enum": ["auto", "opcut", "rectpack", "strip"], "default": "auto"},
@@ -3482,6 +3514,24 @@ _SHEET_MATERIAL_LABELS = {
 }
 
 
+
+def _parse_sheet_size_overrides(raw) -> dict:
+    """Validate {material: [length_mm, width_mm]} sheet-size overrides."""
+    out: dict = {}
+    for mat, dims in (raw or {}).items():
+        try:
+            L, W = float(dims[0]), float(dims[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            raise ValueError(
+                f"sheet_size_overrides[{mat!r}] must be [length_mm, "
+                f"width_mm], got {dims!r}.")
+        if L <= 0 or W <= 0:
+            raise ValueError(
+                f"sheet_size_overrides[{mat!r}] must be positive, "
+                f"got {dims!r}.")
+        out[str(mat)] = (L, W)
+    return out
+
 def _cutlist_pipeline(
     *,
     name: str,
@@ -3496,6 +3546,7 @@ def _cutlist_pipeline(
     kerf: float,
     optimizer: str,
     fmt: str,
+    sheet_size_overrides: dict | None = None,
 ) -> dict[str, Any]:
     """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
     sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
@@ -3530,17 +3581,24 @@ def _cutlist_pipeline(
     # groups, so graphics and tables always agree.
     assign_part_ids(all_panels)
 
-    def _make_sheet(t: float) -> SheetStock:
+    def _make_sheet(t: float, material: str = "") -> SheetStock:
+        # Per-material stock-size override (e.g. Charlie's rift oak runs
+        # oversize at 2453x1234 while the Baltic birch is nominal 2440x1220).
+        L, W = sheet_length, sheet_width
+        ov = (sheet_size_overrides or {}).get(material)
+        if ov:
+            L, W = float(ov[0]), float(ov[1])
         return SheetStock(
-            name=f"{int(sheet_length)}x{int(sheet_width)} {t:.0f}mm",
-            length=sheet_length, width=sheet_width, thickness=t,
+            name=f"{int(L)}x{int(W)} {t:.0f}mm",
+            length=L, width=W, thickness=t,
         )
 
-    def _opt_group(panels: list[CutlistPanel], thickness: float):
+    def _opt_group(panels: list[CutlistPanel], thickness: float,
+                   material: str = ""):
         # Returns (summary_dict, OptimizationResult | None)
         if not panels:
             return {}, None
-        sheet = _make_sheet(thickness)
+        sheet = _make_sheet(thickness, material)
         opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf, algorithm=optimizer)
         return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
                  "unplaced": opt.unplaced}, opt)
@@ -3564,9 +3622,10 @@ def _cutlist_pipeline(
         parts_by_mt.setdefault((p.material, p.thickness), []).append(p)
     parts_mts = sorted(parts_by_mt, key=lambda mt: (mt[0], -mt[1]))
 
-    opt_carcass_by_mt = {mt: _opt_group(carcass_by_mt[mt], mt[1])
+    opt_carcass_by_mt = {mt: _opt_group(carcass_by_mt[mt], mt[1], mt[0])
                          for mt in carcass_mts}
-    opt_parts_by_mt = {mt: _opt_group(parts_by_mt[mt], mt[1]) for mt in parts_mts}
+    opt_parts_by_mt = {mt: _opt_group(parts_by_mt[mt], mt[1], mt[0])
+                       for mt in parts_mts}
 
     # ── Sheet goods summary ────────────────────────────────────────────────
     sheet_goods = []
@@ -3763,6 +3822,8 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     fmt          = args.pop("format", "both")
     sheet_length = float(args.pop("sheet_length", 2440))
     sheet_width  = float(args.pop("sheet_width",  1220))
+    sheet_size_overrides = _parse_sheet_size_overrides(
+        args.pop("sheet_size_overrides", None))
     kerf         = float(args.pop("kerf", 3.2))
     optimizer    = str(args.pop("optimizer", "auto"))
     name         = _safe_stem(args.pop("name", "cabinet"), kind="cutlist name")
@@ -3792,6 +3853,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         hw_lines=hw_lines,
         sheet_length=sheet_length, sheet_width=sheet_width,
         kerf=kerf, optimizer=optimizer, fmt=fmt,
+        sheet_size_overrides=sheet_size_overrides,
     )
     return _ok(result)
 
@@ -4811,6 +4873,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     fmt          = args.get("format", "both")
     sheet_length = float(args.get("sheet_length", 2440))
     sheet_width  = float(args.get("sheet_width",  1220))
+    sheet_size_overrides = _parse_sheet_size_overrides(
+        args.get("sheet_size_overrides"))
     kerf         = float(args.get("kerf", 3.2))
     optimizer    = str(args.get("optimizer", "auto"))
 
@@ -4888,6 +4952,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         hw_lines=hw_lines,
         sheet_length=sheet_length, sheet_width=sheet_width,
         kerf=kerf, optimizer=optimizer, fmt=fmt,
+        sheet_size_overrides=sheet_size_overrides,
     )
     result = {
         "project": out_name,

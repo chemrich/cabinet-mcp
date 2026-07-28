@@ -9057,6 +9057,47 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="per_material_sheet_size_override",
+    prompt=(
+        "One stock runs oversize (Charlie's rift oak measures 2453x1234) "
+        "while the Baltic birch stays nominal — sheet_size_overrides "
+        "resizes only the named material's sheets."
+    ),
+    tags=["cutlist", "sheet_size"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"name": "eval_sheetsize", "width": 1219.2, "height": 663.6,
+                  "depth": 457, "carcass_material": "rift_white_oak_ply",
+                  "drawer_config": [[300, "drawer"], [327.6, "drawer"]],
+                  "sheet_length": 1000, "sheet_width": 1234},
+            label="1219mm panels cannot place on a 1000mm sheet",
+            assertions=[
+                Assertion("sheet_goods.0.unplaced", Op.LEN_GTE, 2),
+            ],
+        ),
+        ToolCall(
+            tool="generate_cutlist",
+            args={"name": "eval_sheetsize", "width": 1219.2, "height": 663.6,
+                  "depth": 457, "carcass_material": "rift_white_oak_ply",
+                  "drawer_config": [[300, "drawer"], [327.6, "drawer"]],
+                  "sheet_length": 1000, "sheet_width": 1234,
+                  "sheet_size_overrides":
+                      {"rift_white_oak_ply": [2453, 1234]}},
+            label="override rescues only the oak group",
+            assertions=[
+                Assertion("sheet_goods.0.unplaced", Op.LEN_EQ, 0),
+                Assertion("sheet_goods.0.sheets_used", Op.EQ, 1),
+                # Baltic birch box stock still packs the small default sheet.
+                Assertion("sheet_goods.1.unplaced", Op.LEN_EQ, 0),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────
