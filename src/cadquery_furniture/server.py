@@ -3657,6 +3657,14 @@ def _raw_panels_for_cabinet(
                     notes=ff_note,
                 ))
 
+    # edge_band markers mean "this edge WILL be banded" — strip them when
+    # the cabinet has no banding so consumers (band BOM lines, the banding
+    # cutlist doc, CSV markers) never claim banding on an unbanded build.
+    # Found via the first mixed batch: the banding doc swept in kapex/kid
+    # panels because markers were attached unconditionally.
+    if getattr(cfg, "edge_band_mode", "none") == "none":
+        for p in (*raw_carcass, *raw_6mm, *raw_box, *raw_false_fronts):
+            p.edge_band = []
     return raw_carcass, raw_6mm, raw_box, raw_false_fronts
 
 
