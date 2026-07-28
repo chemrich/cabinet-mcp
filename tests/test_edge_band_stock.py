@@ -404,6 +404,99 @@ class TestBandingCutlistDoc:
         assert "Board B1" not in html
 
 
+class TestBandingSchedule:
+    def _packs(self, cfg, panels):
+        from cadquery_furniture.cutlist import _band_packs_by_material
+        return _band_packs_by_material(panels, cfg)
+
+    def test_schedule_aggregates_qty_at_each_length(self):
+        from cadquery_furniture.cutlist import (assign_part_ids,
+                                                band_length_schedule)
+        cfg = _cfg(edge_band_stock=STOCK_55)
+        panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
+                               thickness=18, quantity=3,
+                               material="baltic_birch", edge_band=["front"]),
+                  CutlistPanel(name="bottom", length=1219.0, width=400.0,
+                               thickness=18, quantity=3,
+                               material="baltic_birch", edge_band=["front"]),
+                  CutlistPanel(name="side", length=663.6, width=450.0,
+                               thickness=18, quantity=6,
+                               material="baltic_birch", edge_band=["front"])]
+        assign_part_ids(panels)
+        sched = band_length_schedule(self._packs(cfg, panels))
+        assert len(sched) == 2                       # two distinct lengths
+        long_row, short_row = sched
+        assert long_row["qty"] == 6 and long_row["dead"]
+        assert long_row["parts"] == ["B1", "T1"]     # merged across parts
+        assert short_row["qty"] == 6
+        assert short_row["cut"] == 663.6 + BAND_PROUD_ALLOWANCE_MM
+        # longest-first within a material
+        assert long_row["length"] > short_row["length"]
+
+    def test_schedule_includes_over_length_rows(self):
+        from cadquery_furniture.cutlist import band_length_schedule
+        cfg = _cfg(edge_band_stock=STOCK_55)
+        panels = [CutlistPanel(name="long", length=1400.0, width=300.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["front"])]
+        sched = band_length_schedule(self._packs(cfg, panels))
+        assert len(sched) == 1 and sched[0]["over"]
+
+    def test_corner_notes_by_style(self):
+        from cadquery_furniture.cutlist import (_band_corner_notes,
+                                                band_length_schedule)
+        panels = [CutlistPanel(name="top", length=800.0, width=400.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["front"]),
+                  CutlistPanel(name="door", length=500.0, width=280.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["all"])]
+        miter_cfg = _cfg(edge_band_stock=STOCK_55,
+                         carcass_corner_style="miter",
+                         carcass_joinery="floating_tenon")
+        sched = band_length_schedule(self._packs(miter_cfg, panels))
+        notes = _band_corner_notes(miter_cfg, sched)
+        assert any("45° seam" in n for n in notes)
+        assert any("OVERLAP" in n and "SHORT edges first" in n
+                   for n in notes)
+        butt_cfg = _cfg(edge_band_stock=STOCK_55)
+        notes = _band_corner_notes(butt_cfg, sched)
+        assert any("run THROUGH" in n for n in notes)
+
+    def test_html_leads_with_schedule_and_corners(self):
+        from cadquery_furniture.cutlist import (assign_part_ids,
+                                                generate_banding_cutlist_html)
+        cfg = _cfg(edge_band_stock=STOCK_55, carcass_corner_style="miter",
+                   carcass_joinery="floating_tenon")
+        panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
+                               thickness=18, quantity=2,
+                               material="baltic_birch", edge_band=["front"])]
+        assign_part_ids(panels)
+        html = generate_banding_cutlist_html(panels, cfg, "sched_test")
+        assert "fence at" in html and "kerf assumed" in html
+        assert "Length schedule" in html and "2×" in html
+        assert "Corners" in html and "45° seam" in html
+        # schedule and corners come BEFORE the chop-plan appendix
+        assert html.index("Length schedule") < html.index("Appendix")
+        assert html.index("Corners") < html.index("Appendix")
+
+    def test_pdf_renders(self):
+        pytest.importorskip("reportlab")
+        from cadquery_furniture.cutlist import (assign_part_ids,
+                                                generate_banding_cutlist_pdf)
+        cfg = _cfg(edge_band_stock=STOCK_55)
+        panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
+                               thickness=18, quantity=2,
+                               material="baltic_birch", edge_band=["front"]),
+                  CutlistPanel(name="door", length=500.0, width=280.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["all"])]
+        assign_part_ids(panels)
+        pdf = generate_banding_cutlist_pdf(panels, cfg, "pdf_test")
+        assert pdf[:5] == b"%PDF-"
+        assert len(pdf) > 1500
+
+
 class TestProjectIntegration:
     def test_token_round_trip_and_aggregation(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))

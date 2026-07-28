@@ -1949,14 +1949,78 @@ def to_banding_csv(panels: list["CutlistPanel"], cfg) -> str:
     return buf.getvalue()
 
 
+def band_length_schedule(packs: list[tuple]) -> list[dict]:
+    """Aggregate packed band pieces into a qty-at-each-length schedule.
+
+    The strips all rip to one width, so the shop-facing question is just
+    "how many pieces at each length" — this is the table the banding doc
+    leads with. Rows sorted longest-first per material:
+    ``{material, length, cut, qty, parts, edges, dead, over}`` where
+    ``parts`` / ``edges`` are the sorted unique part IDs and edge kinds.
+    """
+    rows: dict[tuple, dict] = {}
+    for mat, pack in packs:
+        placed = [pc for st in pack["strips"] for pc in st["pieces"]]
+        for pc, over in ([(p, False) for p in placed]
+                         + [(p, True) for p in pack["over_length_pieces"]]):
+            key = (mat, round(pc["length"], 1), pc["dead_length"], over)
+            row = rows.setdefault(key, {
+                "material": mat, "length": pc["length"], "cut": pc["cut"],
+                "qty": 0, "parts": set(), "edges": set(),
+                "dead": pc["dead_length"], "over": over,
+            })
+            row["qty"] += 1
+            row["parts"].add(pc["part"] or pc["panel"])
+            row["edges"].add(pc["edge"])
+    out = sorted(rows.values(),
+                 key=lambda r: (r["material"], -r["length"]))
+    for r in out:
+        r["parts"] = sorted(r["parts"])
+        r["edges"] = sorted(r["edges"])
+    return out
+
+
+def _band_corner_notes(cfg, schedule: list[dict]) -> list[str]:
+    """Shop-facing statements on how band pieces meet at corners.
+
+    Banding is applied per flat panel BEFORE assembly (the assembly plan's
+    hardwood sequence), so corner treatment follows from panel geometry —
+    these notes state it so nobody has to reverse-engineer it at the bench.
+    """
+    notes: list[str] = []
+    has_fronts = any("front edge" in r["edges"] for r in schedule)
+    has_faces = any("long edge" in r["edges"] or "short edge" in r["edges"]
+                    for r in schedule)
+    miter = getattr(cfg, "carcass_corner_style", "butt") == "miter"
+    if has_fronts and miter:
+        notes.append(
+            "Carcass front bands (mitered corners): each band runs the FULL "
+            "panel edge and is trimmed flush to the panel's 45° ends before "
+            "assembly — at every corner the two bands meet in a 45° seam "
+            "that continues the waterfall. No overlap, no length changes.")
+    elif has_fronts:
+        notes.append(
+            "Carcass front bands (butt corners): side bands run THROUGH "
+            "full height; top/bottom bands butt between them (their length "
+            "is the interior span, already what the schedule lists).")
+    if has_faces:
+        notes.append(
+            "Door / false-front perimeters: band the SHORT edges first and "
+            "trim flush, then the LONG edges — the long bands OVERLAP and "
+            "hide the short bands' end grain. The proud allowance covers "
+            "the extra 2× band thickness the long pair spans.")
+    return notes
+
+
 def generate_banding_cutlist_html(
     panels: list["CutlistPanel"], cfg, cabinet_name: str,
 ) -> str:
-    """Printable board→strip→piece banding cutlist (self-contained HTML).
+    """Printable banding cutlist (self-contained HTML).
 
-    Mirrors the main cutlist conventions: part IDs match the layout
-    drawings (call after ``assign_part_ids``), bold metric with fractional
-    imperial beside, one board per printed page.
+    Leads with what the bench needs: rip width + kerf, the qty-at-each-
+    length schedule, and corner treatment; the board-by-board chop plan
+    follows as an appendix. Part IDs match the layout drawings (call after
+    ``assign_part_ids``), bold metric with fractional imperial beside.
     """
     stock = getattr(cfg, "edge_band_stock", None)
     thk = float(getattr(cfg, "edge_band_thickness_mm", 0.6))
@@ -1974,11 +2038,51 @@ def generate_banding_cutlist_html(
     total_m = sum(pc["length"] for _, p in packs for st in p["strips"]
                   for pc in st["pieces"]) / 1000
     over = [pc for _, p in packs for pc in p["over_length_pieces"]]
+    schedule = band_length_schedule(packs)
+    multi_mat = len(packs) > 1
 
-    body: list[str] = []
+    # Length schedule — the table the bench works from.
+    sched_html: list[str] = [
+        "<h2>Length schedule</h2>",
+        "<table><tr><th>Qty</th>"
+        + ("<th>Material</th>" if multi_mat else "")
+        + "<th>Finished length</th><th>Cut at</th><th>Parts</th>"
+          "<th>Edge</th><th>Note</th></tr>"]
+    for r in schedule:
+        if r["over"]:
+            note = ("<span class='warn'>LONGER THAN STOCK — splice or "
+                    "longer boards</span>")
+            cut = "—"
+        elif r["dead"]:
+            note = ("<span class='warn'>DEAD LENGTH — cut at finished "
+                    "size, no trim overhang</span>")
+            cut = f"{r['cut']:.1f} mm"
+        else:
+            note = ""
+            cut = f"{r['cut']:.1f} mm"
+        sched_html.append(
+            f"<tr><td><b>{r['qty']}×</b></td>"
+            + (f"<td>{esc(r['material'].replace('_', ' '))}</td>"
+               if multi_mat else "")
+            + f"<td><b>{r['length']:.1f} mm</b> <span class='imp'>"
+              f"{_inch_frac(r['length'])}</span></td><td>{cut}</td>"
+              f"<td>{esc(', '.join(r['parts']))}</td>"
+              f"<td>{esc(' / '.join(r['edges']))}</td><td>{note}</td></tr>")
+    sched_html.append("</table>")
+
+    corner_html = ""
+    corners = _band_corner_notes(cfg, schedule)
+    if corners:
+        corner_html = ("<h2>Corners</h2>"
+                       + "".join(f"<p>{esc(c)}</p>" for c in corners))
+
+    body: list[str] = ["<h2 class='appendix'>Appendix — board-by-board "
+                       "chop plan <span class='sub'>(one workable packing; "
+                       "any chop order that satisfies the schedule works)"
+                       "</span></h2>"]
     board_no = strip_no = 0
     for mat, pack in packs:
-        if len(packs) > 1:
+        if multi_mat:
             body.append(f"<h2 class='mat'>{esc(mat.replace('_', ' '))}</h2>")
         per_board = pack["strips_per_board"]
         offal = (stock["width_mm"] - per_board * stock["strip_width_mm"]
@@ -1987,7 +2091,7 @@ def generate_banding_cutlist_html(
             board_no += 1
             chunk = pack["strips"][bi * per_board:(bi + 1) * per_board]
             body.append(
-                f"<h2>Board #{board_no} <span class='sub'>— rip "
+                f"<h2 class='board'>Board #{board_no} <span class='sub'>— rip "
                 f"{len(chunk)} × {stock['strip_width_mm']:g} mm strips "
                 f"({per_board} max/board, {BAND_RIP_KERF_MM:g} mm kerf, "
                 f"{offal:.1f} mm offal)</span></h2>")
@@ -2042,23 +2146,149 @@ font-size:.9em}} th{{background:#2c3e50;color:#fff}}
 .box{{background:#f6f3ee;border:1px solid #ccc;border-radius:6px;
 padding:10px 14px;margin:12px 0}}
 .warnbox{{background:#fbeeec;border-color:#c0392b}}
-@media print{{h2{{page-break-before:always}}
-h2:first-of-type{{page-break-before:avoid}}}}</style></head><body>
+@media print{{h2.board{{page-break-before:always}}}}</style></head><body>
 <h1>Edge-banding cutlist — {esc(cabinet_name)}</h1>
 <div class="box"><b>Stock:</b> {n_boards} board(s), {thk:g} mm
 ({_inch_frac(thk)}) × {stock['width_mm']:g} mm
 ({_inch_frac(stock['width_mm'])}) × {stock['length_mm']:g} mm
 ({_inch_frac(stock['length_mm'])}) @ ${stock['price_usd']:g} =
 <b>${n_boards * stock['price_usd']:.2f}</b><br>
-<b>Rip:</b> {stock['strip_width_mm']:g} mm strips → {n_strips} strips
-needed, {n_spare} spare.<br>
+<b>Rip:</b> ALL strips are the same width — fence at
+<b>{stock['strip_width_mm']:g} mm</b> ({_inch_frac(stock['strip_width_mm'])}),
+{BAND_RIP_KERF_MM:g} mm kerf assumed → {n_strips} strips needed
+({packs[0][1]['strips_per_board'] if packs else 0}/board), {n_spare}
+spare.<br>
 <b>Pieces:</b> {n_pieces} band pieces, {total_m:.1f} m of
 edges.{dead_note}<br>
-<b>Order per board:</b> rip all strips first (fence at
-{stock['strip_width_mm']:g} mm), then chop pieces per strip below —
-longest first, offcut last.</div>
-{over_html}{''.join(body)}
+<b>Order of work:</b> rip all strips first, then chop to the length
+schedule below — longest first.</div>
+{''.join(sched_html)}{corner_html}{over_html}{''.join(body)}
 </body></html>"""
+
+
+def generate_banding_cutlist_pdf(
+    panels: list["CutlistPanel"], cfg, cabinet_name: str,
+) -> bytes:
+    """Printable banding cutlist as PDF (same content as the HTML).
+
+    Leads with rip width + kerf, the qty-at-each-length schedule, and the
+    corner treatment; the board-by-board chop plan follows. Free-text cells
+    are Paragraphs (plain strings never wrap — the #43 lesson). Raises
+    ``ImportError`` when reportlab is unavailable (callers degrade like the
+    layout PDF).
+    """
+    if not _REPORTLAB_AVAILABLE:
+        raise ImportError(
+            "reportlab is required for PDF export. "
+            "Install with: uv pip install reportlab"
+        )
+    from xml.sax.saxutils import escape as _xml
+    from reportlab.lib import colors as _colors
+    from reportlab.lib.pagesizes import A4 as _A4
+    from reportlab.lib.styles import getSampleStyleSheet as _styles
+    from reportlab.lib.units import mm as _MM
+    from reportlab.platypus import (
+        Paragraph as _P, SimpleDocTemplate as _Doc, Spacer as _Spacer,
+        Table as _Table, TableStyle as _TS)
+
+    stock = getattr(cfg, "edge_band_stock", None)
+    thk = float(getattr(cfg, "edge_band_thickness_mm", 0.6))
+    packs = _band_packs_by_material(panels, cfg)
+    schedule = band_length_schedule(packs)
+    multi_mat = len(packs) > 1
+    n_strips = sum(len(p["strips"]) for _, p in packs)
+    n_boards = sum(p["boards"] for _, p in packs)
+    n_spare = sum(p["spare_strips"] for _, p in packs)
+    n_dead = sum(len(p["flush_pieces"]) for _, p in packs)
+    per_board = packs[0][1]["strips_per_board"] if packs else 0
+
+    ss = _styles()
+    h1, h2, body_st = ss["Title"], ss["Heading2"], ss["BodyText"]
+    small = ss["BodyText"].clone("small", fontSize=8, leading=10)
+
+    head_style = _TS([
+        ("BACKGROUND", (0, 0), (-1, 0), _colors.HexColor("#2c3e50")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), _colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.4, _colors.HexColor("#999999")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ])
+
+    story = [
+        _P(f"Edge-banding cutlist — {_xml(cabinet_name)}", h1),
+        _P(f"<b>Stock:</b> {n_boards} board(s), {thk:g} mm "
+           f"({_inch_frac(thk)}) × {stock['width_mm']:g} mm × "
+           f"{stock['length_mm']:g} mm @ ${stock['price_usd']:g} = "
+           f"<b>${n_boards * stock['price_usd']:.2f}</b>", body_st),
+        _P(f"<b>Rip:</b> ALL strips are the same width — fence at "
+           f"<b>{stock['strip_width_mm']:g} mm</b> "
+           f"({_inch_frac(stock['strip_width_mm'])}), "
+           f"{BAND_RIP_KERF_MM:g} mm kerf assumed → {n_strips} strips "
+           f"({per_board}/board), {n_spare} spare.", body_st),
+        _P(f"All pieces cut {BAND_PROUD_ALLOWANCE_MM:g} mm proud for "
+           f"flush trimming"
+           + (f" except {n_dead} DEAD-LENGTH piece(s) — cut those at "
+              "exactly finished size." if n_dead else "."), body_st),
+        _Spacer(0, 4 * _MM),
+        _P("Length schedule", h2),
+    ]
+
+    hdr = ["Qty"] + (["Material"] if multi_mat else []) + \
+        ["Finished", "Cut at", "Parts", "Edge", "Note"]
+    rows: list[list] = [hdr]
+    for r in schedule:
+        if r["over"]:
+            note, cut = "LONGER THAN STOCK — splice", "—"
+        elif r["dead"]:
+            note, cut = "DEAD LENGTH — no overhang", f"{r['cut']:.1f} mm"
+        else:
+            note, cut = "", f"{r['cut']:.1f} mm"
+        rows.append(
+            [f"{r['qty']}×"]
+            + ([_P(_xml(r["material"].replace("_", " ")), small)]
+               if multi_mat else [])
+            + [f"{r['length']:.1f} mm\n{_inch_frac(r['length'])}", cut,
+               _P(_xml(", ".join(r["parts"])), small),
+               _P(_xml(" / ".join(r["edges"])), small),
+               _P(f'<font color="#c0392b">{_xml(note)}</font>'
+                  if note else "", small)])
+    story.append(_Table(rows, style=head_style, repeatRows=1))
+
+    corners = _band_corner_notes(cfg, schedule)
+    if corners:
+        story.append(_P("Corners", h2))
+        story += [_P(_xml(c), body_st) for c in corners]
+
+    story.append(_P("Appendix — board-by-board chop plan", h2))
+    story.append(_P("One workable packing; any chop order that satisfies "
+                    "the schedule works.", small))
+    board_no = strip_no = 0
+    for mat, pack in packs:
+        pb = pack["strips_per_board"]
+        for bi in range(pack["boards"]):
+            board_no += 1
+            chunk = pack["strips"][bi * pb:(bi + 1) * pb]
+            rows = [["Strip", "Pieces (cut lengths, mm)", "Offcut"]]
+            for st in chunk:
+                strip_no += 1
+                rows.append([
+                    f"S{strip_no}",
+                    _P(_xml("  |  ".join(
+                        f"{pc['cut']:.0f} ({pc['part'] or pc['panel']})"
+                        for pc in st["pieces"])), small),
+                    f"{st['rem']:.0f} mm"])
+            story.append(_Spacer(0, 3 * _MM))
+            story.append(_P(f"Board #{board_no}"
+                            + (f" — {mat.replace('_', ' ')}"
+                               if multi_mat else ""), ss["Heading3"]))
+            story.append(_Table(rows, style=head_style, repeatRows=1,
+                                colWidths=[16 * _MM, 140 * _MM, 20 * _MM]))
+
+    import io as _io
+    buf = _io.BytesIO()
+    _Doc(buf, pagesize=_A4,
+         title=f"Banding cutlist — {cabinet_name}").build(story)
+    return buf.getvalue()
 
 
 def joinery_lines_for_cabinet_config(
