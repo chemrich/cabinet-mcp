@@ -564,6 +564,12 @@ class OptimizationResult:
     stock_sheet: SheetStock
     grain_mismatched: list[str] = field(default_factory=list)
     algorithm_used: str = ""
+    #: Optimizer-declared cut plan per sheet index (same tuple format as
+    #: _guillotine_cuts). When present, renderers use it INSTEAD of deriving
+    #: cuts from geometry — rips_first fills it so bundled strips read as one
+    #: wide track-saw rip + table-saw splits, which pure geometry cannot
+    #: distinguish from many thin rips when stacks align.
+    cuts: "dict[int, list] | None" = None
 
     @property
     def is_complete(self) -> bool:
@@ -607,10 +613,11 @@ def optimize_cutlist(
     ImportError
         If an explicitly requested optimiser is not installed.
     """
-    if algorithm not in ("auto", "opcut", "rectpack", "strip"):
+    if algorithm not in ("auto", "opcut", "rectpack", "strip", "rips_first"):
         raise ValueError(
             f"Unknown algorithm {algorithm!r}; "
-            "expected one of 'auto', 'opcut', 'rectpack', 'strip'."
+            "expected one of 'auto', 'opcut', 'rectpack', 'strip', "
+            "'rips_first'."
         )
 
     if stock_sheet is None:
@@ -636,6 +643,11 @@ def optimize_cutlist(
             unplaced=[], stock_sheet=stock_sheet, grain_mismatched=[],
             algorithm_used="",
         )
+
+    if algorithm == "rips_first":
+        # Opt-in shop-sequence layout (rips first, then cross-cuts);
+        # deliberately NOT part of "auto" while Charlie evaluates it.
+        return _optimize_rips_first(panels, stock_sheet, kerf)
 
     if algorithm == "opcut":
         if not _OPCUT_AVAILABLE:
@@ -919,6 +931,224 @@ def _optimize_with_opcut(
         stock_sheet=stock_sheet,
         grain_mismatched=grain_mismatched,
         algorithm_used="opcut",
+    )
+
+
+#: Table-saw fence capacity for the rips_first layout (Charlie: standard
+#: fence 20" = 508 mm; 24" possible but avoid). Secondary (stacked) rips are
+#: table-saw cuts and must keep within this; level-1 rips and level-2
+#: cross-cuts are track-saw breakdown cuts with no fence constraint.
+RIPS_FIRST_FENCE_LIMIT_MM = 508.0
+
+#: Minimum comfortable track-saw rip width (Charlie: 76 mm strips are much
+#: thinner than he'd run under the track). Pieces narrower than this open a
+#: BUNDLED strip — k pieces + kerfs wide, ≥ this minimum — so the track saw
+#: makes one wide rip and the table saw splits each cross-cut segment to
+#: final width (easy repeated fence cuts).
+RIPS_FIRST_MIN_STRIP_MM = 150.0
+
+
+def _optimize_rips_first(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock,
+    kerf: float,
+) -> OptimizationResult:
+    """Shop-sequence layout for Charlie's track-saw + small-table-saw setup.
+
+    Level 1: full-length RIPS break the sheet into strips (track saw).
+    Level 2: cross-cuts chop each strip into segments (track saw / sled).
+    Level 3: short secondary rips stack pieces within a segment — these are
+    the TABLE-SAW cuts, so the kept width is capped at
+    :data:`RIPS_FIRST_FENCE_LIMIT_MM`.
+
+    Pieces place best-fit into strips-of-columns (stack in an existing
+    column at the tightest width → new column in an exact-width strip →
+    wider strip → new strip); grain-free pieces try both orientations.
+    Same net-dimension / single-edge-trim conventions as the other
+    optimizers.
+    """
+    eff_l = stock_sheet.length - kerf
+    eff_w = stock_sheet.width - kerf
+    EPS = 0.05
+
+    # Each unit lists its allowed (along, across, rotated) orientations —
+    # one for grain-constrained pieces, both for grain-free.
+    units: list[list[tuple[float, float, bool]]] = []
+    unit_meta: list[tuple[str, str]] = []   # (name, source)
+    oversized: list[str] = []
+    for p in panels:
+        for _ in range(p.quantity):
+            if p.grain_direction not in ("", None):
+                cands = [(p.length, p.width, False)]
+            else:
+                cands = [(p.length, p.width, False),
+                         (p.width, p.length, True)]
+            cands = [c for c in cands
+                     if c[0] <= eff_l + EPS and c[1] <= eff_w + EPS]
+            if not cands:
+                if p.name not in oversized:
+                    oversized.append(p.name)
+                continue
+            units.append(cands)
+            unit_meta.append((p.name, p.source))
+
+    # 2) Best-fit units into strips of COLUMNS (shop 3-stage cutting):
+    #    a strip is one full-length rip of width W (track saw); each column
+    #    is one cross-cut segment (track saw); pieces stack within a column
+    #    via short secondary rips (TABLE SAW — kept width must fit the
+    #    fence). Preference order per unit/orientation: stack into an
+    #    existing column (tightest width) → new column in an exact-width
+    #    strip → new column in a wider strip → open a new strip.
+    #    strip = [W, used_len, cols]; col = [seg_len, used_w, [(entry, y_off)]]
+    FENCE = RIPS_FIRST_FENCE_LIMIT_MM
+    MIN_STRIP = RIPS_FIRST_MIN_STRIP_MM
+    strips: list[list] = []
+    order = sorted(
+        range(len(units)),
+        key=lambda i: (-min(c[1] for c in units[i]),
+                       -max(c[0] for c in units[i])),
+    )
+    # Same-width unit counts (preferred orientation) — sizes the bundle when
+    # a narrow class opens a new strip, so a lone odd piece doesn't get an
+    # empty slot's worth of waste.
+    width_counts: dict[float, int] = {}
+    for cands in units:
+        w = round(min(cands, key=lambda c: c[1])[1], 1)
+        width_counts[w] = width_counts.get(w, 0) + 1
+    for ui in order:
+        name, src = unit_meta[ui]
+        best = None   # (kind, width_slack, strip, col, orientation)
+        for cand in units[ui]:
+            along, across = cand[0], cand[1]
+            for st in strips:
+                W = st[0]
+                if across > W + EPS:
+                    continue
+                if across <= FENCE + EPS:
+                    # Stacking = a fence-referenced table-saw rip.
+                    for col in st[2]:
+                        if (along <= col[0] + EPS
+                                and col[1] + kerf + across <= W + EPS):
+                            c = (0, W - across, st, col, cand)
+                            if best is None or c[:2] < best[:2]:
+                                best = c
+                if st[1] + kerf + along <= eff_l + EPS:
+                    kind = 1 if W - across <= EPS else 2
+                    c = (kind, W - across, st, None, cand)
+                    if best is None or c[:2] < best[:2]:
+                        best = c
+        if best is None:
+            # New strip: prefer the orientation with the smaller across
+            # (narrow strips keep more of the sheet rippable). Narrow
+            # classes open a BUNDLED strip sized for k same-width pieces
+            # so the track-saw rip stays comfortably wide.
+            along, across, rot = min(units[ui], key=lambda c: c[1])
+            W = across
+            if across < MIN_STRIP and across <= FENCE + EPS:
+                k_need = math.ceil((MIN_STRIP + kerf) / (across + kerf))
+                avail = max(1, width_counts.get(round(across, 1), 1))
+                k = min(k_need, avail)
+                while k > 1 and k * across + (k - 1) * kerf > eff_w + EPS:
+                    k -= 1
+                W = k * across + (k - 1) * kerf
+            strips.append([W, along,
+                           [[along, across, [((along, across, name, src,
+                                               rot), 0.0)]]]])
+            wkey = round(across, 1)
+            if wkey in width_counts:
+                width_counts[wkey] -= 1
+            continue
+        _, _, st, col, (along, across, rot) = best
+        entry = (along, across, name, src, rot)
+        if col is not None:
+            col[2].append((entry, col[1] + kerf))
+            col[1] += kerf + across
+        else:
+            st[2].append([along, across, [(entry, 0.0)]])
+            st[1] += kerf + along
+        wkey = round(across, 1)
+        if wkey in width_counts:
+            width_counts[wkey] -= 1
+
+    # 3) FFD the strip widths into sheets.
+    order = sorted(range(len(strips)), key=lambda si: -strips[si][0])
+    sheets: list[list] = []   # [used_width, [strip indices]]
+    for si in order:
+        w = strips[si][0]
+        for sh in sheets:
+            add = w + kerf if sh[1] else w
+            if sh[0] + add <= eff_w + EPS:
+                sh[0] += add
+                sh[1].append(si)
+                break
+        else:
+            sheets.append([w, [si]])
+
+    # 4) Emit placements AND the declared cut plan: strips stack in y,
+    #    columns run in x, stacked pieces offset in y within their column.
+    #    Strip rips are the numbered breakdown (track-saw) cuts; column
+    #    cross-cuts and in-column stack rips are non-breakdown (thin lines,
+    #    table-saw work).
+    sl, sw = stock_sheet.length, stock_sheet.width
+    placements: list[Placement] = []
+    cuts_by_sheet: dict[int, list] = {}
+    for shi, (_, slist) in enumerate(sheets):
+        entries = cuts_by_sheet.setdefault(shi, [])
+        y = 0.0
+        for si in slist:
+            W, _, cols = strips[si]
+            y_next = y + W
+            if sw - y_next > 5.0:
+                entries.append((0, round(y_next, 1), 'h',
+                                0.0, round(y_next, 1), sl, round(y_next, 1),
+                                True, round(W), round(sw - y_next)))
+            x = 0.0
+            for seg_len, _, members in cols:
+                for (along, across, name, src, rot), y_off in members:
+                    placements.append(Placement(
+                        panel_name=name, sheet_index=shi,
+                        x=round(x, 1), y=round(y + y_off, 1),
+                        placed_length=round(along, 1),
+                        placed_width=round(across, 1),
+                        rotated=rot, source=src,
+                    ))
+                for mi in range(len(members) - 1):
+                    (_, ac, _, _, _), y_off = members[mi]
+                    yy = y + y_off + ac
+                    entries.append((2, round(yy, 1), 'h',
+                                    round(x, 1), round(yy, 1),
+                                    round(x + seg_len, 1), round(yy, 1),
+                                    False, round(ac), round(W - y_off - ac)))
+                x_next = x + seg_len
+                if sl - x_next > 5.0:
+                    entries.append((1, round(x_next, 1), 'v',
+                                    round(x_next, 1), round(y, 1),
+                                    round(x_next, 1), round(y_next, 1),
+                                    False, round(seg_len),
+                                    round(sl - x_next)))
+                x = x_next + kerf
+            y = y_next + kerf
+
+    sheet_counters: dict[int, int] = {}
+    for pl in placements:
+        sheet_counters[pl.sheet_index] = sheet_counters.get(pl.sheet_index, 0) + 1
+        pl.cut_sequence = sheet_counters[pl.sheet_index]
+
+    sheets_used = len({pl.sheet_index for pl in placements})
+    placed_area = sum(pl.placed_length * pl.placed_width for pl in placements)
+    total_area = sheets_used * stock_sheet.length * stock_sheet.width
+    waste_pct = (max(0.0, (total_area - placed_area) / total_area * 100)
+                 if sheets_used else 0.0)
+
+    return OptimizationResult(
+        sheets_used=sheets_used,
+        waste_pct=round(waste_pct, 1),
+        placements=placements,
+        unplaced=oversized,
+        stock_sheet=stock_sheet,
+        grain_mismatched=[],
+        algorithm_used="rips_first",
+        cuts=cuts_by_sheet,
     )
 
 
@@ -1872,7 +2102,7 @@ def generate_sheet_layout_html(
 
     # ── SVG builder ────────────────────────────────────────────────────────────
     def _sheet_svg(sheet: SheetStock, placements: list[Placement],
-                   id_map: dict) -> str:
+                   id_map: dict, preset_cuts: list | None = None) -> str:
         sl, sw = sheet.length, sheet.width
         # Display ~760 px wide; height scaled proportionally.
         disp_w = 760
@@ -1941,9 +2171,11 @@ def generate_sheet_layout_html(
             )
 
 
-        # Guillotine cut lines — extract tree, number breakdown cuts in BFS order.
-        raw_cuts: list = []
-        _guillotine_cuts(placements, 0, 0, sl, sw, depth=0, out=raw_cuts)
+        # Guillotine cut lines — the optimizer's declared plan when present
+        # (rips_first), else derived from geometry.
+        raw_cuts: list = list(preset_cuts) if preset_cuts is not None else []
+        if preset_cuts is None:
+            _guillotine_cuts(placements, 0, 0, sl, sw, depth=0, out=raw_cuts)
         raw_cuts.sort(key=lambda c: (c[0], c[1]))  # BFS: shallower first
 
         breakdown_stroke = sl * 0.005
@@ -2100,7 +2332,7 @@ def generate_sheet_layout_html(
                 f'{opt.stock_sheet.length:.0f} × {opt.stock_sheet.width:.0f} mm '
                 f'— {_esc(opt.stock_sheet.name)}</span></h3>'
                 f'{sheet_key}'
-                f'{_sheet_svg(opt.stock_sheet, by_sheet[si], id_map)}'
+                f'{_sheet_svg(opt.stock_sheet, by_sheet[si], id_map, (opt.cuts or {}).get(si))}'
                 f'</div>'
             )
 
@@ -2521,12 +2753,16 @@ def generate_sheet_layout_pdf(
             story.append(_SheetDrawingFlowable(
                 pls, result.stock_sheet, kerf, CW, DRAW_H, fill_for=_fill_for,
                 id_map=_group_id_map(_pnls),
+                preset_cuts=(result.cuts or {}).get(sheet_idx),
             ))
 
             # Cut-sequence table
-            raw_cuts: list = []
-            _guillotine_cuts(pls, 0, 0, result.stock_sheet.length, result.stock_sheet.width,
-                             depth=0, out=raw_cuts)
+            preset = (result.cuts or {}).get(sheet_idx)
+            raw_cuts = list(preset) if preset is not None else []
+            if preset is None:
+                _guillotine_cuts(pls, 0, 0, result.stock_sheet.length,
+                                 result.stock_sheet.width, depth=0,
+                                 out=raw_cuts)
             raw_cuts.sort(key=lambda e: e[0])
             seq = 0
             cut_data = [["#", "Type", "Set fence to (shorter piece)"]]
@@ -2629,6 +2865,7 @@ if _REPORTLAB_AVAILABLE:
             avail_h: float,
             fill_for=None,
             id_map=None,
+            preset_cuts=None,
         ) -> None:
             super().__init__()
             self._pl = placements
@@ -2640,6 +2877,7 @@ if _REPORTLAB_AVAILABLE:
             # by project); default is the per-panel-name palette.
             self._fill_for = fill_for or (lambda p: _panel_colour(p.panel_name))
             self._id_map = id_map or {}
+            self._preset_cuts = preset_cuts
 
         def draw(self) -> None:
             canvas = self.canv
@@ -2734,8 +2972,11 @@ if _REPORTLAB_AVAILABLE:
                 canvas.restoreState()
 
             # Guillotine cut lines
-            raw_cuts: list = []
-            _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0, out=raw_cuts)
+            raw_cuts: list = (list(self._preset_cuts)
+                              if self._preset_cuts is not None else [])
+            if self._preset_cuts is None:
+                _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0,
+                                 out=raw_cuts)
             raw_cuts.sort(key=lambda e: e[0])
 
             label_r_pt = max(4.0, sl * 0.016 * scale)
