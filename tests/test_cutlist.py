@@ -187,6 +187,34 @@ class TestImperialAnnotations:
         assert "S1 · side" in html         # ID labels each placement
         assert "663.6" in html or "664×457" in html or "664" in html
 
+    def test_tall_panel_label_lines_do_not_overprint(self):
+        # Charlie's printer-pedestal back (Jul 2026): rotating each label
+        # line about its own anchor put name and dims on the same vertical
+        # line — they overprinted. Both lines must rotate as ONE group so
+        # their spacing stays perpendicular to the reading direction.
+        import re
+        from cadquery_furniture.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
+            generate_sheet_layout_html)
+        panels = [CutlistPanel(name="back", length=522.8, width=711.2,
+                               thickness=6, grain_direction="length")]
+        assign_part_ids(panels)
+        opt = optimize_cutlist(panels, stock_sheet=SheetStock(
+            name="s", length=2440, width=1220, thickness=6), kerf=3.2)
+        html = generate_sheet_layout_html(
+            [("6mm", panels, opt)], cabinet_name="tall_label_test", kerf=3.2)
+        m = re.search(r'<g transform="rotate\(-90,([\d.]+),([\d.]+)\)">(.*?)</g>',
+                      html, re.S)
+        assert m, "tall panel labels must be wrapped in one rotated group"
+        texts = re.findall(r'<text x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]*)</text>',
+                           m.group(3))
+        assert len(texts) == 2
+        (x1, y1, t1), (x2, y2, t2) = texts
+        assert "back" in t1 and "×" in t2
+        assert x1 == x2                    # same reading line pre-rotation
+        assert float(y1) != float(y2)      # separated perpendicular to it
+        assert "rotate" not in m.group(3)  # no per-line rotation inside
+
     def test_part_ids_batch_lettering(self):
         from cadquery_furniture.cutlist import CutlistPanel, assign_part_ids
         ps = [CutlistPanel(name="side", length=100, width=50, thickness=18,
