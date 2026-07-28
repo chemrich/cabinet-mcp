@@ -9098,6 +9098,37 @@ SCENARIOS.append(Scenario(
 ))
 
 
+SCENARIOS.append(Scenario(
+    name="per_group_optimizer_mixing",
+    prompt=(
+        "Mix optimizers per sheet group: rips_first shop-sequence layout "
+        "for the thick show stock, opcut nesting for the heterogeneous "
+        "6 mm group — '@thickness' wildcard keys, non-default."
+    ),
+    tags=["cutlist", "optimizer"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="generate_cutlist",
+            args={"name": "eval_optmix", "width": 800, "height": 700,
+                  "depth": 457,
+                  "carcass_material": "rift_white_oak_ply",
+                  "drawer_config": [[300, "drawer"], [364, "drawer"]],
+                  "optimizer": "rips_first",
+                  "optimizer_overrides": {"@6": "opcut"}},
+            label="18mm rides rips_first while 6mm stays on opcut",
+            assertions=[
+                Assertion("sheet_goods.0.algorithm", Op.EQ, "rips_first"),
+                Assertion("sheet_goods.0.unplaced", Op.LEN_EQ, 0),
+                # The 6 mm backs/bottoms group resolves the wildcard.
+                Assertion("sheet_goods.3.algorithm", Op.EQ, "opcut"),
+                Assertion("sheet_goods.3.unplaced", Op.LEN_EQ, 0),
+            ],
+        ),
+    ],
+))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Index helpers
 # ─────────────────────────────────────────────────────────────────────────────

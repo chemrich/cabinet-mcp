@@ -1172,6 +1172,23 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Sheet stock width in mm (default 1220 / 4×8).",
                         "default": 1220,
                     },
+                    "optimizer_overrides": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "enum": ["auto", "opcut", "rectpack", "strip",
+                                     "rips_first"],
+                        },
+                        "description": (
+                            "Per-group optimizer overrides. Keys match "
+                            "(material, thickness) groups by precedence "
+                            "'material@thickness' > 'material' > "
+                            "'@thickness' (e.g. {'@6': 'opcut'} keeps 6 mm "
+                            "stock on opcut while the run-level optimizer "
+                            "handles the rest). Non-default; omit for a "
+                            "single optimizer."
+                        ),
+                    },
                     "sheet_size_overrides": {
                         "type": "object",
                         "additionalProperties": {
@@ -2516,6 +2533,23 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "sheet_length": {"type": "number", "default": 2440},
                     "sheet_width":  {"type": "number", "default": 1220},
+                    "optimizer_overrides": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "enum": ["auto", "opcut", "rectpack", "strip",
+                                     "rips_first"],
+                        },
+                        "description": (
+                            "Per-group optimizer overrides. Keys match "
+                            "(material, thickness) groups by precedence "
+                            "'material@thickness' > 'material' > "
+                            "'@thickness' (e.g. {'@6': 'opcut'} keeps 6 mm "
+                            "stock on opcut while the run-level optimizer "
+                            "handles the rest). Non-default; omit for a "
+                            "single optimizer."
+                        ),
+                    },
                     "sheet_size_overrides": {
                         "type": "object",
                         "additionalProperties": {
@@ -3515,6 +3549,40 @@ _SHEET_MATERIAL_LABELS = {
 
 
 
+_OPTIMIZER_CHOICES = ("auto", "opcut", "rectpack", "strip", "rips_first")
+
+
+def _parse_optimizer_overrides(raw) -> dict:
+    """Validate {key: algorithm} per-group optimizer overrides.
+
+    Keys match a (material, thickness) group by precedence:
+    "material@thickness" (e.g. "baltic_birch@6") > "material" >
+    "@thickness" (any material at that thickness) > the run-level
+    optimizer.
+    """
+    out: dict = {}
+    for key, alg in (raw or {}).items():
+        if alg not in _OPTIMIZER_CHOICES:
+            raise ValueError(
+                f"optimizer_overrides[{key!r}] must be one of "
+                f"{list(_OPTIMIZER_CHOICES)}, got {alg!r}.")
+        out[str(key)] = str(alg)
+    return out
+
+
+def _resolve_group_algorithm(
+    material: str, thickness: float, overrides: dict, default: str,
+) -> str:
+    """Pick the optimizer for one (material, thickness) sheet group."""
+    if not overrides:
+        return default
+    t = f"{thickness:g}"
+    for key in (f"{material}@{t}", material, f"@{t}"):
+        if key in overrides:
+            return overrides[key]
+    return default
+
+
 def _parse_sheet_size_overrides(raw) -> dict:
     """Validate {material: [length_mm, width_mm]} sheet-size overrides."""
     out: dict = {}
@@ -3547,6 +3615,7 @@ def _cutlist_pipeline(
     optimizer: str,
     fmt: str,
     sheet_size_overrides: dict | None = None,
+    optimizer_overrides: dict | None = None,
 ) -> dict[str, Any]:
     """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
     sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
@@ -3599,9 +3668,13 @@ def _cutlist_pipeline(
         if not panels:
             return {}, None
         sheet = _make_sheet(thickness, material)
-        opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf, algorithm=optimizer)
+        alg = _resolve_group_algorithm(
+            material, thickness, optimizer_overrides or {}, optimizer)
+        opt = optimize_cutlist(panels, stock_sheet=sheet, kerf=kerf,
+                               algorithm=alg)
         return ({"sheets_used": opt.sheets_used, "waste_pct": opt.waste_pct,
-                 "unplaced": opt.unplaced}, opt)
+                 "unplaced": opt.unplaced,
+                 "algorithm": opt.algorithm_used}, opt)
 
     # Carcass panels can span multiple thicknesses (side vs top/bottom
     # overrides, mixed-thickness projects) AND multiple materials
@@ -3824,6 +3897,8 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
     sheet_width  = float(args.pop("sheet_width",  1220))
     sheet_size_overrides = _parse_sheet_size_overrides(
         args.pop("sheet_size_overrides", None))
+    optimizer_overrides = _parse_optimizer_overrides(
+        args.pop("optimizer_overrides", None))
     kerf         = float(args.pop("kerf", 3.2))
     optimizer    = str(args.pop("optimizer", "auto"))
     name         = _safe_stem(args.pop("name", "cabinet"), kind="cutlist name")
@@ -3854,6 +3929,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         sheet_length=sheet_length, sheet_width=sheet_width,
         kerf=kerf, optimizer=optimizer, fmt=fmt,
         sheet_size_overrides=sheet_size_overrides,
+        optimizer_overrides=optimizer_overrides,
     )
     return _ok(result)
 
@@ -4875,6 +4951,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     sheet_width  = float(args.get("sheet_width",  1220))
     sheet_size_overrides = _parse_sheet_size_overrides(
         args.get("sheet_size_overrides"))
+    optimizer_overrides = _parse_optimizer_overrides(
+        args.get("optimizer_overrides"))
     kerf         = float(args.get("kerf", 3.2))
     optimizer    = str(args.get("optimizer", "auto"))
 
@@ -4953,6 +5031,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         sheet_length=sheet_length, sheet_width=sheet_width,
         kerf=kerf, optimizer=optimizer, fmt=fmt,
         sheet_size_overrides=sheet_size_overrides,
+        optimizer_overrides=optimizer_overrides,
     )
     result = {
         "project": out_name,
