@@ -3965,6 +3965,7 @@ def _cutlist_pipeline(
         banded = [p for p in all_panels if p.edge_band]
         if banded:
             from .cutlist import (generate_banding_cutlist_html,
+                                  generate_banding_cutlist_pdf,
                                   to_banding_csv)
             p = out_dir / f"{name}_banding_cutlist.html"
             p.write_text(generate_banding_cutlist_html(banded, band_cfg, name))
@@ -3972,6 +3973,14 @@ def _cutlist_pipeline(
             p = out_dir / f"{name}_banding_cutlist.csv"
             p.write_text(to_banding_csv(banded, band_cfg))
             files["banding_cutlist_csv"] = str(p)
+            try:
+                pdf_bytes = generate_banding_cutlist_pdf(banded, band_cfg,
+                                                         name)
+                p = out_dir / f"{name}_banding_cutlist.pdf"
+                p.write_bytes(pdf_bytes)
+                files["banding_cutlist_pdf"] = str(p)
+            except ImportError:
+                pass  # reportlab not installed (lite mode)
 
     # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
