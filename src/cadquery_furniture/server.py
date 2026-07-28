@@ -3736,6 +3736,7 @@ def _cutlist_pipeline(
     fmt: str,
     sheet_size_overrides: dict | None = None,
     optimizer_overrides: dict | None = None,
+    band_cfg=None,
 ) -> dict[str, Any]:
     """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
     sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
@@ -3946,6 +3947,24 @@ def _cutlist_pipeline(
         except ImportError:
             pass  # reportlab not installed
 
+    # ── Banding cutlist (board→strip→piece) ────────────────────────────────
+    # band_cfg is the run's hardwood band config with a purchase spec; the
+    # doc packs every banded panel in the run with that one spec (mixed
+    # per-cabinet band tokens aren't split into separate documents).
+    if (band_cfg is not None
+            and getattr(band_cfg, "edge_band_mode", "none") == "hardwood"
+            and getattr(band_cfg, "edge_band_stock", None)):
+        banded = [p for p in all_panels if p.edge_band]
+        if banded:
+            from .cutlist import (generate_banding_cutlist_html,
+                                  to_banding_csv)
+            p = out_dir / f"{name}_banding_cutlist.html"
+            p.write_text(generate_banding_cutlist_html(banded, band_cfg, name))
+            files["banding_cutlist_html"] = str(p)
+            p = out_dir / f"{name}_banding_cutlist.csv"
+            p.write_text(to_banding_csv(banded, band_cfg))
+            files["banding_cutlist_csv"] = str(p)
+
     # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
         "panel_count": len(all_panels),
@@ -4050,6 +4069,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         kerf=kerf, optimizer=optimizer, fmt=fmt,
         sheet_size_overrides=sheet_size_overrides,
         optimizer_overrides=optimizer_overrides,
+        band_cfg=cfg,
     )
     return _ok(result)
 
@@ -5085,6 +5105,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
 
     per_cabinet_summary = []
     total_cabinets = 0
+    band_doc_cfg = None  # first hardwood cfg with a stock spec → banding doc
     from .cutlist import edge_band_lines_for_panels
     for project in projects:
         # Band lines aggregate per PROJECT, not per cabinet: one line per
@@ -5102,6 +5123,10 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                         cfg.edge_band_material,
                         tuple(sorted((cfg.edge_band_stock or {}).items())))
                 band_groups.setdefault(bkey, (cfg, []))[1].extend(c + f)
+                if (band_doc_cfg is None
+                        and cfg.edge_band_mode == "hardwood"
+                        and cfg.edge_band_stock):
+                    band_doc_cfg = cfg
             if batch_names:
                 # Tag provenance so panels stay project-distinct rows through
                 # consolidation and the layout colours/labels by project.
@@ -5168,6 +5193,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         kerf=kerf, optimizer=optimizer, fmt=fmt,
         sheet_size_overrides=sheet_size_overrides,
         optimizer_overrides=optimizer_overrides,
+        band_cfg=band_doc_cfg,
     )
     result = {
         "project": out_name,

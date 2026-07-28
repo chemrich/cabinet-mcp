@@ -8995,6 +8995,9 @@ SCENARIOS.append(Scenario(
                           Op.HAS_KEY, "edge_band"),
                 Assertion("cost_estimate.hardware_by_category_usd.edge_band",
                           Op.EQ, 104.0),
+                # board→strip→piece banding cutlist emitted with the files
+                Assertion("files", Op.HAS_KEY, "banding_cutlist_html"),
+                Assertion("files", Op.HAS_KEY, "banding_cutlist_csv"),
             ],
         ),
         ToolCall(

@@ -334,6 +334,76 @@ class TestBandingInterference:
         assert "banding" not in issues[0].message
 
 
+class TestBandingCutlistDoc:
+    STOCK = dict(STOCK_55, strip_width_mm=20.0)
+
+    def _pieces(self):
+        return [
+            {"part": "T1", "panel": "top", "edge": "front edge",
+             "length": 1219.0, "material": "white_oak"},
+            {"part": "D1", "panel": "door", "edge": "long edge",
+             "length": 500.0, "material": "white_oak"},
+            {"part": "D1", "panel": "door", "edge": "short edge",
+             "length": 280.0, "material": "white_oak"},
+        ]
+
+    def test_pack_band_pieces_assignments(self):
+        from cadquery_furniture.cutlist import pack_band_pieces
+        pack = pack_band_pieces(self._pieces(), self.STOCK)
+        placed = [pc for st in pack["strips"] for pc in st["pieces"]]
+        assert len(placed) == 3
+        # dead-length piece owns its strip and is cut AT finished size
+        dead = [pc for pc in placed if pc["dead_length"]]
+        assert len(dead) == 1 and dead[0]["cut"] == 1219.0
+        dead_strip, = [st for st in pack["strips"] if dead[0] in st["pieces"]]
+        assert len(dead_strip["pieces"]) == 1
+        # normal pieces cut proud
+        norm = [pc for pc in placed if not pc["dead_length"]]
+        assert all(pc["cut"] == pc["length"] + BAND_PROUD_ALLOWANCE_MM
+                   for pc in norm)
+
+    def test_band_pieces_provenance_uses_part_ids(self):
+        from cadquery_furniture.cutlist import (assign_part_ids,
+                                                band_pieces_for_panels)
+        cfg = _cfg(edge_band_stock=STOCK_55)
+        panels = [CutlistPanel(name="top", length=800.0, width=400.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["front"]),
+                  CutlistPanel(name="door", length=500.0, width=280.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["all"])]
+        assign_part_ids(panels)
+        pieces = band_pieces_for_panels(panels, cfg)
+        assert len(pieces) == 5
+        assert {pc["part"] for pc in pieces} == {"T1", "DR1"}
+        door = [pc for pc in pieces if pc["panel"] == "door"]
+        assert sorted(pc["edge"] for pc in door) == \
+            ["long edge", "long edge", "short edge", "short edge"]
+
+    def test_csv_and_html_render(self):
+        from cadquery_furniture.cutlist import (assign_part_ids,
+                                                generate_banding_cutlist_html,
+                                                to_banding_csv)
+        cfg = _cfg(edge_band_stock=STOCK_55)
+        panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
+                               thickness=18, quantity=2,
+                               material="baltic_birch", edge_band=["front"]),
+                  CutlistPanel(name="long", length=1400.0, width=300.0,
+                               thickness=18, material="baltic_birch",
+                               edge_band=["front"])]
+        assign_part_ids(panels)
+        csv_text = to_banding_csv(panels, cfg)
+        assert "#1,S1,1" in csv_text
+        assert "DEAD LENGTH" in csv_text
+        assert "LONGER THAN STOCK" in csv_text
+        html = generate_banding_cutlist_html(panels, cfg, "doc_test")
+        assert "Board #1" in html and "Strip S1" in html
+        assert "DEAD LENGTH" in html and "LONGER than the stock" in html
+        assert "T1" in html
+        # boards labeled '#N', never bare 'B1' (that's a part-ID family)
+        assert "Board B1" not in html
+
+
 class TestProjectIntegration:
     def test_token_round_trip_and_aggregation(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -362,6 +432,12 @@ class TestProjectIntegration:
 
         cut = json.loads(_await(_tool_generate_project_cutlist(
             {"project_name": "eval_band_stock"}))[0].text)
+        # banding cutlist files emitted alongside the standard set
+        assert "banding_cutlist_html" in cut["files"]
+        assert "banding_cutlist_csv" in cut["files"]
+        doc = open(cut["files"]["banding_cutlist_html"]).read()
+        assert "Board #1" in doc and "Strip S1" in doc
+
         bom = json.load(open(cut["files"]["hardware_bom_json"]))
         band = [l for l in bom["lines"] if l["category"] == "edge_band"]
         # ONE aggregated line across both cabinets, priced from the spec
@@ -383,3 +459,5 @@ class TestProjectIntegration:
         band2 = [l for l in bom2["lines"] if l["category"] == "edge_band"]
         assert len(band2) == 1
         assert band2[0]["unit_price_usd"] == 0.0
+        # no stock spec → no banding cutlist files
+        assert "banding_cutlist_html" not in cut2["files"]
