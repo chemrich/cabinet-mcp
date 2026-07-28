@@ -649,7 +649,168 @@ def check_edge_banding(cab_cfg: CabinetConfig) -> list[Issue]:
                      "an order-out (arrives edge-finished) — face banding "
                      "applies only to sheet-stock faces."),
         ))
+
+    stock = getattr(cab_cfg, "edge_band_stock", None)
+    if stock:
+        if mode != "hardwood":
+            issues.append(Issue(
+                check="edge_band_stock",
+                severity=Severity.WARNING,
+                message=("edge_band_stock is set but edge_band_mode is "
+                         f"{mode!r} — the stock spec only prices hardwood "
+                         "strips and is ignored here."),
+            ))
+        else:
+            issues.extend(_check_band_stock_spec(cab_cfg, stock, thk))
     return issues
+
+
+def _check_band_stock_spec(cab_cfg, stock: dict, thk: float) -> list[Issue]:
+    """Sanity-check a hardwood ``edge_band_stock`` purchase spec.
+
+    The commonly purchasable envelope is 1/8" or 1/4" thick boards, 3–5.5"
+    wide, 48" long — outside that is legal but flagged so a typo'd spec
+    (inches-vs-mm, wrong axis) surfaces at design time. Hard errors are
+    reserved for specs that cannot produce a usable strip at all.
+    """
+    from .cutlist import BAND_RIP_KERF_MM
+
+    issues: list[Issue] = []
+    width, length = stock["width_mm"], stock["length_mm"]
+    strip_w = stock["strip_width_mm"]
+
+    if not (abs(thk - 3.2) < 0.05 or abs(thk - 6.4) < 0.05):
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.WARNING,
+            message=(f"edge_band_thickness_mm {thk:g} — banding stock is "
+                     'commonly sold in 1/8" (3.2 mm) or 1/4" (6.4 mm) only; '
+                     "other thicknesses need custom milling."),
+            value=thk,
+        ))
+    if not (76.2 <= width <= 139.7):
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.WARNING,
+            message=(f"edge_band_stock width {width:g} mm is outside the "
+                     'common 3–5.5" (76.2–139.7 mm) board envelope — '
+                     "check the spec (inches vs mm?)."),
+            value=width, limit=139.7,
+        ))
+
+    # A strip must cover the thickest banded edge, ideally proud.
+    max_edge = max(cab_cfg.side_thickness, cab_cfg.top_thickness,
+                   cab_cfg.bottom_thickness, cab_cfg.shelf_thickness)
+    if strip_w < max_edge:
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.ERROR,
+            message=(f"edge_band_stock strip_width_mm {strip_w:g} cannot "
+                     f"cover the {max_edge:g} mm panel edges."),
+            value=strip_w, limit=max_edge,
+        ))
+    elif strip_w < max_edge + 1.0:
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.WARNING,
+            message=(f"edge_band_stock strip_width_mm {strip_w:g} leaves "
+                     f"under 1 mm proud of the {max_edge:g} mm edges — "
+                     "no flush-trim margin."),
+            value=strip_w, limit=max_edge + 1.0,
+        ))
+    if strip_w > width:
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.ERROR,
+            message=(f"edge_band_stock strip_width_mm {strip_w:g} exceeds "
+                     f"the {width:g} mm board width — no strips can be "
+                     "ripped."),
+            value=strip_w, limit=width,
+        ))
+
+    # Longest banded edge vs strip length. Cheap upper bound: mitered
+    # top/bottom fronts run full exterior width, butt carcasses run the
+    # interior; the cutlist notes carry the exact per-piece flags.
+    longest = (cab_cfg.width
+               if getattr(cab_cfg, "carcass_corner_style", "butt") == "miter"
+               else cab_cfg.interior_width)
+    if longest > length:
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.WARNING,
+            message=(f"Longest banded edge ≈ {longest:g} mm exceeds the "
+                     f"{length:g} mm banding stock — those edges need a "
+                     "splice or longer boards (see the cutlist band line "
+                     "for exact pieces)."),
+            value=longest, limit=length,
+        ))
+    elif longest > length - BAND_RIP_KERF_MM - 10.0:
+        issues.append(Issue(
+            check="edge_band_stock",
+            severity=Severity.WARNING,
+            message=(f"Longest banded edge ≈ {longest:g} mm vs {length:g} mm "
+                     "stock — little or no flush-trim overhang on those "
+                     "pieces; cut dead-length or size up."),
+            value=longest, limit=length,
+        ))
+    return issues
+
+
+def check_edge_band_face_gap(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Hot-melt banding growth vs the vertical gap between stacked faces.
+
+    Faces are cut to their nominal reveals and hot-melt veneer is ironed on
+    AFTER, so each banded horizontal edge grows by the band thickness and
+    two adjacent faces close their shared gap by 2× that. Hardwood mode
+    shrinks cores instead and never fires this check.
+    """
+    from .cabinet import DEFAULT_FACE_GAP_MM
+
+    if getattr(cab_cfg, "edge_band_mode", "none") != "hot_melt":
+        return []
+    thk = float(getattr(cab_cfg, "edge_band_thickness_mm", 0.6))
+
+    def _stacks():
+        if cab_cfg.columns:
+            for col in cab_cfg.columns:
+                yield col.openings
+        elif cab_cfg.openings:
+            yield cab_cfg.openings
+
+    face_types = ("drawer", "door", "door_pair")
+    adjacent_pairs = sum(
+        1
+        for stack in _stacks()
+        for a, b in zip(stack, stack[1:])
+        if a.opening_type in face_types and b.opening_type in face_types
+    )
+    if not adjacent_pairs:
+        return []
+
+    gap_after = DEFAULT_FACE_GAP_MM - 2 * thk
+    if gap_after < 0:
+        return [Issue(
+            check="edge_band_face_gap",
+            severity=Severity.ERROR,
+            message=(f"Hot-melt banding grows each face edge {thk:g} mm — "
+                     f"adjacent faces close their {DEFAULT_FACE_GAP_MM:g} mm "
+                     f"gap by {2 * thk:g} mm and COLLIDE "
+                     f"({adjacent_pairs} face pair(s)). Use hardwood mode "
+                     "(core-compensated) or trim face cores."),
+            value=2 * thk, limit=DEFAULT_FACE_GAP_MM,
+        )]
+    if gap_after < MIN_FACE_REVEAL_MM:
+        return [Issue(
+            check="edge_band_face_gap",
+            severity=Severity.WARNING,
+            message=(f"Hot-melt banding narrows the {DEFAULT_FACE_GAP_MM:g} mm "
+                     f"face gap to {gap_after:g} mm across "
+                     f"{adjacent_pairs} face pair(s) — under the "
+                     f"{MIN_FACE_REVEAL_MM:g} mm minimum reveal. Consider "
+                     "hardwood mode or trimming face cores."),
+            value=gap_after, limit=MIN_FACE_REVEAL_MM,
+        )]
+    return []
 
 
 def check_miter_corners(cab_cfg: CabinetConfig) -> list[Issue]:
@@ -970,6 +1131,13 @@ def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
     else:
         return []
 
+    # Hot-melt banding is applied AFTER cutting with no core compensation, so
+    # every banded face edge grows by the band thickness and eats reveal.
+    # Hardwood mode shrinks the core instead — dimension-neutral, no growth.
+    band_g = (float(getattr(cab_cfg, "edge_band_thickness_mm", 0.6))
+              if getattr(cab_cfg, "edge_band_mode", "none") == "hot_melt"
+              else 0.0)
+
     def _has_faces(col) -> bool:
         return any(op.opening_type in ("drawer", "door", "door_pair")
                    for op in col.openings)
@@ -1001,7 +1169,9 @@ def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
                     claim = (INNER_FACE_OVERLAY_MM if _has_faces(neighbor)
                              else 0.0)
                     edge_desc = "interior divider"
-                required = overlay + claim
+                # The door's edge grows band_g; a face-bearing neighbour's
+                # edge grows band_g too.
+                required = (overlay + band_g) + claim + (band_g if claim else 0.0)
                 if worst is None or required > worst[0]:
                     worst = (required, claim, edge_desc)
 
@@ -1011,6 +1181,8 @@ def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
             budget = cab_cfg.side_thickness
             reveal = budget - required
             where = f"column {i + 1}" if col is not None else "door"
+            band_note = (f" (incl. {band_g:g} mm hot-melt banding growth "
+                         "per face edge)") if band_g else ""
             if required > budget:
                 issues.append(Issue(
                     severity=Severity.ERROR,
@@ -1019,8 +1191,9 @@ def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
                         f"{where}: door overlay {overlay:g} mm ({hinge_key}) "
                         f"plus the neighbouring faces' {claim:g} mm claim "
                         f"needs {required:g} mm of the {budget:g} mm "
-                        f"{edge_desc} — the door will collide with the "
-                        f"adjacent fronts. Use a half-overlay or inset hinge."
+                        f"{edge_desc}{band_note} — the door will collide "
+                        f"with the adjacent fronts. Use a half-overlay or "
+                        f"inset hinge."
                     ),
                     part_a=f"{where}_door",
                     part_b=edge_desc,
@@ -1034,8 +1207,8 @@ def check_door_overlay_collisions(cab_cfg: CabinetConfig) -> list[Issue]:
                     message=(
                         f"{where}: door overlay {overlay:g} mm ({hinge_key}) "
                         f"leaves only {reveal:g} mm reveal on the {budget:g} mm "
-                        f"{edge_desc} — use the hinge's side adjustment "
-                        f"(±2 mm) to open the reveal."
+                        f"{edge_desc}{band_note} — use the hinge's side "
+                        f"adjustment (±2 mm) to open the reveal."
                     ),
                     part_a=f"{where}_door",
                     part_b=edge_desc,
@@ -1949,6 +2122,7 @@ def evaluate_cabinet(
     all_issues.extend(check_dado_alignment(cab_cfg))
     all_issues.extend(check_door_overlay_collisions(cab_cfg))
     all_issues.extend(check_edge_banding(cab_cfg))
+    all_issues.extend(check_edge_band_face_gap(cab_cfg))
     all_issues.extend(check_miter_corners(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     if cab_cfg.columns:

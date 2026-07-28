@@ -47,6 +47,11 @@ from .joinery import (
 #: (an 18 mm divider splits 8 + 8 with a 2 mm reveal).
 INNER_FACE_OVERLAY_MM: float = 8.0
 
+#: build default for ``build_multi_bay_cabinet(face_gap=...)`` AND by
+#: evaluation.check_edge_band_face_gap as the total vertical clearance
+#: between adjacent faces that hot-melt banding growth eats into.
+DEFAULT_FACE_GAP_MM: float = 4.0
+
 
 @dataclass(frozen=True)
 class OpeningConfig:
@@ -119,6 +124,44 @@ class ColumnConfig:
     fixed_shelf_positions: tuple[float, ...] = ()
 
 
+_BAND_STOCK_KEYS = {"width_mm", "length_mm", "price_usd", "strip_width_mm"}
+
+
+def normalize_band_stock(spec: dict | None) -> dict | None:
+    """Validated copy of an ``edge_band_stock`` spec with defaults applied.
+
+    ``None``/empty stays ``None`` (unpriced rip-from-offcuts). Board
+    thickness is NOT a key — it is ``edge_band_thickness_mm``, so the stock
+    and the band can never disagree. Raises ``ValueError`` on unknown keys
+    or non-positive values so bad specs fail at design time, not in the BOM.
+    """
+    if not spec:
+        return None
+    unknown = set(spec) - _BAND_STOCK_KEYS
+    if unknown:
+        raise ValueError(
+            f"edge_band_stock: unknown key(s) {sorted(unknown)}. "
+            f"Valid keys: {sorted(_BAND_STOCK_KEYS)}."
+        )
+    try:
+        out = {
+            "width_mm": float(spec["width_mm"]),
+            "length_mm": float(spec["length_mm"]),
+            "price_usd": float(spec["price_usd"]),
+            "strip_width_mm": float(spec.get("strip_width_mm", 20.0)),
+        }
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(
+            "edge_band_stock needs numeric width_mm, length_mm and "
+            "price_usd (strip_width_mm optional, default 20)."
+        ) from None
+    bad = [k for k, v in out.items() if not math.isfinite(v) or v <= 0]
+    if bad:
+        raise ValueError(f"edge_band_stock: {', '.join(sorted(bad))} must be "
+                         "positive finite numbers.")
+    return out
+
+
 @dataclass
 class CabinetConfig:
     """Configuration for a base cabinet."""
@@ -164,6 +207,14 @@ class CabinetConfig:
     edge_band_mode: str = "none"          # none | hot_melt | hardwood
     edge_band_thickness_mm: float = 0.6   # hardwood: 3.2–6.4 typical
     edge_band_material: str = ""          # "" → derive from panel material
+    # Purchasable strip stock for hardwood mode (None → unpriced rip-from-
+    # offcuts line). Keys: width_mm (board width the strips rip from),
+    # length_mm (board length = strip length), price_usd (per board),
+    # strip_width_mm (optional, default 20 — covers an 18 mm edge proud).
+    # Board thickness IS edge_band_thickness_mm, so the two can't disagree.
+    # SharedDesign token; the cutlist packs actual edge lengths into strips
+    # and prices boards-to-order from it.
+    edge_band_stock: dict | None = None
 
     # Joinery
     dado_depth: float = 9.0  # half thickness dado for shelves/bottom
@@ -233,6 +284,7 @@ class CabinetConfig:
 
     def __post_init__(self) -> None:
         """Normalize openings and column openings to OpeningConfig objects."""
+        self.edge_band_stock = normalize_band_stock(self.edge_band_stock)
         self.openings = [to_opening(op) for op in self.openings]
         # Normalize per element — to_opening is a no-op for OpeningConfig, so
         # mixed tuples (OpeningConfig first, raw rows after) normalize too.
@@ -827,7 +879,7 @@ def build_multi_bay_cabinet(
     face_thickness: float = 18.0,
     outer_overlay: float = 18.0,
     inner_overlay: float = INNER_FACE_OVERLAY_MM,
-    face_gap: float = 4.0,
+    face_gap: float = DEFAULT_FACE_GAP_MM,
     face_bottom_overhang: float = 0.0,
     face_top_overhang: float = 0.0,
     include_drawers: bool = True,
