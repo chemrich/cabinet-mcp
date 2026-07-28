@@ -607,10 +607,11 @@ def optimize_cutlist(
     ImportError
         If an explicitly requested optimiser is not installed.
     """
-    if algorithm not in ("auto", "opcut", "rectpack", "strip"):
+    if algorithm not in ("auto", "opcut", "rectpack", "strip", "rips_first"):
         raise ValueError(
             f"Unknown algorithm {algorithm!r}; "
-            "expected one of 'auto', 'opcut', 'rectpack', 'strip'."
+            "expected one of 'auto', 'opcut', 'rectpack', 'strip', "
+            "'rips_first'."
         )
 
     if stock_sheet is None:
@@ -636,6 +637,11 @@ def optimize_cutlist(
             unplaced=[], stock_sheet=stock_sheet, grain_mismatched=[],
             algorithm_used="",
         )
+
+    if algorithm == "rips_first":
+        # Opt-in shop-sequence layout (rips first, then cross-cuts);
+        # deliberately NOT part of "auto" while Charlie evaluates it.
+        return _optimize_rips_first(panels, stock_sheet, kerf)
 
     if algorithm == "opcut":
         if not _OPCUT_AVAILABLE:
@@ -919,6 +925,144 @@ def _optimize_with_opcut(
         stock_sheet=stock_sheet,
         grain_mismatched=grain_mismatched,
         algorithm_used="opcut",
+    )
+
+
+def _optimize_rips_first(
+    panels: list[CutlistPanel],
+    stock_sheet: SheetStock,
+    kerf: float,
+) -> OptimizationResult:
+    """Shop-sequence layout: full-length RIPS into width strips, then
+    cross-cuts within each strip — Charlie's table-saw workflow. Every
+    first-level cut is a rip; no cut nests the other way.
+
+    Smarter than :func:`_optimize_strip`'s single-pass greedy: pieces group
+    into exact strip-width classes, lengths bin-pack into strips by
+    first-fit-decreasing, and strip widths bin-pack into sheets by FFD —
+    partially-filled strips and sheets stay open for later pieces.
+    Same net-dimension / single-edge-trim conventions as the other
+    optimizers.
+    """
+    eff_l = stock_sheet.length - kerf
+    eff_w = stock_sheet.width - kerf
+    EPS = 0.05
+
+    pieces: list[tuple[float, float, str, str, bool]] = []
+    oversized: list[str] = []
+    for p in panels:
+        for _ in range(p.quantity):
+            if p.grain_direction not in ("", None):
+                along, across, rot = p.length, p.width, False
+                if along > eff_l + EPS or across > eff_w + EPS:
+                    if p.name not in oversized:
+                        oversized.append(p.name)
+                    continue
+            else:
+                # Grain-free: strip width = the smaller dim (narrow strips
+                # keep more of the sheet rippable for other classes).
+                if p.length >= p.width:
+                    along, across, rot = p.length, p.width, False
+                else:
+                    along, across, rot = p.width, p.length, True
+                if along > eff_l + EPS or across > eff_w + EPS:
+                    along, across, rot = across, along, not rot
+                    if along > eff_l + EPS or across > eff_w + EPS:
+                        if p.name not in oversized:
+                            oversized.append(p.name)
+                        continue
+            pieces.append((along, across, p.name, p.source, rot))
+
+    # 2) Best-fit pieces into strips of COLUMNS (shop 3-stage cutting):
+    #    a strip is one full-length rip of width W; each column is one
+    #    cross-cut segment; pieces stack within a column via short
+    #    secondary rips. Preference order per piece: stack into an
+    #    existing column (tightest width) → new column in an exact-width
+    #    strip → new column in a wider strip → open a new strip.
+    #    strip = [W, used_len, cols]; col = [seg_len, used_w, [(piece, y_off)]]
+    strips: list[list] = []
+    for it in sorted(pieces, key=lambda e: (-e[1], -e[0])):
+        along, across = it[0], it[1]
+        best = None   # (kind, width_slack, strip, col)
+        for st in strips:
+            W = st[0]
+            if across > W + EPS:
+                continue
+            for col in st[2]:
+                if (along <= col[0] + EPS
+                        and col[1] + kerf + across <= W + EPS):
+                    cand = (0, W - across, st, col)
+                    if best is None or cand[:2] < best[:2]:
+                        best = cand
+            if st[1] + kerf + along <= eff_l + EPS:
+                kind = 1 if W - across <= EPS else 2
+                cand = (kind, W - across, st, None)
+                if best is None or cand[:2] < best[:2]:
+                    best = cand
+        if best is None:
+            strips.append([across, along, [[along, across, [(it, 0.0)]]]])
+            continue
+        _, _, st, col = best
+        if col is not None:
+            col[2].append((it, col[1] + kerf))
+            col[1] += kerf + across
+        else:
+            st[2].append([along, across, [(it, 0.0)]])
+            st[1] += kerf + along
+
+    # 3) FFD the strip widths into sheets.
+    order = sorted(range(len(strips)), key=lambda si: -strips[si][0])
+    sheets: list[list] = []   # [used_width, [strip indices]]
+    for si in order:
+        w = strips[si][0]
+        for sh in sheets:
+            add = w + kerf if sh[1] else w
+            if sh[0] + add <= eff_w + EPS:
+                sh[0] += add
+                sh[1].append(si)
+                break
+        else:
+            sheets.append([w, [si]])
+
+    # 4) Emit placements: strips stack in y, columns run in x, stacked
+    #    pieces offset in y within their column.
+    placements: list[Placement] = []
+    for shi, (_, slist) in enumerate(sheets):
+        y = 0.0
+        for si in slist:
+            W, _, cols = strips[si]
+            x = 0.0
+            for seg_len, _, members in cols:
+                for (along, across, name, src, rot), y_off in members:
+                    placements.append(Placement(
+                        panel_name=name, sheet_index=shi,
+                        x=round(x, 1), y=round(y + y_off, 1),
+                        placed_length=round(along, 1),
+                        placed_width=round(across, 1),
+                        rotated=rot, source=src,
+                    ))
+                x += seg_len + kerf
+            y += W + kerf
+
+    sheet_counters: dict[int, int] = {}
+    for pl in placements:
+        sheet_counters[pl.sheet_index] = sheet_counters.get(pl.sheet_index, 0) + 1
+        pl.cut_sequence = sheet_counters[pl.sheet_index]
+
+    sheets_used = len({pl.sheet_index for pl in placements})
+    placed_area = sum(pl.placed_length * pl.placed_width for pl in placements)
+    total_area = sheets_used * stock_sheet.length * stock_sheet.width
+    waste_pct = (max(0.0, (total_area - placed_area) / total_area * 100)
+                 if sheets_used else 0.0)
+
+    return OptimizationResult(
+        sheets_used=sheets_used,
+        waste_pct=round(waste_pct, 1),
+        placements=placements,
+        unplaced=oversized,
+        stock_sheet=stock_sheet,
+        grain_mismatched=[],
+        algorithm_used="rips_first",
     )
 
 

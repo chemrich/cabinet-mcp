@@ -1201,7 +1201,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "optimizer": {
                         "type": "string",
-                        "enum": ["auto", "opcut", "rectpack", "strip"],
+                        "enum": ["auto", "opcut", "rectpack", "strip", "rips_first"],
                         "description": (
                             "Sheet layout algorithm. 'auto' (default) uses opcut if installed, "
                             "then rectpack if installed, then strip-cutting. 'rectpack' requires "
@@ -2534,7 +2534,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "kerf":         {"type": "number", "default": 3.2},
                     "format":       {"type": "string", "enum": ["json", "csv", "both"], "default": "both"},
-                    "optimizer":    {"type": "string", "enum": ["auto", "opcut", "rectpack", "strip"], "default": "auto"},
+                    "optimizer":    {"type": "string", "enum": ["auto", "opcut", "rectpack", "strip", "rips_first"], "default": "auto"},
                 },
             },
         ),
