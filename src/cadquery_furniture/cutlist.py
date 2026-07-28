@@ -1617,9 +1617,13 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
             if count <= 0:
                 continue
             sku = hinge_spec.part_number or hinge_key
-            cup_note = ("(INSERTA tool-free cup — no screws)"
-                        if hinge_spec.mounting_plate_part
-                        and not hinge_spec.cup_screws else "")
+            # State the leaf census so the count is checkable against the
+            # physical build — "12 hinges" alone read as under-bought to
+            # Charlie (2026-07-28); hinges are sold EACH, never in pairs.
+            per_leaf = count // num_doors if num_doors else count
+            cup = ("INSERTA tool-free cup — no screws"
+                   if hinge_spec.mounting_plate_part
+                   and not hinge_spec.cup_screws else "screw-on cup")
             lines.append(HardwareLine(
                 sku=sku,
                 category="hinge",
@@ -1628,7 +1632,8 @@ def hinge_lines_for_cabinet_config(cab_cfg, columns_raw: list | None = None) -> 
                 model_number=sku,
                 pieces_needed=count,
                 pack_quantity=1,
-                notes=cup_note,
+                notes=(f"(sold each; {per_leaf} per leaf × {num_doors} "
+                       f"leaf/leaves @ {opening_h:.0f} mm; {cup})"),
             ))
             # The hinge SKU is the cup/arm only — the CLIP mounting plate
             # is a separate purchase, one per hinge (caught at order time,

@@ -306,6 +306,14 @@ class TestHingeSystemBOM:
         assert "INSERTA" in hinge.notes
         assert not [l for l in lines if l.category == "fastener"]
 
+    def test_hinge_note_states_leaf_census(self):
+        # "12 hinges" alone read as under-bought — the line must show
+        # sold-each and the per-leaf × leaves math (Charlie, 2026-07-28).
+        lines = self._lines("blum_clip_top_blumotion_110_half")
+        hinge = next(l for l in lines if l.category == "hinge")
+        assert "sold each" in hinge.notes
+        assert "2 per leaf × 1 leaf/leaves @ 684 mm" in hinge.notes
+
     def test_screw_on_cup_adds_fastener_line(self):
         lines = self._lines("blum_clip_top_170_full")
         hinge = next(l for l in lines if l.category == "hinge")
