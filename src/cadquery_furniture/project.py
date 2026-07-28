@@ -51,6 +51,7 @@ _SHARED_FIELDS = (
     "edge_band_mode",
     "edge_band_thickness_mm",
     "edge_band_material",
+    "edge_band_stock",
     "carcass_joinery",
     "carcass_corner_style",
     "drawer_joinery",
@@ -87,6 +88,7 @@ class SharedDesign:
     edge_band_mode: Optional[str] = None       # none | hot_melt | hardwood
     edge_band_thickness_mm: Optional[float] = None
     edge_band_material: Optional[str] = None   # "" → derive from panel material
+    edge_band_stock: Optional[dict] = None     # strip stock spec (see CabinetConfig)
 
     # Joinery
     carcass_joinery:  Optional[CarcassJoinery]     = None
@@ -715,6 +717,7 @@ def _config_to_dict(cfg: CabinetConfig) -> dict:
         "edge_band_mode": cfg.edge_band_mode,
         "edge_band_thickness_mm": cfg.edge_band_thickness_mm,
         "edge_band_material": cfg.edge_band_material,
+        "edge_band_stock": dict(cfg.edge_band_stock) if cfg.edge_band_stock else None,
         "dado_depth":         cfg.dado_depth,
         "back_rabbet_width":  cfg.back_rabbet_width,
         "back_rabbet_depth":  cfg.back_rabbet_depth,

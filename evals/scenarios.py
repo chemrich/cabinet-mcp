@@ -8954,6 +8954,136 @@ SCENARIOS.append(Scenario(
 
 
 SCENARIOS.append(Scenario(
+    name="edge_band_stock_priced_boards",
+    prompt=(
+        "Price 1/8\" white-oak banding strips from purchasable boards "
+        "(5.5\" × 48\" at $52): the BOM band line packs real edge lengths "
+        "into strips, orders whole boards, and a strip too narrow for the "
+        "panel edges is a design-time error."
+    ),
+    tags=["edge_band", "cutlist", "project", "evaluation"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_band_stock_scen", "overwrite": True,
+                  "shared": {"edge_band_mode": "hardwood",
+                             "edge_band_thickness_mm": 3.2,
+                             "edge_band_material": "white_oak",
+                             "edge_band_stock": {"width_mm": 139.7,
+                                                 "length_mm": 1219.2,
+                                                 "price_usd": 52},
+                             "face_material": "baltic_birch"},
+                  "cabinets": [
+                      {"name": n, "config": {
+                          "width": 600, "height": 720, "depth": 500,
+                          "openings": [[300, "drawer"], [384, "drawer"]]}}
+                      for n in ("left", "right")
+                  ]},
+            label="save project with a banding stock spec token",
+            assertions=[Assertion("cabinet_count", Op.EQ, 2)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_band_stock_scen"},
+            label="one aggregated band line priced in boards",
+            assertions=[
+                # 24 band pieces pack into 12 × 20 mm strips; 6 strips per
+                # 5.5" board → 2 boards × $52. Priced from the spec, not
+                # PRICE_LIST, and aggregated across both cabinets.
+                Assertion("cost_estimate.hardware_by_category_usd",
+                          Op.HAS_KEY, "edge_band"),
+                Assertion("cost_estimate.hardware_by_category_usd.edge_band",
+                          Op.EQ, 104.0),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 600, "height": 720, "depth": 500,
+                  "edge_band_mode": "hardwood",
+                  "edge_band_thickness_mm": 3.2,
+                  "edge_band_stock": {"width_mm": 139.7, "length_mm": 1219.2,
+                                      "price_usd": 52, "strip_width_mm": 15},
+                  "drawer_config": [[384, "drawer"], [300, "drawer"]]},
+            label="15mm strip cannot cover 18mm edges — error",
+            assertions=[
+                Assertion("summary.errors", Op.EQ, 1),
+                Assertion("summary.pass", Op.IS_FALSE),
+            ],
+        ),
+    ],
+))
+
+
+SCENARIOS.append(Scenario(
+    name="edge_band_interference_checks",
+    prompt=(
+        "Make sure edge banding never causes face-to-carcass interference: "
+        "hot-melt is ironed on AFTER cutting, so its growth eats reveals — "
+        "a half-overlay door beside a drawer column tips from tight-reveal "
+        "warning into collision error, and thick hot-melt closes the "
+        "vertical face gap. Hardwood mode shrinks cores and stays neutral."
+    ),
+    tags=["edge_band", "evaluation", "door", "drawer"],
+    difficulty="advanced",
+    tool_calls=[
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 614, "height": 720, "depth": 500,
+                  "door_hinge": "blum_clip_top_blumotion_110_half",
+                  "columns": [
+                      {"width_mm": 280, "openings": [[684, "door"]]},
+                      {"width_mm": 280,
+                       "openings": [[342, "drawer"], [342, "drawer"]]}]},
+            label="no banding: tight reveal is a warning only",
+            assertions=[
+                Assertion("summary.errors", Op.EQ, 0),
+                Assertion("summary.warnings", Op.GTE, 1),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 614, "height": 720, "depth": 500,
+                  "door_hinge": "blum_clip_top_blumotion_110_half",
+                  "edge_band_mode": "hot_melt",
+                  "edge_band_thickness_mm": 0.6,
+                  "columns": [
+                      {"width_mm": 280, "openings": [[684, "door"]]},
+                      {"width_mm": 280,
+                       "openings": [[342, "drawer"], [342, "drawer"]]}]},
+            label="hot-melt growth tips the same layout into collision",
+            assertions=[
+                Assertion("summary.errors", Op.EQ, 1),
+                Assertion("summary.pass", Op.IS_FALSE),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 600, "height": 720, "depth": 500,
+                  "edge_band_mode": "hot_melt",
+                  "edge_band_thickness_mm": 2.5,
+                  "drawer_config": [[384, "drawer"], [300, "drawer"]]},
+            label="thick hot-melt collides stacked faces",
+            assertions=[Assertion("summary.errors", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 614, "height": 720, "depth": 500,
+                  "door_hinge": "blum_clip_top_blumotion_110_half",
+                  "edge_band_mode": "hardwood",
+                  "edge_band_thickness_mm": 6.4,
+                  "columns": [
+                      {"width_mm": 280, "openings": [[684, "door"]]},
+                      {"width_mm": 280,
+                       "openings": [[342, "drawer"], [342, "drawer"]]}]},
+            label="hardwood is core-compensated — no new error",
+            assertions=[Assertion("summary.errors", Op.EQ, 0)],
+        ),
+    ],
+))
+
+
+SCENARIOS.append(Scenario(
     name="mitered_carcass_corners",
     prompt=(
         "Waterfall-miter a tenon carcass: top/bottom grow to full exterior "

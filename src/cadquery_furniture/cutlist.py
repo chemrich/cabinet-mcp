@@ -1286,6 +1286,9 @@ class HardwareLine:
     pieces_needed: int
     pack_quantity: int = 1
     notes: str = ""
+    # Price override for lines whose cost comes from a user-supplied spec
+    # (e.g. edge_band_stock boards) instead of the PRICE_LIST catalog.
+    unit_price_usd: Optional[float] = None
     # Which project this line came from in a multi-project batch. Hardware
     # consolidates GLOBALLY (one purchase per SKU) — consolidation merges
     # across sources but accumulates the per-project breakdown here.
@@ -1309,6 +1312,14 @@ class HardwareLine:
     def leftover(self) -> int:
         """Pieces remaining after installation (always ≥ 0)."""
         return self.pieces_ordered - self.pieces_needed
+
+    @property
+    def unit_price(self) -> float:
+        """Line unit price: the spec override when set, else the catalog."""
+        if self.unit_price_usd is not None:
+            return self.unit_price_usd
+        from .hardware import price_for
+        return price_for(self.sku)
 
 
 # ─── Pull BOM extractors ─────────────────────────────────────────────────────
@@ -1672,37 +1683,98 @@ def _band_material_for(panel_material: str, cfg) -> str:
     return _BAND_MATERIAL_ALIASES.get(base, base)
 
 
+BAND_PROUD_ALLOWANCE_MM = 10.0  # per-piece length for flush-trim + crosscut kerf
+BAND_RIP_KERF_MM = 3.2
+
+
+def band_segments_for_panels(
+    panels: list["CutlistPanel"], cfg,
+) -> dict[str, list[float]]:
+    """Per-material band piece lengths (mm) from ``edge_band`` markers.
+
+    ``"front"``/``"back"`` run along the panel's *length*, ``"left"``/
+    ``"right"`` along its *width*, ``"all"`` is the full perimeter (false
+    fronts / door leaves). One entry per physical piece × quantity.
+    """
+    per_material: dict[str, list[float]] = {}
+    for p in panels:
+        if not p.edge_band:
+            continue
+        segs: list[float] = []
+        for edge in p.edge_band:
+            if edge == "all":
+                segs += [p.length, p.length, p.width, p.width]
+            elif edge in ("left", "right"):
+                segs.append(p.width)
+            else:
+                segs.append(p.length)
+        mat = _band_material_for(p.material, cfg)
+        per_material.setdefault(mat, []).extend(segs * p.quantity)
+    return per_material
+
+
+def pack_band_strips(
+    segments: list[float], stock: dict, kerf: float = BAND_RIP_KERF_MM,
+) -> dict:
+    """Pack band piece lengths into strips ripped from purchasable stock.
+
+    First-fit-decreasing with ``BAND_PROUD_ALLOWANCE_MM`` extra per piece
+    (capped at the strip length — a piece that exactly fills a strip is
+    allowed but flagged). Strips-per-board comes from the board width, the
+    strip width, and the rip kerf (the last strip needs no kerf).
+
+    Returns strips / strips_per_board / boards / spare_strips /
+    flush_pieces (fit but with no flush-trim overhang) / over_length_pieces
+    (longer than the stock — need a splice or longer boards).
+    """
+    L = stock["length_mm"]
+    strip_w = stock["strip_width_mm"]
+    per_board = int((stock["width_mm"] + kerf) // (strip_w + kerf))
+    over = sorted((s for s in segments if s > L), reverse=True)
+    flush = sorted((s for s in segments if L - BAND_PROUD_ALLOWANCE_MM < s <= L),
+                   reverse=True)
+    remainders: list[float] = []
+    for s in sorted((s for s in segments if s <= L), reverse=True):
+        need = min(s + BAND_PROUD_ALLOWANCE_MM, L)
+        for i, r in enumerate(remainders):
+            if r >= need:
+                remainders[i] -= need
+                break
+        else:
+            remainders.append(L - need)
+    strips = len(remainders)
+    boards = math.ceil(strips / per_board) if per_board else 0
+    return {
+        "strips": strips,
+        "strips_per_board": per_board,
+        "boards": boards,
+        "spare_strips": max(0, boards * per_board - strips),
+        "flush_pieces": flush,
+        "over_length_pieces": over,
+    }
+
+
 def edge_band_lines_for_panels(
     panels: list["CutlistPanel"], cfg,
 ) -> list[HardwareLine]:
     """Edge-banding consumable lines from the panels' ``edge_band`` markers.
 
-    Marker semantics: ``"front"`` (and any other single-edge marker) is one
-    edge running along the panel's *length*; ``"all"`` is the full perimeter
-    (false fronts / door leaves). Footage carries a 15% trim/waste factor.
-    Hot-melt orders 7/8" × 50-ft pre-glued rolls; hardwood mode emits an
-    unpriced rip-from-stock line (strips cut proud for flush trimming).
+    Footage carries a 15% trim/waste factor. Hot-melt orders 7/8" × 50-ft
+    pre-glued rolls. Hardwood mode: with an ``edge_band_stock`` spec on the
+    config the line is priced in boards-to-order (real piece-into-strip
+    packing, see :func:`pack_band_strips`); without one it stays the
+    unpriced rip-from-offcuts line (strips cut proud for flush trimming).
     """
     mode = getattr(cfg, "edge_band_mode", "none")
     if mode == "none":
         return []
     thk = float(getattr(cfg, "edge_band_thickness_mm", 0.6))
-    per_material: dict[str, float] = {}
-    for p in panels:
-        if not p.edge_band:
-            continue
-        length_mm = 0.0
-        for edge in p.edge_band:
-            if edge == "all":
-                length_mm += 2 * (p.length + p.width)
-            else:
-                length_mm += p.length
-        mat = _band_material_for(p.material, cfg)
-        per_material[mat] = per_material.get(mat, 0.0) + length_mm * p.quantity
+    stock = getattr(cfg, "edge_band_stock", None) if mode == "hardwood" else None
 
     MM_PER_FT = 304.8
     lines: list[HardwareLine] = []
-    for mat, mm in sorted(per_material.items()):
+    for mat, segs in sorted(band_segments_for_panels(panels, cfg).items()):
+        mm = sum(segs)
         ft = math.ceil(mm / MM_PER_FT * 1.15)
         pretty = mat.replace("_", " ")
         if mode == "hot_melt":
@@ -1717,7 +1789,7 @@ def edge_band_lines_for_panels(
                 notes=(f"{mm / 1000:.1f} m of edges (+15% waste); "
                        f'7/8" width covers 18 mm edges (trim flush)'),
             ))
-        else:
+        elif stock is None:
             lines.append(HardwareLine(
                 sku=f"edgeband-hardwood-{mat}",
                 category="edge_band",
@@ -1729,6 +1801,42 @@ def edge_band_lines_for_panels(
                 notes=(f"{mm / 1000:.1f} m of edges (+15% waste); rip "
                        f"{thk:g} mm × ~20 mm strips from solid stock/offcuts "
                        "(proud, flush-trim after glue-up)"),
+            ))
+        else:
+            pack = pack_band_strips(segs, stock)
+            # Note chunks avoid ", " so the merge-time dedup keeps each whole.
+            note_bits = [
+                f"{mm / 1000:.1f} m of edges in {len(segs)} pieces → "
+                f"{pack['strips']} strips of {stock['strip_width_mm']:g} mm "
+                f"({pack['strips_per_board']}/board; "
+                f"{pack['spare_strips']} spare)",
+            ]
+            if pack["flush_pieces"]:
+                note_bits.append(
+                    f"⚠ {len(pack['flush_pieces'])} piece(s) at ≈ full strip "
+                    f"length (longest {max(pack['flush_pieces']):.0f} mm vs "
+                    f"{stock['length_mm']:g} mm stock — no flush-trim "
+                    "overhang; cut dead-length or splice)"
+                )
+            if pack["over_length_pieces"]:
+                note_bits.append(
+                    f"⚠ {len(pack['over_length_pieces'])} piece(s) LONGER "
+                    f"than the stock (longest "
+                    f"{max(pack['over_length_pieces']):.0f} mm — splice or "
+                    "buy longer boards; not included in the board count)"
+                )
+            lines.append(HardwareLine(
+                sku=f"edgeband-hardwood-{mat}",
+                category="edge_band",
+                name=(f"Hardwood banding stock, {pretty} — {thk:g} mm × "
+                      f"{stock['width_mm']:g} mm × {stock['length_mm']:g} mm "
+                      "boards"),
+                brand="",
+                model_number="",
+                pieces_needed=pack["boards"],
+                pack_quantity=1,
+                unit_price_usd=stock["price_usd"],
+                notes="; ".join(note_bits),
             ))
     return lines
 
@@ -1948,6 +2056,8 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
                 )
             for src, n in _line_sources(line).items():
                 merged.source_counts[src] = merged.source_counts.get(src, 0) + n
+            if merged.unit_price_usd is None:
+                merged.unit_price_usd = line.unit_price_usd
         else:
             out[line.sku] = HardwareLine(
                 sku=line.sku,
@@ -1958,6 +2068,7 @@ def consolidate_hardware_lines(lines: list[HardwareLine]) -> list[HardwareLine]:
                 pieces_needed=line.pieces_needed,
                 pack_quantity=line.pack_quantity,
                 notes=line.notes,
+                unit_price_usd=line.unit_price_usd,
                 source_counts=_line_sources(line),
             )
             order.append(line.sku)
@@ -2002,6 +2113,8 @@ def to_hardware_json(lines: list[HardwareLine]) -> str:
                 "pieces_ordered": l.pieces_ordered,
                 "leftover": l.leftover,
                 "notes": l.notes,
+                "unit_price_usd": l.unit_price,
+                "line_total_usd": round(l.packs_to_order * l.unit_price, 2),
             }
             for l in lines
         ],
@@ -2380,7 +2493,7 @@ def generate_sheet_layout_html(
         hw_total = 0.0
         rows_list = []
         for h in sorted_hw:
-            unit = price_for(h.sku)
+            unit = h.unit_price
             line_total = round(h.packs_to_order * unit, 2)
             hw_total += line_total
             if hw_project_mode:
@@ -2817,7 +2930,7 @@ def generate_sheet_layout_pdf(
         hw_data = [hw_header]
         hw_total = 0.0
         for h in sorted_hw:
-            unit = price_for(h.sku)
+            unit = h.unit_price
             line_total = round(h.packs_to_order * unit, 2)
             hw_total += line_total
             row = [

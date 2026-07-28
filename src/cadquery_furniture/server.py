@@ -453,6 +453,21 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
+                        ),
+                    },
                     "carcass_corner_style": {
                         "type": "string",
                         "enum": ["butt", "miter"],
@@ -685,6 +700,21 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
+                        ),
+                    },
                     "carcass_corner_style": {
                         "type": "string",
                         "enum": ["butt", "miter"],
@@ -846,6 +876,21 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
                         ),
                     },
                     "carcass_corner_style": {
@@ -1128,6 +1173,21 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
+                        ),
+                    },
                     "carcass_corner_style": {
                         "type": "string",
                         "enum": ["butt", "miter"],
@@ -1345,6 +1405,21 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
                         ),
                     },
                     "carcass_corner_style": {
@@ -1683,6 +1758,21 @@ async def list_tools() -> list[types.Tool]:
                             "white_oak rolls, Baltic birch → white_birch)."
                         ),
                     },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
+                        ),
+                    },
                     "carcass_corner_style": {
                         "type": "string",
                         "enum": ["butt", "miter"],
@@ -1816,6 +1906,21 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
                         ),
                     },
                     "carcass_corner_style": {
@@ -2025,6 +2130,21 @@ async def list_tools() -> list[types.Tool]:
                             "Banding species; empty derives from each "
                             "panel's material (rift white oak ply → "
                             "white_oak rolls, Baltic birch → white_birch)."
+                        ),
+                    },
+                    "edge_band_stock": {
+                        "type": ["object", "null"],
+                        "default": None,
+                        "description": (
+                            "Purchasable hardwood banding stock "
+                            "{width_mm, length_mm, price_usd, "
+                            "strip_width_mm (default 20)}. Board thickness "
+                            "IS edge_band_thickness_mm. When set, the BOM "
+                            "band line is priced in boards-to-order via "
+                            "real piece-into-strip packing (flags edges "
+                            "with no flush-trim overhang or longer than "
+                            "the stock). Omit for the unpriced "
+                            "rip-from-offcuts line. SharedDesign token."
                         ),
                     },
                     "carcass_corner_style": {
@@ -3269,7 +3389,7 @@ def _build_cost_estimate(
     hw_by_cat: dict[str, float] = {}
     for h in hw_lines:
         cat = h.category
-        hw_by_cat[cat] = hw_by_cat.get(cat, 0.0) + round(h.packs_to_order * price_for(h.sku), 2)
+        hw_by_cat[cat] = hw_by_cat.get(cat, 0.0) + round(h.packs_to_order * h.unit_price, 2)
     hw_total = sum(hw_by_cat.values())
     return {
         "sheet_goods_usd": round(sheets_total, 2),
@@ -3849,8 +3969,8 @@ def _cutlist_pipeline(
                 "packs_to_order": h.packs_to_order,
                 "leftover": h.leftover,
                 "notes": h.notes,
-                "unit_price_usd": price_for(h.sku),
-                "line_total_usd": round(h.packs_to_order * price_for(h.sku), 2),
+                "unit_price_usd": h.unit_price,
+                "line_total_usd": round(h.packs_to_order * h.unit_price, 2),
             }
             for h in hw_lines
         ],
@@ -4965,14 +5085,23 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
 
     per_cabinet_summary = []
     total_cabinets = 0
+    from .cutlist import edge_band_lines_for_panels
     for project in projects:
+        # Band lines aggregate per PROJECT, not per cabinet: one line per
+        # material with a single waste ceiling, instead of N per-cabinet
+        # lines whose merged notes concatenate ("16.0 m…, 16.5 m…, 16.0 m")
+        # and whose per-cabinet ceils inflate the footage.
+        band_groups: dict[tuple, tuple] = {}
         for cname, cfg in project.resolved():
             total_cabinets += 1
             columns_raw = _columns_dict_from_cfg(cfg)
             c, b, x, f = _raw_panels_for_cabinet(cfg, columns_raw)
             hw = hardware_bom_for_cabinet_config(cfg, columns_raw)
-            from .cutlist import edge_band_lines_for_panels
-            hw += edge_band_lines_for_panels(c + f, cfg)
+            if getattr(cfg, "edge_band_mode", "none") != "none":
+                bkey = (cfg.edge_band_mode, cfg.edge_band_thickness_mm,
+                        cfg.edge_band_material,
+                        tuple(sorted((cfg.edge_band_stock or {}).items())))
+                band_groups.setdefault(bkey, (cfg, []))[1].extend(c + f)
             if batch_names:
                 # Tag provenance so panels stay project-distinct rows through
                 # consolidation and the layout colours/labels by project.
@@ -4993,6 +5122,13 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                 "exterior_mm": {"width": cfg.width, "height": cfg.height, "depth": cfg.depth},
                 "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
             })
+
+        for bcfg, bpanels in band_groups.values():
+            band_lines = edge_band_lines_for_panels(bpanels, bcfg)
+            if batch_names:
+                for line in band_lines:
+                    line.source = project.name
+            hw_lines_all.extend(band_lines)
 
         if project.worktop is not None:
             wt = project.worktop
