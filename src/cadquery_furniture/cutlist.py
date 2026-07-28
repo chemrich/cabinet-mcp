@@ -1713,45 +1713,111 @@ def band_segments_for_panels(
     return per_material
 
 
-def pack_band_strips(
-    segments: list[float], stock: dict, kerf: float = BAND_RIP_KERF_MM,
+def pack_band_pieces(
+    pieces: list[dict], stock: dict, kerf: float = BAND_RIP_KERF_MM,
 ) -> dict:
-    """Pack band piece lengths into strips ripped from purchasable stock.
+    """FFD-pack band piece dicts (each with ``"length"``) into strips.
 
     First-fit-decreasing with ``BAND_PROUD_ALLOWANCE_MM`` extra per piece
-    (capped at the strip length — a piece that exactly fills a strip is
-    allowed but flagged). Strips-per-board comes from the board width, the
-    strip width, and the rip kerf (the last strip needs no kerf).
+    (capped at the strip length). Strips-per-board comes from the board
+    width, the strip width, and the rip kerf (the last strip needs no
+    kerf). Each piece dict gains ``"cut"`` (the chop length — dead-length
+    pieces are cut AT finished size; the strip's sliver is offal) and
+    ``"dead_length"`` (fits, but with no flush-trim overhang).
 
-    Returns strips / strips_per_board / boards / spare_strips /
-    flush_pieces (fit but with no flush-trim overhang) / over_length_pieces
-    (longer than the stock — need a splice or longer boards).
+    Returns ``strips`` (list of ``{"pieces": [...], "rem": float}`` — the
+    per-strip assignment renderers use), ``strips_per_board`` / ``boards``
+    / ``spare_strips``, ``flush_pieces`` and ``over_length_pieces`` (the
+    latter longer than the stock — excluded from packing; splice or buy
+    longer boards).
     """
     L = stock["length_mm"]
     strip_w = stock["strip_width_mm"]
     per_board = int((stock["width_mm"] + kerf) // (strip_w + kerf))
-    over = sorted((s for s in segments if s > L), reverse=True)
-    flush = sorted((s for s in segments if L - BAND_PROUD_ALLOWANCE_MM < s <= L),
-                   reverse=True)
-    remainders: list[float] = []
-    for s in sorted((s for s in segments if s <= L), reverse=True):
-        need = min(s + BAND_PROUD_ALLOWANCE_MM, L)
-        for i, r in enumerate(remainders):
-            if r >= need:
-                remainders[i] -= need
+    over, flush, packable = [], [], []
+    for pc in pieces:
+        s = pc["length"]
+        pc["dead_length"] = L - BAND_PROUD_ALLOWANCE_MM < s <= L
+        pc["cut"] = s if pc["dead_length"] else min(s + BAND_PROUD_ALLOWANCE_MM, L)
+        if s > L:
+            over.append(pc)
+        else:
+            packable.append(pc)
+            if pc["dead_length"]:
+                flush.append(pc)
+    strips: list[dict] = []
+    for pc in sorted(packable, key=lambda d: -d["length"]):
+        # Reserve the full-proud footprint even for dead-length pieces so
+        # a strip never promises length it doesn't have.
+        need = min(pc["length"] + BAND_PROUD_ALLOWANCE_MM, L)
+        for st in strips:
+            if st["rem"] >= need:
+                st["rem"] -= need
+                st["pieces"].append(pc)
                 break
         else:
-            remainders.append(L - need)
-    strips = len(remainders)
-    boards = math.ceil(strips / per_board) if per_board else 0
+            strips.append({"rem": L - need, "pieces": [pc]})
+    boards = math.ceil(len(strips) / per_board) if per_board else 0
     return {
         "strips": strips,
         "strips_per_board": per_board,
         "boards": boards,
-        "spare_strips": max(0, boards * per_board - strips),
-        "flush_pieces": flush,
-        "over_length_pieces": over,
+        "spare_strips": max(0, boards * per_board - len(strips)),
+        "flush_pieces": sorted(flush, key=lambda d: -d["length"]),
+        "over_length_pieces": sorted(over, key=lambda d: -d["length"]),
     }
+
+
+def pack_band_strips(
+    segments: list[float], stock: dict, kerf: float = BAND_RIP_KERF_MM,
+) -> dict:
+    """Summary-shape wrapper over :func:`pack_band_pieces` for plain lengths.
+
+    Same packing; returns counts (``strips`` is an int) with the flag lists
+    as raw lengths — what :func:`edge_band_lines_for_panels` prices from.
+    """
+    pack = pack_band_pieces([{"length": s} for s in segments], stock, kerf)
+    return {
+        "strips": len(pack["strips"]),
+        "strips_per_board": pack["strips_per_board"],
+        "boards": pack["boards"],
+        "spare_strips": pack["spare_strips"],
+        "flush_pieces": [p["length"] for p in pack["flush_pieces"]],
+        "over_length_pieces": [p["length"] for p in pack["over_length_pieces"]],
+    }
+
+
+def band_pieces_for_panels(
+    panels: list["CutlistPanel"], cfg,
+) -> list[dict]:
+    """Band piece dicts with provenance for the banding-cutlist renderers.
+
+    One dict per physical piece: ``part`` (the panel's assigned part ID —
+    call after ``assign_part_ids`` so the banding doc matches the main
+    cutlist), ``panel``, ``edge`` (front/left/right edge, or long/short
+    edge for full-perimeter faces), ``length`` and ``material`` (band
+    species via the same resolution the BOM line uses).
+    """
+    pieces: list[dict] = []
+    for p in panels:
+        if not p.edge_band:
+            continue
+        mat = _band_material_for(p.material, cfg)
+        per: list[tuple[str, float]] = []
+        for edge in p.edge_band:
+            if edge == "all":
+                per += [("long edge", p.length), ("long edge", p.length),
+                        ("short edge", p.width), ("short edge", p.width)]
+            elif edge in ("left", "right"):
+                per.append((f"{edge} edge", p.width))
+            else:
+                per.append((f"{edge} edge", p.length))
+        for _ in range(p.quantity):
+            for label, ln in per:
+                pieces.append({"part": getattr(p, "part_id", "") or "",
+                               "panel": p.name, "edge": label,
+                               "length": ln, "material": mat})
+    return pieces
 
 
 def edge_band_lines_for_panels(
@@ -1839,6 +1905,160 @@ def edge_band_lines_for_panels(
                 notes="; ".join(note_bits),
             ))
     return lines
+
+
+def _band_packs_by_material(panels: list["CutlistPanel"], cfg) -> list[tuple]:
+    """(material, pieces-pack) per band species, packed with the cfg's stock."""
+    stock = getattr(cfg, "edge_band_stock", None)
+    by_mat: dict[str, list[dict]] = {}
+    for pc in band_pieces_for_panels(panels, cfg):
+        by_mat.setdefault(pc["material"], []).append(pc)
+    return [(mat, pack_band_pieces(pcs, stock))
+            for mat, pcs in sorted(by_mat.items())]
+
+
+def to_banding_csv(panels: list["CutlistPanel"], cfg) -> str:
+    """Board/strip/piece CSV for hardwood banding cut from purchased stock.
+
+    Boards are numbered ``#1..#N`` globally (never per material, and ``#``
+    so the label can't collide with part IDs — B1 is a bottom panel).
+    Dead-length pieces are cut AT finished size; everything else is cut
+    ``BAND_PROUD_ALLOWANCE_MM`` proud for flush trimming.
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Board", "Strip", "Piece", "Material", "Part", "Panel",
+                "Edge", "Finished mm", "Cut mm", "Note"])
+    board_no = strip_no = 0
+    for mat, pack in _band_packs_by_material(panels, cfg):
+        per_board = pack["strips_per_board"]
+        for si, st in enumerate(pack["strips"]):
+            if si % per_board == 0:
+                board_no += 1
+            strip_no += 1
+            for pi, pc in enumerate(st["pieces"], 1):
+                w.writerow([f"#{board_no}", f"S{strip_no}", pi, mat,
+                            pc["part"], pc["panel"], pc["edge"],
+                            f"{pc['length']:.1f}", f"{pc['cut']:.1f}",
+                            "DEAD LENGTH — no trim overhang"
+                            if pc["dead_length"] else ""])
+        for pc in pack["over_length_pieces"]:
+            w.writerow(["—", "—", "—", mat, pc["part"], pc["panel"],
+                        pc["edge"], f"{pc['length']:.1f}", "—",
+                        "LONGER THAN STOCK — splice or longer boards"])
+    return buf.getvalue()
+
+
+def generate_banding_cutlist_html(
+    panels: list["CutlistPanel"], cfg, cabinet_name: str,
+) -> str:
+    """Printable board→strip→piece banding cutlist (self-contained HTML).
+
+    Mirrors the main cutlist conventions: part IDs match the layout
+    drawings (call after ``assign_part_ids``), bold metric with fractional
+    imperial beside, one board per printed page.
+    """
+    stock = getattr(cfg, "edge_band_stock", None)
+    thk = float(getattr(cfg, "edge_band_thickness_mm", 0.6))
+
+    def esc(s):
+        return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;"))
+
+    packs = _band_packs_by_material(panels, cfg)
+    n_pieces = sum(len(st["pieces"]) for _, p in packs for st in p["strips"])
+    n_strips = sum(len(p["strips"]) for _, p in packs)
+    n_boards = sum(p["boards"] for _, p in packs)
+    n_spare = sum(p["spare_strips"] for _, p in packs)
+    n_dead = sum(len(p["flush_pieces"]) for _, p in packs)
+    total_m = sum(pc["length"] for _, p in packs for st in p["strips"]
+                  for pc in st["pieces"]) / 1000
+    over = [pc for _, p in packs for pc in p["over_length_pieces"]]
+
+    body: list[str] = []
+    board_no = strip_no = 0
+    for mat, pack in packs:
+        if len(packs) > 1:
+            body.append(f"<h2 class='mat'>{esc(mat.replace('_', ' '))}</h2>")
+        per_board = pack["strips_per_board"]
+        offal = (stock["width_mm"] - per_board * stock["strip_width_mm"]
+                 - (per_board - 1) * BAND_RIP_KERF_MM)
+        for bi in range(pack["boards"]):
+            board_no += 1
+            chunk = pack["strips"][bi * per_board:(bi + 1) * per_board]
+            body.append(
+                f"<h2>Board #{board_no} <span class='sub'>— rip "
+                f"{len(chunk)} × {stock['strip_width_mm']:g} mm strips "
+                f"({per_board} max/board, {BAND_RIP_KERF_MM:g} mm kerf, "
+                f"{offal:.1f} mm offal)</span></h2>")
+            for st in chunk:
+                strip_no += 1
+                used = stock["length_mm"] - st["rem"]
+                body.append(
+                    f"<h3>Strip S{strip_no} <span class='sub'>— "
+                    f"{len(st['pieces'])} piece(s), {used:.0f} mm used, "
+                    f"{st['rem']:.0f} mm offcut</span></h3>")
+                body.append("<table><tr><th>#</th><th>Part</th>"
+                            "<th>Panel · edge</th><th>Finished</th>"
+                            "<th>Cut at</th></tr>")
+                for pi, pc in enumerate(st["pieces"], 1):
+                    warn = (" <span class='warn'>DEAD LENGTH — cut at "
+                            "exactly finished size, no trim overhang</span>"
+                            if pc["dead_length"] else "")
+                    body.append(
+                        f"<tr><td>{pi}</td><td><b>{esc(pc['part'])}</b></td>"
+                        f"<td>{esc(pc['panel'])} · {esc(pc['edge'])}</td>"
+                        f"<td><b>{pc['length']:.1f} mm</b> "
+                        f"<span class='imp'>{_inch_frac(pc['length'])}"
+                        f"</span></td><td>{pc['cut']:.1f} mm{warn}</td></tr>")
+                body.append("</table>")
+
+    over_html = ""
+    if over:
+        rows = "".join(
+            f"<li><b>{esc(pc['part'])}</b> {esc(pc['panel'])} · "
+            f"{esc(pc['edge'])} — {pc['length']:.1f} mm</li>" for pc in over)
+        over_html = (f"<div class='box warnbox'><b>⚠ {len(over)} piece(s) "
+                     f"LONGER than the stock</b> — splice or buy longer "
+                     f"boards; not in the board count:<ul>{rows}</ul></div>")
+
+    dead_note = (f" All pieces are cut {BAND_PROUD_ALLOWANCE_MM:g} mm proud "
+                 f"for flush trimming <b>except {n_dead} DEAD-LENGTH "
+                 "piece(s)</b> — cut those at exactly finished size from "
+                 "the straightest strips." if n_dead else
+                 f" All pieces are cut {BAND_PROUD_ALLOWANCE_MM:g} mm proud "
+                 "for flush trimming.")
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Banding cutlist — {esc(cabinet_name)}</title><style>
+body{{font-family:system-ui,sans-serif;max-width:900px;margin:24px auto;
+padding:0 16px;color:#222}}
+h1{{border-bottom:2px solid #2c3e50}} h2.mat{{color:#2c3e50}}
+.sub{{font-weight:400;color:#666;font-size:.75em}}
+.imp{{color:#666;font-size:.85em}}
+.warn{{color:#c0392b;font-weight:600;font-size:.85em}}
+table{{border-collapse:collapse;width:100%;margin:4px 0 14px}}
+th,td{{border:1px solid #ccc;padding:4px 8px;text-align:left;
+font-size:.9em}} th{{background:#2c3e50;color:#fff}}
+.box{{background:#f6f3ee;border:1px solid #ccc;border-radius:6px;
+padding:10px 14px;margin:12px 0}}
+.warnbox{{background:#fbeeec;border-color:#c0392b}}
+@media print{{h2{{page-break-before:always}}
+h2:first-of-type{{page-break-before:avoid}}}}</style></head><body>
+<h1>Edge-banding cutlist — {esc(cabinet_name)}</h1>
+<div class="box"><b>Stock:</b> {n_boards} board(s), {thk:g} mm
+({_inch_frac(thk)}) × {stock['width_mm']:g} mm
+({_inch_frac(stock['width_mm'])}) × {stock['length_mm']:g} mm
+({_inch_frac(stock['length_mm'])}) @ ${stock['price_usd']:g} =
+<b>${n_boards * stock['price_usd']:.2f}</b><br>
+<b>Rip:</b> {stock['strip_width_mm']:g} mm strips → {n_strips} strips
+needed, {n_spare} spare.<br>
+<b>Pieces:</b> {n_pieces} band pieces, {total_m:.1f} m of
+edges.{dead_note}<br>
+<b>Order per board:</b> rip all strips first (fence at
+{stock['strip_width_mm']:g} mm), then chop pieces per strip below —
+longest first, offcut last.</div>
+{over_html}{''.join(body)}
+</body></html>"""
 
 
 def joinery_lines_for_cabinet_config(
