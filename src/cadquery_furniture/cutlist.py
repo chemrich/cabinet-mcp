@@ -928,19 +928,29 @@ def _optimize_with_opcut(
     )
 
 
+#: Table-saw fence capacity for the rips_first layout (Charlie: standard
+#: fence 20" = 508 mm; 24" possible but avoid). Secondary (stacked) rips are
+#: table-saw cuts and must keep within this; level-1 rips and level-2
+#: cross-cuts are track-saw breakdown cuts with no fence constraint.
+RIPS_FIRST_FENCE_LIMIT_MM = 508.0
+
+
 def _optimize_rips_first(
     panels: list[CutlistPanel],
     stock_sheet: SheetStock,
     kerf: float,
 ) -> OptimizationResult:
-    """Shop-sequence layout: full-length RIPS into width strips, then
-    cross-cuts within each strip — Charlie's table-saw workflow. Every
-    first-level cut is a rip; no cut nests the other way.
+    """Shop-sequence layout for Charlie's track-saw + small-table-saw setup.
 
-    Smarter than :func:`_optimize_strip`'s single-pass greedy: pieces group
-    into exact strip-width classes, lengths bin-pack into strips by
-    first-fit-decreasing, and strip widths bin-pack into sheets by FFD —
-    partially-filled strips and sheets stay open for later pieces.
+    Level 1: full-length RIPS break the sheet into strips (track saw).
+    Level 2: cross-cuts chop each strip into segments (track saw / sled).
+    Level 3: short secondary rips stack pieces within a segment — these are
+    the TABLE-SAW cuts, so the kept width is capped at
+    :data:`RIPS_FIRST_FENCE_LIMIT_MM`.
+
+    Pieces place best-fit into strips-of-columns (stack in an existing
+    column at the tightest width → new column in an exact-width strip →
+    wider strip → new strip); grain-free pieces try both orientations.
     Same net-dimension / single-edge-trim conventions as the other
     optimizers.
     """
@@ -948,66 +958,79 @@ def _optimize_rips_first(
     eff_w = stock_sheet.width - kerf
     EPS = 0.05
 
-    pieces: list[tuple[float, float, str, str, bool]] = []
+    # Each unit lists its allowed (along, across, rotated) orientations —
+    # one for grain-constrained pieces, both for grain-free.
+    units: list[list[tuple[float, float, bool]]] = []
+    unit_meta: list[tuple[str, str]] = []   # (name, source)
     oversized: list[str] = []
     for p in panels:
         for _ in range(p.quantity):
             if p.grain_direction not in ("", None):
-                along, across, rot = p.length, p.width, False
-                if along > eff_l + EPS or across > eff_w + EPS:
-                    if p.name not in oversized:
-                        oversized.append(p.name)
-                    continue
+                cands = [(p.length, p.width, False)]
             else:
-                # Grain-free: strip width = the smaller dim (narrow strips
-                # keep more of the sheet rippable for other classes).
-                if p.length >= p.width:
-                    along, across, rot = p.length, p.width, False
-                else:
-                    along, across, rot = p.width, p.length, True
-                if along > eff_l + EPS or across > eff_w + EPS:
-                    along, across, rot = across, along, not rot
-                    if along > eff_l + EPS or across > eff_w + EPS:
-                        if p.name not in oversized:
-                            oversized.append(p.name)
-                        continue
-            pieces.append((along, across, p.name, p.source, rot))
+                cands = [(p.length, p.width, False),
+                         (p.width, p.length, True)]
+            cands = [c for c in cands
+                     if c[0] <= eff_l + EPS and c[1] <= eff_w + EPS]
+            if not cands:
+                if p.name not in oversized:
+                    oversized.append(p.name)
+                continue
+            units.append(cands)
+            unit_meta.append((p.name, p.source))
 
-    # 2) Best-fit pieces into strips of COLUMNS (shop 3-stage cutting):
-    #    a strip is one full-length rip of width W; each column is one
-    #    cross-cut segment; pieces stack within a column via short
-    #    secondary rips. Preference order per piece: stack into an
+    # 2) Best-fit units into strips of COLUMNS (shop 3-stage cutting):
+    #    a strip is one full-length rip of width W (track saw); each column
+    #    is one cross-cut segment (track saw); pieces stack within a column
+    #    via short secondary rips (TABLE SAW — kept width must fit the
+    #    fence). Preference order per unit/orientation: stack into an
     #    existing column (tightest width) → new column in an exact-width
     #    strip → new column in a wider strip → open a new strip.
-    #    strip = [W, used_len, cols]; col = [seg_len, used_w, [(piece, y_off)]]
+    #    strip = [W, used_len, cols]; col = [seg_len, used_w, [(entry, y_off)]]
+    FENCE = RIPS_FIRST_FENCE_LIMIT_MM
     strips: list[list] = []
-    for it in sorted(pieces, key=lambda e: (-e[1], -e[0])):
-        along, across = it[0], it[1]
-        best = None   # (kind, width_slack, strip, col)
-        for st in strips:
-            W = st[0]
-            if across > W + EPS:
-                continue
-            for col in st[2]:
-                if (along <= col[0] + EPS
-                        and col[1] + kerf + across <= W + EPS):
-                    cand = (0, W - across, st, col)
-                    if best is None or cand[:2] < best[:2]:
-                        best = cand
-            if st[1] + kerf + along <= eff_l + EPS:
-                kind = 1 if W - across <= EPS else 2
-                cand = (kind, W - across, st, None)
-                if best is None or cand[:2] < best[:2]:
-                    best = cand
+    order = sorted(
+        range(len(units)),
+        key=lambda i: (-min(c[1] for c in units[i]),
+                       -max(c[0] for c in units[i])),
+    )
+    for ui in order:
+        name, src = unit_meta[ui]
+        best = None   # (kind, width_slack, strip, col, orientation)
+        for cand in units[ui]:
+            along, across = cand[0], cand[1]
+            for st in strips:
+                W = st[0]
+                if across > W + EPS:
+                    continue
+                if across <= FENCE + EPS:
+                    # Stacking = a fence-referenced table-saw rip.
+                    for col in st[2]:
+                        if (along <= col[0] + EPS
+                                and col[1] + kerf + across <= W + EPS):
+                            c = (0, W - across, st, col, cand)
+                            if best is None or c[:2] < best[:2]:
+                                best = c
+                if st[1] + kerf + along <= eff_l + EPS:
+                    kind = 1 if W - across <= EPS else 2
+                    c = (kind, W - across, st, None, cand)
+                    if best is None or c[:2] < best[:2]:
+                        best = c
         if best is None:
-            strips.append([across, along, [[along, across, [(it, 0.0)]]]])
+            # New strip: prefer the orientation with the smaller across
+            # (narrow strips keep more of the sheet rippable).
+            along, across, rot = min(units[ui], key=lambda c: c[1])
+            strips.append([across, along,
+                           [[along, across, [((along, across, name, src,
+                                               rot), 0.0)]]]])
             continue
-        _, _, st, col = best
+        _, _, st, col, (along, across, rot) = best
+        entry = (along, across, name, src, rot)
         if col is not None:
-            col[2].append((it, col[1] + kerf))
+            col[2].append((entry, col[1] + kerf))
             col[1] += kerf + across
         else:
-            st[2].append([along, across, [(it, 0.0)]])
+            st[2].append([along, across, [(entry, 0.0)]])
             st[1] += kerf + along
 
     # 3) FFD the strip widths into sheets.
