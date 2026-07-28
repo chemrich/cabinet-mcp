@@ -2146,29 +2146,35 @@ def generate_sheet_layout_html(
             dim_font = max(min_dim * 0.07, 9)
 
             cx = p.x + p.placed_length / 2
-            cy_label = p.y + p.placed_width / 2 - font_mm * 0.4
+            cy = p.y + p.placed_width / 2
+            cy_label = cy - font_mm * 0.4
             cy_dim   = cy_label + font_mm * 1.1
 
             tall = p.placed_width > p.placed_length
-            rot_label = f' transform="rotate(-90,{cx:.1f},{cy_label:.1f})"' if tall else ''
-            rot_dim   = f' transform="rotate(-90,{cx:.1f},{cy_dim:.1f})"'   if tall else ''
-
+            # Rotate BOTH lines as one group about the panel centre (the PDF's
+            # translate-rotate-draw, in SVG). Rotating each line about its own
+            # anchor leaves the line spacing along the reading direction, so
+            # the two lines overprint on tall panels.
+            if tall:
+                out.append(f'<g transform="rotate(-90,{cx:.1f},{cy:.1f})">')
             out.append(
                 f'<text x="{cx:.1f}" y="{cy_label:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{font_mm:.1f}" '
                 # Solid black labels — the tinted text read as washed-out on
                 # the pastel fills in print (Charlie, Jul 2026).
-                f'fill="#000" pointer-events="none"{rot_label}>'
+                f'fill="#000" pointer-events="none">'
                 f'{_esc(label)}</text>'
             )
             out.append(
                 f'<text x="{cx:.1f}" y="{cy_dim:.1f}" '
                 f'text-anchor="middle" dominant-baseline="middle" '
                 f'font-family="monospace" font-size="{dim_font:.1f}" '
-                f'fill="#000" pointer-events="none"{rot_dim}>'
+                f'fill="#000" pointer-events="none">'
                 f'{_esc(dim_text)}</text>'
             )
+            if tall:
+                out.append('</g>')
 
 
         # Guillotine cut lines — the optimizer's declared plan when present
