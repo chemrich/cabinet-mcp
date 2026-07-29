@@ -3895,6 +3895,7 @@ def _cutlist_pipeline(
             })
 
     # ── File output ────────────────────────────────────────────────────────
+    pipeline_notes: list[str] = []
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path  = out_dir / f"{name}_cutlist.csv"
     json_path = out_dir / f"{name}_cutlist.json"
@@ -3969,7 +3970,8 @@ def _cutlist_pipeline(
             pdf_path.write_bytes(pdf_bytes)
             files["pdf"] = str(pdf_path)
         except ImportError:
-            pass  # reportlab not installed
+            pipeline_notes.append(
+                "Layout PDF skipped — reportlab not installed (lite mode).")
 
     # ── Banding cutlist (board→strip→piece) ────────────────────────────────
     # band_cfg is the run's hardwood band config with a purchase spec; the
@@ -4015,10 +4017,13 @@ def _cutlist_pipeline(
                 p.write_bytes(pdf_bytes)
                 files["banding_cutlist_pdf"] = str(p)
             except ImportError:
-                pass  # reportlab not installed (lite mode)
+                pipeline_notes.append(
+                    "Banding PDF skipped — reportlab not installed "
+                    "(lite mode).")
 
     # ── Build result ───────────────────────────────────────────────────────
     result: dict[str, Any] = {
+        **({"notes": pipeline_notes} if pipeline_notes else {}),
         "panel_count": len(all_panels),
         "sheet_goods": sheet_goods,
         "panels_summary": [
@@ -5116,8 +5121,15 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     # Batch mode: 'project_names' loads several saved projects and merges
     # them into one cutlist run; otherwise resolve the single project from
     # 'project_name' / inline 'project' as before.
+    raw_names = args.get("project_names") or []
+    if isinstance(raw_names, str):
+        # A bare string would iterate per character ("abc" → load "a",
+        # "b", "c") and die on a baffling FileNotFoundError.
+        raise ValueError(
+            "project_names must be a list of saved project names, "
+            f"got the string {raw_names!r}.")
     batch_names = list(dict.fromkeys(
-        str(n) for n in (args.get("project_names") or [])
+        str(n) for n in raw_names
     ))  # de-dupe, order-preserving — a repeated name would double-count panels
     result_notes: list[str] = []
     if batch_names:
@@ -5276,7 +5288,9 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     if batch_names:
         result = {"projects": [p.name for p in projects], **result}
     if result_notes:
-        result["notes"] = result_notes
+        # Append to any pipeline-emitted notes (e.g. lite-mode PDF skips)
+        # instead of clobbering them.
+        result["notes"] = list(result.get("notes") or []) + result_notes
     return _ok(result)
 
 
@@ -5290,6 +5304,11 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
     project = _project_from_args(args)
     _safe_stem(project.name, kind="project name")
     fmt = str(args.get("format", "both"))
+    if fmt not in ("html", "pdf", "both"):
+        # An unknown format used to return success with an empty files
+        # dict and no explanation.
+        raise ValueError(
+            f"format must be 'html', 'pdf', or 'both', got {fmt!r}.")
 
     # Part IDs must match the project's own cutlist. Mirror the single-project
     # cutlist path: raw panels per cabinet → consolidate_bom per list →

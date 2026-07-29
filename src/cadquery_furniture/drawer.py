@@ -397,11 +397,17 @@ def add_manga_stack(assy: "cq.Assembly", cfg: DrawerConfig) -> None:
         cq.Workplane("XY")
         .box(MANGA_WIDTH_MM, MANGA_DEPTH_MM, MANGA_THICK_MM, centered=False)
     )
+    # Jitter room left after the base footprint claims its clearance —
+    # the offsets move volumes TOWARD the far walls, so they must be
+    # clamped or tight-but-passing interiors clip the pile through the
+    # right/back panels (review 2026-07-29).
+    slack_x = max(0.0, interior_w - need_w)
+    slack_y = max(0.0, interior_d - need_d)
     for k in range(MANGA_MAX_STACK):
-        # Small deterministic jitter away from the walls so the pile reads
-        # as stacked books rather than one extruded block.
-        jx = 4.0 if k % 2 else 0.0
-        jy = 3.0 * (k % 3)
+        # Small deterministic jitter so the pile reads as stacked books
+        # rather than one extruded block.
+        jx = min(4.0 if k % 2 else 0.0, slack_x)
+        jy = min(3.0 * (k % 3), slack_y)
         assy.add(
             volume, name=f"manga{k}",
             loc=cq.Location((base_x + jx, base_y + jy, floor_z + k * MANGA_THICK_MM)),

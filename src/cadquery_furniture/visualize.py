@@ -499,7 +499,13 @@ let mangaCount = 1;       // volumes shown per drawer; 0 = hidden
 function mangaLevel(obj) {
   for (let d = 0, n = obj; d < 6 && n; d++, n = n.parent) {
     const m = MANGA_NODE_RE.exec(n.name || '');
-    if (m) return parseInt(m[1], 10);
+    // Structural gate: real manga nodes are direct children of a
+    // bay{i}_drawer{j} group. Without it, a cabinet legitimately named
+    // "manga2" classified all its meshes as manga volumes and rendered
+    // invisible at load.
+    if (m && n.parent && BOX_RE.test(n.parent.name || '')) {
+      return parseInt(m[1], 10);
+    }
   }
   return null;
 }
@@ -1607,7 +1613,7 @@ window.addEventListener('keydown', (e) => {{
   if (e.key === 'o' || e.key === 'O') {{ toggleOpenDrawers(); e.preventDefault(); }}
   if (e.key === 'c' || e.key === 'C') {{ toggleClip();        e.preventDefault(); }}
   if (e.key === 'v' || e.key === 'V') {{ toggleDiagColors(); e.preventDefault(); }}
-  if (e.key === 'm' || e.key === 'M') {{ cycleManga();       e.preventDefault(); }}
+  if (e.key === 'm' || e.key === 'M') {{ if (mangaMeshes.length) {{ cycleManga(); e.preventDefault(); }} }}
 }});
 
 // ── Diagnostic colors (V key) ─────────────────────────────────────────────────

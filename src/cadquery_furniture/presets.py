@@ -209,7 +209,7 @@ _p(CabinetPreset(
             (125, "drawer"),
         ],
         drawer_slide="blum_tandem_550h",
-        door_hinge="blum_clip_top_110_half",
+        door_hinge="blum_clip_top_blumotion_110_half",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -685,7 +685,7 @@ _p(CabinetPreset(
             (150, "drawer"),  # shallow drawer at top
         ],
         drawer_slide="blum_tandem_550h",
-         door_hinge="blum_clip_top_blumotion_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
@@ -836,7 +836,7 @@ _p(CabinetPreset(
         # the CabinetConfig default 640 mm base-cabinet range.
         shelf_pin_end_z=1450.0,
         drawer_slide="blum_tandem_550h",
-         door_hinge="blum_clip_top_blumotion_110_full",
+        door_hinge="blum_clip_top_blumotion_110_full",
         carcass_joinery=CarcassJoinery.DADO_RABBET,
     ),
 ))
