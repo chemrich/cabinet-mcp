@@ -530,6 +530,10 @@ class Placement:
     rotated: bool         # True when piece was rotated 90° from nominal orientation
     cut_sequence: int = 0  # 1-based cut order within the sheet (0 = unset)
     source: str = ""       # originating project in a multi-project batch
+    #: Cutlist row ID stamped at expansion time. Authoritative for labels —
+    #: the dims-based _placement_id fallback collides when rows differ only
+    #: by edge_band/grain/thickness (review 2026-07-29 M5).
+    part_id: str = ""
 
 
 @dataclass
@@ -713,6 +717,7 @@ def _optimize_with_rectpack(
     piece_dims: dict[int, tuple[float, float]] = {}  # net add_len × add_wid
     piece_name: dict[int, str] = {}
     piece_source: dict[int, str] = {}
+    piece_part_id: dict[int, str] = {}
 
     counter = 0
     for p in panels:
@@ -733,6 +738,7 @@ def _optimize_with_rectpack(
             piece_dims[uid] = (add_l, add_w)
             piece_name[uid] = p.name
             piece_source[uid] = p.source
+            piece_part_id[uid] = p.part_id
 
     packable.sort(key=lambda e: e[0] * e[1], reverse=True)
 
@@ -771,6 +777,7 @@ def _optimize_with_rectpack(
                 placed_width=round(rect.height - kerf, 1),
                 rotated=pre_rotated[uid],
                 source=piece_source[uid],
+                part_id=piece_part_id[uid],
             ))
 
     unplaced: list[str] = list(oversized)
@@ -848,6 +855,7 @@ def _optimize_with_opcut(
     items: list = []
     id_to_name: dict[str, str] = {}
     id_to_source: dict[str, str] = {}
+    id_to_part_id: dict[str, str] = {}
     counter = 0
     for p in valid:
         for _ in range(p.quantity):
@@ -861,6 +869,7 @@ def _optimize_with_opcut(
             ))
             id_to_name[iid] = p.name
             id_to_source[iid] = p.source
+            id_to_part_id[iid] = p.part_id
 
     total_area = sum(p.length * p.width * p.quantity for p in valid)
     base = max(1, math.ceil(total_area / (eff_l * eff_w)))
@@ -905,6 +914,7 @@ def _optimize_with_opcut(
             placed_width=round(placed_w, 1),
             rotated=used.rotate,
             source=id_to_source[used.item.id],
+            part_id=id_to_part_id[used.item.id],
         ))
 
     used_indices = sorted({p.sheet_index for p in placements})
@@ -990,7 +1000,7 @@ def _optimize_rips_first(
                     oversized.append(p.name)
                 continue
             units.append(cands)
-            unit_meta.append((p.name, p.source))
+            unit_meta.append((p.name, p.source, p.part_id))
 
     # 2) Best-fit units into strips of COLUMNS (shop 3-stage cutting):
     #    a strip is one full-length rip of width W (track saw); each column
@@ -1016,7 +1026,7 @@ def _optimize_rips_first(
         w = round(min(cands, key=lambda c: c[1])[1], 1)
         width_counts[w] = width_counts.get(w, 0) + 1
     for ui in order:
-        name, src = unit_meta[ui]
+        name, src, piece_pid = unit_meta[ui]
         best = None   # (kind, width_slack, strip, col, orientation)
         for cand in units[ui]:
             along, across = cand[0], cand[1]
@@ -1053,13 +1063,13 @@ def _optimize_rips_first(
                 W = k * across + (k - 1) * kerf
             strips.append([W, along,
                            [[along, across, [((along, across, name, src,
-                                               rot), 0.0)]]]])
+                                               rot, piece_pid), 0.0)]]]])
             wkey = round(across, 1)
             if wkey in width_counts:
                 width_counts[wkey] -= 1
             continue
         _, _, st, col, (along, across, rot) = best
-        entry = (along, across, name, src, rot)
+        entry = (along, across, name, src, rot, piece_pid)
         if col is not None:
             col[2].append((entry, col[1] + kerf))
             col[1] += kerf + across
@@ -1104,16 +1114,16 @@ def _optimize_rips_first(
                                 True, round(W), round(sw - y_next)))
             x = 0.0
             for seg_len, _, members in cols:
-                for (along, across, name, src, rot), y_off in members:
+                for (along, across, name, src, rot, ppid), y_off in members:
                     placements.append(Placement(
                         panel_name=name, sheet_index=shi,
                         x=round(x, 1), y=round(y + y_off, 1),
                         placed_length=round(along, 1),
                         placed_width=round(across, 1),
-                        rotated=rot, source=src,
+                        rotated=rot, source=src, part_id=ppid,
                     ))
                 for mi in range(len(members) - 1):
-                    (_, ac, _, _, _), y_off = members[mi]
+                    (_, ac, *_rest), y_off = members[mi]
                     yy = y + y_off + ac
                     entries.append((2, round(yy, 1), 'h',
                                     round(x, 1), round(yy, 1),
@@ -1187,7 +1197,8 @@ def _optimize_strip(
                     if p.name not in oversized:
                         oversized.append(p.name)
                 else:
-                    oriented.append((plen, pwid, p.name, p.source, rot))
+                    oriented.append((plen, pwid, p.name, p.source, rot,
+                                     p.part_id))
             else:
                 if p.length >= p.width:
                     plen, pwid, rot = p.length, p.width, False
@@ -1199,7 +1210,8 @@ def _optimize_strip(
                         if p.name not in oversized:
                             oversized.append(p.name)
                         continue
-                oriented.append((plen, pwid, p.name, p.source, rot))
+                oriented.append((plen, pwid, p.name, p.source, rot,
+                                 p.part_id))
 
     oriented.sort(key=lambda e: (-e[1], -e[0]))
 
@@ -1209,7 +1221,7 @@ def _optimize_strip(
     x = 0.0
     current_h: float | None = None
 
-    for plen, pwid, name, src, rotated in oriented:
+    for plen, pwid, name, src, rotated, ppid in oriented:
         pk = plen + kerf
 
         if current_h is None or abs(pwid - current_h) > EPS:
@@ -1237,6 +1249,7 @@ def _optimize_strip(
             placed_width=round(pwid, 1),
             rotated=rotated,
             source=src,
+            part_id=ppid,
         ))
         x += pk
 
@@ -1773,6 +1786,15 @@ def pack_band_pieces(
     L = stock["length_mm"]
     strip_w = stock["strip_width_mm"]
     per_board = int((stock["width_mm"] + kerf) // (strip_w + kerf))
+    if per_board < 1 and pieces:
+        # Without this, the BOM silently orders 0 boards while pieces
+        # remain queued, and to_banding_csv divides by zero
+        # (review 2026-07-29 minor 1).
+        raise ValueError(
+            f"Band stock {stock['width_mm']:g} mm wide cannot yield a "
+            f"single {strip_w:g} mm strip — check edge_band_stock "
+            "width_mm / strip_width_mm."
+        )
     over, flush, packable = [], [], []
     for pc in pieces:
         s = pc["length"]
@@ -2124,8 +2146,12 @@ def generate_banding_cutlist_html(
         if multi_mat:
             body.append(f"<h2 class='mat'>{esc(mat.replace('_', ' '))}</h2>")
         per_board = pack["strips_per_board"]
-        offal = (stock["width_mm"] - per_board * stock["strip_width_mm"]
-                 - (per_board - 1) * BAND_RIP_KERF_MM)
+        # n strips leaving an offcut consume n kerfs (each strip is severed
+        # from the remainder); only an exact-fit last strip uses the board
+        # edge and saves one (review 2026-07-29 minor 2).
+        raw_left = (stock["width_mm"] - per_board * stock["strip_width_mm"]
+                    - (per_board - 1) * BAND_RIP_KERF_MM)
+        offal = max(0.0, raw_left - BAND_RIP_KERF_MM) if raw_left > 0 else 0.0
         for bi in range(pack["boards"]):
             board_no += 1
             chunk = pack["strips"][bi * per_board:(bi + 1) * per_board]
@@ -2321,11 +2347,15 @@ def generate_banding_cutlist_pdf(
                             + (f" — {mat.replace('_', ' ')}"
                                if multi_mat else ""), ss["Heading3"]))
             story.append(_Table(rows, style=head_style, repeatRows=1,
-                                colWidths=[16 * _MM, 140 * _MM, 20 * _MM]))
+                                colWidths=[16 * _MM, 144 * _MM, 20 * _MM]))
 
     import io as _io
     buf = _io.BytesIO()
+    # Margins sized so the 180 mm chop-plan table fits the frame — the
+    # default 1" margins left a 159 mm frame under a 176 mm table and the
+    # Offcut column ran into the right margin (review 2026-07-29 minor 6).
     _Doc(buf, pagesize=_A4,
+         leftMargin=15 * _MM, rightMargin=15 * _MM,
          title=f"Banding cutlist — {cabinet_name}").build(story)
     return buf.getvalue()
 
@@ -2745,7 +2775,7 @@ def generate_sheet_layout_html(
             if p.rotated:
                 label += " ↺"
             dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f} mm"
-            pid = _placement_id(id_map, p)
+            pid = p.part_id or _placement_id(id_map, p)
             if pid:
                 label = f"{pid} · {label}"
 
@@ -2966,8 +2996,9 @@ def generate_sheet_layout_html(
             f'<div class="tab-pane {active}" id="pane-{tab_idx}">'
             f'<div class="group-stats">'
             f'{sheets_count} sheet{"s" if sheets_count != 1 else ""} '
-            f'(#{group_first_no}–#{global_sheet_no}) · '
-            f'{opt.waste_pct:.1f}% waste'
+            + (f'(#{group_first_no}–#{global_sheet_no}) · '
+               if sheets_count else '(—) · ')
+            + f'{opt.waste_pct:.1f}% waste'
             f'</div>'
             f'{notes_html}'
             f'<div class="sheet-grid">{"".join(sheet_svgs)}</div>'
@@ -3260,7 +3291,8 @@ def generate_sheet_layout_pdf(
             _wrap_cell(f"{label}  ({mat})"),
             f"{result.stock_sheet.thickness:.0f} mm",
             str(result.sheets_used),
-            f"#{first}–#{_no}" if _no > first else f"#{first}",
+            ("—" if result.sheets_used == 0
+             else f"#{first}–#{_no}" if _no > first else f"#{first}"),
             f"{result.waste_pct:.1f}%",
             str(len(result.unplaced)) if result.unplaced else "—",
         ])
@@ -3377,7 +3409,10 @@ def generate_sheet_layout_pdf(
                 _guillotine_cuts(pls, 0, 0, result.stock_sheet.length,
                                  result.stock_sheet.width, depth=0,
                                  out=raw_cuts)
-            raw_cuts.sort(key=lambda e: e[0])
+            # Same key as the HTML renderer — (depth, position) — so
+            # "cut #N" names the same physical cut in every document
+            # (review 2026-07-29 M6).
+            raw_cuts.sort(key=lambda e: (e[0], e[1]))
             seq = 0
             cut_data = [["#", "Type", "Set fence to (shorter piece)"]]
             for entry in raw_cuts:
@@ -3534,7 +3569,7 @@ if _REPORTLAB_AVAILABLE:
                 label = p.panel_name[:20] + ("…" if len(p.panel_name) > 20 else "")
                 if p.rotated:
                     label += " ↺"
-                pid = _placement_id(self._id_map, p)
+                pid = p.part_id or _placement_id(self._id_map, p)
                 if pid:
                     label = f"{pid} · {label}"
                 dim_text = f"{p.placed_length:.0f}×{p.placed_width:.0f}mm"
@@ -3591,7 +3626,10 @@ if _REPORTLAB_AVAILABLE:
             if self._preset_cuts is None:
                 _guillotine_cuts(self._pl, 0, 0, sl, sw, depth=0,
                                  out=raw_cuts)
-            raw_cuts.sort(key=lambda e: e[0])
+            # Same key as the HTML renderer — (depth, position) — so
+            # "cut #N" names the same physical cut in every document
+            # (review 2026-07-29 M6).
+            raw_cuts.sort(key=lambda e: (e[0], e[1]))
 
             label_r_pt = max(4.0, sl * 0.016 * scale)
             seq = 0
