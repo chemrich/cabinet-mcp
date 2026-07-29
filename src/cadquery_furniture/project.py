@@ -517,6 +517,14 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
           CabinetConfig default at resolve time). Patched keys that collide
           with an active shared token are added to the cabinet's
           ``overrides`` so the patched value survives resolution.
+          Convenience keys are canonicalized against the stored snapshot
+          (which always carries the expanded form): ``pull_preset``
+          expands into the pull keys (``None`` clears them),
+          ``drawer_config`` replaces ``openings``, ``num_drawers`` clears
+          ``openings``/``columns`` so the stack regenerates, and patching
+          ``openings`` clears ``columns`` (and vice versa) so the patched
+          layout actually governs. Value-identical patches are dropped
+          from the change log and do not re-save the snapshot.
         - ``overrides``: full replacement of the override list (skips the
           automatic addition above).
         - ``new_name``: renames the cabinet within the project.
@@ -530,7 +538,9 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
     changes: list[str] = []
 
     if "notes" in patch:
-        out["notes"] = str(patch["notes"])
+        # None follows the patch shape's null-clears convention (it used to
+        # persist as the literal string "None").
+        out["notes"] = "" if patch["notes"] is None else str(patch["notes"])
         changes.append("notes replaced")
 
     if "wall_width_mm" in patch:
@@ -588,8 +598,15 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
             if not cpatch.get("config"):
                 raise ValueError(f"Adding cabinet {cname!r} requires a 'config'.")
             entry = {"name": cname, "config": dict(cpatch["config"])}
-            # No 'overrides' key — build_project infers them from the config
-            # keys, exactly like a fresh design_project child entry.
+            # Record the inferred overrides NOW (same rule build_project
+            # uses for entries without an 'overrides' key) — a later edit
+            # of this same cabinet writes an exhaustive overrides list, and
+            # without this the add-time pins would silently vanish
+            # (review 2026-07-29 minor 8).
+            explicit_keys = set(entry["config"].keys())
+            if "pull_preset" in explicit_keys:
+                explicit_keys |= set(_PULL_EXPANSION_KEYS)
+            entry["overrides"] = sorted(shared_keys & explicit_keys)
             out["cabinets"].append(entry)
             stored[cname] = entry
             changes.append(f"cabinet {cname!r} added")
@@ -615,7 +632,43 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
         overrides = set(entry.get("overrides", []))
         explicit_overrides = "overrides" in cpatch
 
-        for key, value in (cpatch.get("config") or {}).items():
+        # ── Canonicalize design_cabinet conveniences that do NOT survive a
+        # round-tripped snapshot (review 2026-07-29 M7). A stored config
+        # always carries the expanded keys (openings, drawer_pull: null, …),
+        # so merging the convenience key verbatim is a silent no-op:
+        # build_cabinet_config's setdefault/alias paths never fire, and the
+        # key evaporates on the next canonical re-save.
+        cfg_patch = dict(cpatch.get("config") or {})
+        if "pull_preset" in cfg_patch:
+            pv = cfg_patch.pop("pull_preset")
+            if pv is None:
+                expansion = {k: None for k in _PULL_EXPANSION_KEYS}
+            else:
+                from .hardware import get_pull_preset
+                preset = get_pull_preset(pv)   # validates the preset key
+                expansion = {
+                    "drawer_pull": preset.drawer_pull,
+                    "door_pull": preset.door_pull,
+                    "door_pull_inset_mm": preset.door_pull_inset_mm,
+                }
+            for k, v in expansion.items():
+                # Keys the same patch sets explicitly win over the preset.
+                cfg_patch.setdefault(k, v)
+        if "drawer_config" in cfg_patch:
+            # Alias for openings — replace the stored stack outright.
+            dv = cfg_patch.pop("drawer_config")
+            cfg_patch.setdefault("openings", dv)
+        if cfg_patch.get("num_drawers") is not None:
+            # Regenerate the stack from the count at build time: the stored
+            # openings/columns would otherwise keep governing the layout.
+            cfg_patch.setdefault("openings", None)
+            cfg_patch.setdefault("columns", None)
+        if cfg_patch.get("openings") is not None:
+            cfg_patch.setdefault("columns", None)   # openings governs now
+        elif cfg_patch.get("columns") is not None:
+            cfg_patch.setdefault("openings", None)  # columns governs now
+
+        for key, value in cfg_patch.items():
             cfg = entry.setdefault("config", {})
             if value is None:
                 if key in cfg:
@@ -624,9 +677,20 @@ def apply_project_patch(base: dict, patch: dict) -> tuple[dict, list[str]]:
                     changes.append(f"{cname}.config.{key} cleared")
             else:
                 old = cfg.get(key)
-                cfg[key] = value
-                if not explicit_overrides and key in shared_keys:
+                pin_added = False
+                if (not explicit_overrides and key in shared_keys
+                        and key not in overrides):
                     overrides.add(key)
+                    pin_added = True
+                if key in cfg and old == value:
+                    # True no-op — don't log a fake change (which would
+                    # also bump the snapshot's mtime and reorder
+                    # newest-first listings); a fresh pin still counts.
+                    if pin_added:
+                        changes.append(
+                            f"{cname}.config.{key} pinned as override")
+                    continue
+                cfg[key] = value
                 if isinstance(old, (int, float, str, bool)) and old != value:
                     changes.append(f"{cname}.config.{key}: {old!r} -> {value!r}")
                 else:
