@@ -5307,7 +5307,8 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
     files: dict[str, str] = {}
     if fmt in ("html", "both"):
         p = out_dir / f"{project.name}_assembly.html"
-        p.write_text(generate_assembly_html(plans, project.name))
+        p.write_text(generate_assembly_html(plans, project.name),
+                     encoding="utf-8")
         files["html"] = str(p)
     notes: list[str] = []
     if fmt in ("pdf", "both"):
