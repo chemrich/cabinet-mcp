@@ -2362,7 +2362,13 @@ def joinery_lines_for_cabinet_config(
     if joinery == CarcassJoinery.DADO_RABBET:
         return []
 
-    interior_depth = cab_cfg.depth - getattr(cab_cfg, "back_thickness", 6.0)
+    # Span must match build_assembly_plan exactly (the plan's per-joint
+    # mortise count and this BOM's tenon count are the same census) — both
+    # use the interior_depth property (depth − back_rabbet_width), which
+    # also keeps mortises clear of the back rabbet.
+    interior_depth = float(getattr(
+        cab_cfg, "interior_depth",
+        cab_cfg.depth - getattr(cab_cfg, "back_rabbet_width", 9.0)))
     side_t = getattr(cab_cfg, "side_thickness", 18.0)
 
     # Count joints: top+bottom = 4, each divider adds 2, each shelf adds 2.

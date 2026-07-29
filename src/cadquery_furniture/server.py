@@ -5261,8 +5261,12 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
         + consolidate_bom(raw_6mm) + consolidate_bom(raw_false))
 
     def _dims_key(pl: CutlistPanel) -> tuple:
+        # Thickness + material are part of the consolidation identity —
+        # without them, same-outline panels in different stock collide and
+        # the assembly doc labels the wrong stack (review 2026-07-29 M4).
         return (pl.name, round(min(pl.length, pl.width), 1),
-                round(max(pl.length, pl.width), 1))
+                round(max(pl.length, pl.width), 1),
+                round(pl.thickness, 1), pl.material)
 
     id_lookup = {_dims_key(pl): pl.part_id for pl in carcass_panels}
 
@@ -5277,6 +5281,12 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
             pid = id_lookup.get(_dims_key(pl))
             if pid and pl.name not in id_map:
                 id_map[pl.name] = pid
+            # Length-qualified key so shelf families with the same panel
+            # name but different lengths (global vs column shelves) can be
+            # told apart by the assembly maps.
+            lkey = f"{pl.name}@{round(pl.length, 1)}"
+            if pid and lkey not in id_map:
+                id_map[lkey] = pid
         try:
             plan = build_assembly_plan(
                 cfg, cabinet_name=cname, copies=1, id_map=id_map)

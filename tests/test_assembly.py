@@ -202,3 +202,184 @@ class TestDividerConstruction:
         div = self._divider(
             _two_col(carcass_joinery=CarcassJoinery.DADO_RABBET))
         assert div.length == pytest.approx(700)
+
+
+# ─── Review 2026-07-29 regressions (M1, M2, M4 + nits) ───────────────────────
+
+
+class TestPlanBomSpanParity:
+    """M1: the plan and the hardware BOM must count tenons from the SAME
+    span (interior_depth). Before the fix the plan used depth−back_rabbet
+    while the BOM used depth−back_thickness, so 3 mm depth windows near
+    every 150 mm spacing threshold diverged (depth 356: plan 3/joint, BOM
+    4/joint)."""
+
+    def _bom_pieces(self, cfg):
+        from cadquery_furniture.cutlist import joinery_lines_for_cabinet_config
+        lines = joinery_lines_for_cabinet_config(cfg)
+        (line,) = [l for l in lines if "Domino" in l.name]
+        return line.pieces_needed
+
+    @pytest.mark.parametrize("depth", [354, 355, 356, 357, 358, 505, 507])
+    def test_tenon_counts_agree_across_spacing_windows(self, depth):
+        cfg = CabinetConfig(width=800, height=700, depth=depth)
+        plan = build_assembly_plan(cfg)
+        assert plan.tenons_per_cabinet == self._bom_pieces(cfg)
+
+    def test_span_is_interior_depth(self):
+        cfg = _box()
+        plan = build_assembly_plan(cfg)
+        assert plan.span == pytest.approx(cfg.interior_depth)
+
+
+class TestDividerShelfMaps:
+    """M2: a divider bordering a column with fixed shelves must show face
+    rows for those shelves (they were omitted, and the note said 'ENDS
+    only')."""
+
+    def _plan(self):
+        return build_assembly_plan(_two_col())
+
+    def test_divider_map_has_shelf_face_row(self):
+        plan = self._plan()
+        div_map = next(pm for pm in plan.panels
+                       if pm.panel.startswith("column divider"))
+        face_rows = [r for r in div_map.rows if r.kind == "face"]
+        assert len(face_rows) == 1
+        (row,) = face_rows
+        assert "col 1 shelf 1" in row.label
+        assert "left face" in row.label
+        cfg = _two_col()
+        # Offset re-based to the divider's bottom (= top of bottom panel).
+        assert row.offset == pytest.approx(
+            320 - cfg.bottom_thickness + cfg.shelf_thickness / 2)
+        assert "ENDS only" not in div_map.note
+
+    def test_divider_without_shelves_keeps_ends_only_note(self):
+        cfg = CabinetConfig(
+            width=800, height=700, depth=457,
+            columns=[ColumnConfig(width_mm=373, openings=()),
+                     ColumnConfig(width_mm=373, openings=())])
+        plan = build_assembly_plan(cfg)
+        div_map = next(pm for pm in plan.panels
+                       if pm.panel.startswith("column divider"))
+        assert all(r.kind == "edge" for r in div_map.rows)
+        assert "ENDS only" in div_map.note
+
+    def test_map_rows_match_joint_census(self):
+        # Every face-mortised part in the joint schedule must have a face
+        # row on its map (the map/census contract the review found broken).
+        plan = self._plan()
+        for j in plan.joints:
+            if j.kind != "butt":
+                continue
+            face_map = next(
+                (pm for pm in plan.panels
+                 if pm.panel.split(" (")[0] in (
+                     j.face_part, "side", "column divider")
+                 or j.face_part in pm.panel
+                 or (j.face_part in ("left side", "right side")
+                     and pm.panel.startswith("side"))), None)
+            assert face_map is not None, j.name
+            assert any(r.kind == "face" for r in face_map.rows), j.name
+
+
+class TestSingleColumnShelfLabel:
+    def test_both_sides_label(self):
+        cfg = CabinetConfig(
+            width=600, height=700, depth=457,
+            columns=[ColumnConfig(width_mm=564, openings=(),
+                                  fixed_shelf_positions=(300,))])
+        plan = build_assembly_plan(cfg)
+        side_map = next(pm for pm in plan.panels
+                        if pm.panel.startswith("side"))
+        labels = [r.label for r in side_map.rows]
+        assert any("both sides" in l for l in labels)
+        assert not any("only" in l for l in labels)
+        # And the census still has one joint per side.
+        names = [j.name for j in plan.joints]
+        assert "col 1 shelf 1 ↔ left side" in names
+        assert "col 1 shelf 1 ↔ right side" in names
+
+
+class TestFenceHeightText:
+    def test_uniform_stock_single_height(self):
+        plan = build_assembly_plan(_box())
+        setup = next(s for s in plan.steps
+                     if s.title == "Set up the Domino machine")
+        assert "height 9 mm" in setup.body
+        assert "RESET" not in setup.body
+
+    def test_odd_stock_not_rounded(self):
+        plan = build_assembly_plan(_box(
+            side_thickness=15.0, top_thickness=15.0, bottom_thickness=15.0))
+        setup = next(s for s in plan.steps
+                     if s.title == "Set up the Domino machine")
+        assert "7.5 mm" in setup.body      # was rounded to "8 mm" by :.0f
+
+    def test_mixed_thickness_lists_all_heights(self):
+        plan = build_assembly_plan(_box(
+            bottom_thickness=25.0, top_thickness=25.0))
+        assert plan.panel_thicknesses == (18.0, 25.0)
+        setup = next(s for s in plan.steps
+                     if s.title == "Set up the Domino machine")
+        assert "RESET" in setup.body
+        assert "9 mm" in setup.body and "12.5 mm" in setup.body
+
+
+class TestAssemblyPartIdCollisions:
+    """M4: the assembly doc's part-ID lookup must key on thickness and
+    material too — two same-outline cabinets in 18 mm vs 12 mm stock used
+    to both label their maps with the last row's ID."""
+
+    def _instructions(self, tmp_path, monkeypatch, cabinets):
+        import asyncio
+        import json
+        from pathlib import Path
+        from cadquery_furniture import project as pmod
+        from cadquery_furniture.server import (
+            _tool_design_project, _tool_generate_assembly_instructions,
+        )
+        monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "proj")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(_tool_design_project({
+            "name": "idcol", "cabinets": cabinets}))
+        res = loop.run_until_complete(_tool_generate_assembly_instructions({
+            "project_name": "idcol", "format": "html"}))
+        payload = json.loads(res[0].text)
+        html_path = payload["files"]["html"]
+        return payload, Path(html_path).read_text()
+
+    def test_thickness_distinguishes_ids(self, tmp_path, monkeypatch):
+        base = {"height": 700, "depth": 457, "width": 800,
+                "drawer_config": [[300, "drawer"], [384, "drawer"]],
+                "carcass_joinery": "floating_tenon"}
+        cabinets = [
+            {"name": "thick", "config": dict(base)},
+            {"name": "thin", "config": dict(
+                base, side_thickness=12.0, top_thickness=12.0,
+                bottom_thickness=12.0, shelf_thickness=12.0)},
+        ]
+        _, html = self._instructions(tmp_path, monkeypatch, cabinets)
+        # Both cabinets' side part IDs must appear in the doc — before the
+        # fix the last-processed cabinet's ID labeled both.
+        assert "S1" in html and "S2" in html
+
+    def test_shelf_families_get_distinct_ids(self, tmp_path, monkeypatch):
+        cabinets = [{
+            "name": "shelves", "config": {
+                "height": 760, "depth": 500, "width": 900,
+                "carcass_joinery": "floating_tenon",
+                "fixed_shelf_positions": [500],
+                "columns": [
+                    {"width_mm": 430, "openings": [[300, "door"], [384, "drawer"]],
+                     "fixed_shelf_positions": [300]},
+                    {"width_mm": 434, "openings": [[684, "door"]]},
+                ]}}]
+        payload, html = self._instructions(tmp_path, monkeypatch, cabinets)
+        import re
+        ids = {m for m in re.findall(r"SH\d+", html)}
+        # Global 864 mm shelf and col-1 430 mm shelf are distinct cutlist
+        # rows; the maps must show both IDs, not one twice.
+        assert len(ids) >= 2, ids

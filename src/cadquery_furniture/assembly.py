@@ -122,6 +122,9 @@ class AssemblyPlan:
     miter_placement: Optional[object] = None   # MiterMortisePlacement
     edge_band_mode: str = "none"        # none | hot_melt | hardwood
     edge_band_thickness_mm: float = 0.0
+    #: Distinct carcass panel thicknesses (sorted). More than one entry
+    #: means the DF 500 fence height must be reset per panel thickness.
+    panel_thicknesses: tuple = ()
 
     @property
     def tenons_per_cabinet(self) -> int:
@@ -267,11 +270,18 @@ def build_assembly_plan(
     for ci, col in enumerate(cols):
         for si, z in enumerate(
                 getattr(col, "fixed_shelf_positions", ()) or (), start=1):
+            if n_cols == 1:
+                # A single column's shelves join BOTH sides — one shared
+                # row on the mirrored side map (review 2026-07-29).
+                side_rows.append(MortiseRow(
+                    f"col 1 shelf {si} (both sides)", "h",
+                    float(z) + shelf_t / 2, positions, "face"))
+                continue
             if ci == 0:
                 side_rows.append(MortiseRow(
                     f"col 1 shelf {si} (left side only)", "h",
                     float(z) + shelf_t / 2, positions, "face"))
-            if ci == n_cols - 1 and n_cols > 1:
+            if ci == n_cols - 1:
                 side_rows.append(MortiseRow(
                     f"col {n_cols} shelf {si} (right side only)", "h",
                     float(z) + shelf_t / 2, positions, "face"))
@@ -327,20 +337,56 @@ def build_assembly_plan(
         ))
 
     if n_dividers:
-        panels.append(PanelMortiseMap(
-            panel=f"column divider (make {n_dividers})",
-            part_id=pid("column_divider"),
-            draw_width=interior_panel_depth,
-            draw_height=float(cab_cfg.interior_height),
-            width_label="depth — front edge at left",
-            height_label="height (fits between bottom and top)",
-            rows=(
+        # Each divider's rows: the two end (edge) mortises, plus a FACE
+        # row for every column shelf that lands on it — col d's shelves
+        # mortise the divider's LEFT face (divider d borders col d on its
+        # left, 1-indexed), col d+1's its RIGHT face (review 2026-07-29
+        # M2: these rows were missing and the note said "ENDS only").
+        div_rows_by_d: dict[int, list[MortiseRow]] = {}
+        for d in range(1, n_dividers + 1):
+            rows_d: list[MortiseRow] = [
                 MortiseRow("bottom end", "h", 0.0, positions, "edge"),
                 MortiseRow("top end", "h", float(cab_cfg.interior_height),
                            positions, "edge"),
-            ),
-            note="Both faces show; mortise the two ENDS only.",
-        ))
+            ]
+            for ci, side_label in ((d - 1, "left face"),
+                                   (d, "right face")):
+                for si, z in enumerate(
+                        getattr(cols[ci], "fixed_shelf_positions", ())
+                        or (), start=1):
+                    rows_d.append(MortiseRow(
+                        f"col {ci + 1} shelf {si} ({side_label})", "h",
+                        float(z) - bottom_t + shelf_t / 2, positions,
+                        "face"))
+            div_rows_by_d[d] = rows_d
+
+        # Dividers with identical rows collapse into one "make N" map;
+        # ones that differ (different neighbouring shelves) get their own.
+        grouped: dict[tuple, list[int]] = {}
+        for d, rows_d in div_rows_by_d.items():
+            grouped.setdefault(tuple(rows_d), []).append(d)
+        for rows_key, ds in grouped.items():
+            has_faces = any(r.kind == "face" for r in rows_key)
+            if len(grouped) == 1:
+                label = f"column divider (make {n_dividers})"
+            elif len(ds) > 1:
+                label = ("column divider "
+                         f"{', '.join(str(d) for d in ds)} (make {len(ds)})")
+            else:
+                label = f"column divider {ds[0]}"
+            panels.append(PanelMortiseMap(
+                panel=label,
+                part_id=pid("column_divider"),
+                draw_width=interior_panel_depth,
+                draw_height=float(cab_cfg.interior_height),
+                width_label="depth — front edge at left",
+                height_label="height (fits between bottom and top)",
+                rows=rows_key,
+                note=("Both faces show; edge mortises in the two ENDS, "
+                      "face mortises at each shelf row (face noted per "
+                      "row)." if has_faces else
+                      "Both faces show; mortise the two ENDS only."),
+            ))
 
     shelf_like = []
     if global_shelves:
@@ -353,7 +399,10 @@ def build_assembly_plan(
     for label, count, length in shelf_like:
         panels.append(PanelMortiseMap(
             panel=f"{label} (make {count})" if count > 1 else label,
-            part_id=pid("shelf_1"),
+            # Length-qualified lookup first: global and column shelf
+            # families share the "shelf_1" panel name but are distinct
+            # cutlist rows (review 2026-07-29).
+            part_id=pid(f"shelf_1@{round(length, 1)}") or pid("shelf_1"),
             draw_width=length, draw_height=interior_panel_depth,
             width_label="length",
             height_label="depth — front edge at bottom",
@@ -364,6 +413,10 @@ def build_assembly_plan(
             note="Edge mortises in both ends.",
         ))
 
+    thicknesses = {side_t, bottom_t, top_t}
+    if global_shelves or any(
+            getattr(c_, "fixed_shelf_positions", ()) or () for c_ in cols):
+        thicknesses.add(shelf_t)
     plan = AssemblyPlan(
         cabinet_name=cabinet_name, copies=copies,
         size_key=size_key, size=size, stock_thickness=side_t,
@@ -372,9 +425,22 @@ def build_assembly_plan(
         corner_style=corner_style, miter_placement=miter_placement,
         edge_band_mode=band_mode,
         edge_band_thickness_mm=band_t if band_mode != "none" else 0.0,
+        panel_thicknesses=tuple(sorted(thicknesses)),
     )
     plan.steps = _build_steps(plan, cab_cfg)
     return plan
+
+
+def _fence_text(plan: AssemblyPlan) -> str:
+    """Fence-height wording — one setting for uniform stock, a per-thickness
+    schedule (and a reset warning) when panel thicknesses differ."""
+    ts = plan.panel_thicknesses or (plan.stock_thickness,)
+    if len(ts) == 1:
+        t = ts[0]
+        return f"height {t / 2:g} mm (centres the slot in {t:g} mm panels)"
+    per = " · ".join(f"{t:g} mm panels → {t / 2:g} mm" for t in ts)
+    return (f"height {per} — panel thicknesses differ, RESET the fence "
+            "for each panel so every mortise stays centred in ITS stock")
 
 
 def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
@@ -382,9 +448,13 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
     t = plan.stock_thickness
     pos_txt = ", ".join(f"{p:.0f}" for p in plan.positions)
     n_joints = len(plan.joints)
-    fence_h = t / 2
     miter = plan.corner_style == "miter"
     n_butt = sum(1 for j in plan.joints if j.kind == "butt")
+    # Panels that actually carry face (red) rows — drives the face-mortise
+    # step text so it never claims rows that don't exist (or vice versa).
+    face_panels = [pm.panel for pm in plan.panels
+                   if any(r.kind == "face" for r in pm.rows)]
+    uniform_t = len(plan.panel_thicknesses or (t,)) == 1
 
     steps = [
         AssemblyStep(
@@ -420,11 +490,10 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
 
     steps.append(AssemblyStep(
         "Set up the Domino machine",
-        f"DF 500 with the {s.tenon_thickness:.0f} mm cutter. Plunge depth "
-        f"{s.mortise_depth_per_side:.0f} mm (this leaves a "
-        f"{t - s.mortise_depth_per_side:.0f} mm wall behind face "
-        f"mortises in {t:.0f} mm stock). Fence 90°, height "
-        f"{fence_h:.0f} mm to centre the mortise in {t:.0f} mm panels. "
+        f"DF 500 with the {s.tenon_thickness:g} mm cutter. Plunge depth "
+        f"{s.mortise_depth_per_side:g} mm (this leaves a "
+        f"{t - s.mortise_depth_per_side:g} mm wall behind face "
+        f"mortises in {t:g} mm stock). Fence 90°, {_fence_text(plan)}. "
         "Width setting: TIGHT for the front mortise of every joint, "
         "middle (slotted) for all others — the front pair registers the "
         "joint flush; slotted mates absorb tolerance."))
@@ -437,17 +506,22 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             f"{pos_txt} mm from the front edge, "
             f"{plan.per_joint} per end. Register the fence on the panel "
             "face, machine base on the end, and reference every row from "
-            "the front edge. One fence setting covers every edge mortise."))
+            "the front edge. "
+            + ("One fence setting covers every edge mortise."
+               if uniform_t else
+               "Panel thicknesses differ — reset the fence height (t/2) "
+               "for each panel thickness; see the machine table.")))
         steps.append(AssemblyStep(
             "Cut the face mortises",
             "Lay out each face row with a square off the front edge at the "
             "same centres, clamp a straightedge (or use the panel that "
             "actually mates as a fence), stand the DF 500 on its base and "
             "plunge at each mark. "
-            + ("Divider rows on top and bottom only — the corners are "
-               "mitered. " if miter else
-               "Cut every face row on the sides, then the divider rows on "
-               "top and bottom. ")
+            + (f"Face rows land on: {', '.join(face_panels)} — the RED "
+               "rows in the mortise maps. "
+               if face_panels else "")
+            + ("The corners are mitered — their mortises come in the next "
+               "step, not here. " if miter else "")
             + "Same tight/slotted pattern: front mortise tight, the rest "
             "slotted."))
 
@@ -548,8 +622,7 @@ def _machine_rows(plan: AssemblyPlan) -> list[tuple[str, str]]:
         ("Plunge depth", f"{s.mortise_depth_per_side:.0f} mm each part "
                          f"({t - s.mortise_depth_per_side:.0f} mm wall left "
                          f"in {t:.0f} mm stock)"),
-        ("Fence", f"90° · height {t / 2:.0f} mm (centres the slot in "
-                  f"{t:.0f} mm panels)"),
+        ("Fence", f"90° · {_fence_text(plan)}"),
         ("Width setting", "TIGHT for the front mortise of each joint; "
                           "middle (slotted) for all others"),
         ("Registration", "Every mortise measured from the FRONT edge on "
