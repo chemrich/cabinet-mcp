@@ -5335,9 +5335,10 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
                 "tenons_total": plan.tenons_total,
                 "corner_style": plan.corner_style,
                 "edge_band_mode": plan.edge_band_mode,
-                **({"miter_mortise_from_long_point_mm":
-                        plan.miter_placement.from_long_point,
-                    "miter_inner_wall_mm": plan.miter_placement.inner_wall}
+                **({"miter_mortise_from_heel_mm":
+                        plan.miter_placement.from_heel,
+                    "miter_show_face_wall_mm":
+                        plan.miter_placement.show_face_wall}
                    if plan.miter_placement is not None else {}),
             }
             for plan in plans

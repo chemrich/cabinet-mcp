@@ -457,14 +457,14 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             "Cut the miter mortises (corners)",
             f"Tilt the DF 500 fence to 45° and stand it on each miter "
             f"face. Set the fence so the mortise centreline sits "
-            f"{mp.from_long_point:.1f} mm from the LONG POINT "
-            f"({mp.from_heel:.1f} mm from the heel) along the "
-            f"{mp.face_width:.1f} mm face — that leaves "
-            f"{mp.inner_wall:.1f} mm of wall at the inside face at the "
-            f"full {mp.depth:.0f} mm plunge. Same centres from the front "
-            f"edge ({pos_txt} mm), same tight/slotted pattern. DIAL IN ON "
-            "A SCRAP MITER FIRST — a misplaced miter mortise exits the "
-            "show face."))
+            f"{mp.from_heel:.1f} mm from the HEEL (inside corner; "
+            f"{mp.from_long_point:.1f} mm from the long point) along the "
+            f"{mp.face_width:.1f} mm face — the plunge drifts toward the "
+            f"show face, leaving {mp.show_face_wall:.1f} mm of wall there "
+            f"at the full {mp.depth:.0f} mm plunge. Same centres from the "
+            f"front edge ({pos_txt} mm), same tight/slotted pattern. DIAL "
+            "IN ON A SCRAP MITER FIRST — a misplaced miter mortise exits "
+            "the show face."))
 
     steps.append(AssemblyStep(
         "Prep interior surfaces",
@@ -559,11 +559,11 @@ def _machine_rows(plan: AssemblyPlan) -> list[tuple[str, str]]:
         ("Miter corners", "Fence tilted 45°, standing on the miter face — "
                           "dial in on a scrap miter first"),
         ("Miter placement",
-         f"centreline {plan.miter_placement.from_long_point:.1f} mm from "
-         f"the LONG POINT ({plan.miter_placement.from_heel:.1f} mm from "
-         f"the heel) along the {plan.miter_placement.face_width:.1f} mm "
-         f"face — {plan.miter_placement.inner_wall:.1f} mm inside wall at "
-         f"the full {plan.miter_placement.depth:.0f} mm plunge"),
+         f"centreline {plan.miter_placement.from_heel:.1f} mm from "
+         f"the HEEL ({plan.miter_placement.from_long_point:.1f} mm from "
+         f"the long point) along the {plan.miter_placement.face_width:.1f} mm "
+         f"face — {plan.miter_placement.show_face_wall:.1f} mm show-face "
+         f"wall at the full {plan.miter_placement.depth:.0f} mm plunge"),
     ] if plan.corner_style == "miter" and plan.miter_placement is not None
        else [])
 
