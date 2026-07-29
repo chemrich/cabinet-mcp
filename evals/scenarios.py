@@ -9176,11 +9176,11 @@ SCENARIOS.append(Scenario(
             assertions=[
                 Assertion("designs.0.corner_style", Op.EQ, "miter"),
                 Assertion("designs.0.edge_band_mode", Op.EQ, "hardwood"),
-                # Solved 5x30 seat in 18mm: ~3.8mm off the long point,
-                # ≥2mm inside wall.
-                Assertion("designs.0.miter_mortise_from_long_point_mm",
+                # Solved 5x30 seat in 18mm: ~3.8mm off the HEEL (the
+                # plunge drifts toward the show face), ≥2mm show-face wall.
+                Assertion("designs.0.miter_mortise_from_heel_mm",
                           Op.APPROX, 3.8),
-                Assertion("designs.0.miter_inner_wall_mm", Op.GTE, 2.0),
+                Assertion("designs.0.miter_show_face_wall_mm", Op.GTE, 2.0),
                 # Census unchanged by corner style: 4 + 2×1 divider = 6.
                 Assertion("designs.0.joints", Op.EQ, 6),
                 Assertion("files", Op.HAS_KEY, "html"),

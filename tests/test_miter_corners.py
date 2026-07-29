@@ -18,13 +18,30 @@ def _cfg(**kw) -> CabinetConfig:
 class TestMiterMortiseSolver:
     def test_5x30_fits_18mm_stock(self):
         p = miter_mortise_placement(get_domino_size("5x30"), 18.0)
-        # Face width t·√2; feasible window biases toward the long point.
+        # Face width t·√2; the plunge drifts toward the show face, so the
+        # feasible window biases toward the HEEL. (The pre-2026-07-29 solver
+        # asserted the mirror image — long-point bias — which put the mortise
+        # bottom outside the show face.)
         assert p.face_width == pytest.approx(25.5, abs=0.1)
-        assert p.from_heel > p.face_width / 2
+        assert p.from_heel < p.face_width / 2
         assert p.from_heel + p.from_long_point == pytest.approx(
             p.face_width, abs=0.2)
-        assert p.inner_wall >= 2.0
+        assert p.show_face_wall >= 2.0
         assert p.depth == 15
+
+    def test_mortise_stays_inside_stock(self):
+        # Entry slot must clear the heel face and the mortise bottom must
+        # leave the show-face wall: the two hard geometric invariants.
+        import math
+        c = math.cos(math.radians(45))
+        for key, t in (("5x30", 18.0), ("5x30", 17.0), ("4x17", 15.0),
+                       ("8x40", 26.0)):
+            size = get_domino_size(key)
+            p = miter_mortise_placement(size, t)
+            hw = (size.mortise_width / 2) * c
+            y0 = p.from_heel * c            # entry centreline off inside face
+            assert y0 - hw >= -0.05, (key, t)
+            assert t - (y0 + c * p.depth + hw) >= 2.0 - 0.05, (key, t)
 
     def test_5x30_rejects_12mm_stock(self):
         with pytest.raises(ValueError, match="does not fit a 45° miter"):
@@ -36,11 +53,11 @@ class TestMiterMortiseSolver:
         with pytest.raises(ValueError):
             miter_mortise_placement(size, 16.0)
         p = miter_mortise_placement(size, 17.0)
-        assert p.inner_wall >= 2.0
+        assert p.show_face_wall >= 2.0
 
     def test_4x17_fits_thinner_stock(self):
         p = miter_mortise_placement(get_domino_size("4x17"), 15.0)
-        assert p.inner_wall >= 2.0
+        assert p.show_face_wall >= 2.0
 
 
 class TestMiterPanelDims:

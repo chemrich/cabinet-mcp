@@ -31,7 +31,7 @@ class TestMiterPlan:
         plan = build_assembly_plan(_miter_cfg())
         assert plan.corner_style == "miter"
         assert plan.miter_placement is not None
-        assert plan.miter_placement.inner_wall >= 2.0
+        assert plan.miter_placement.show_face_wall >= 2.0
 
     def test_thin_stock_raises(self):
         with pytest.raises(ValueError, match="45° miter"):
