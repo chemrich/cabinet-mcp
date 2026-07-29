@@ -3715,9 +3715,15 @@ def _parse_sheet_size_overrides(raw) -> dict:
     """Validate {material: [length_mm, width_mm]} sheet-size overrides."""
     out: dict = {}
     for mat, dims in (raw or {}).items():
+        # Explicit shape check — a string like "2453x1234" would otherwise
+        # index its characters into a 2×4 mm sheet (review 2026-07-29).
+        if not isinstance(dims, (list, tuple)) or len(dims) != 2:
+            raise ValueError(
+                f"sheet_size_overrides[{mat!r}] must be [length_mm, "
+                f"width_mm], got {dims!r}.")
         try:
             L, W = float(dims[0]), float(dims[1])
-        except (TypeError, ValueError, IndexError, KeyError):
+        except (TypeError, ValueError):
             raise ValueError(
                 f"sheet_size_overrides[{mat!r}] must be [length_mm, "
                 f"width_mm], got {dims!r}.")
@@ -3745,6 +3751,7 @@ def _cutlist_pipeline(
     sheet_size_overrides: dict | None = None,
     optimizer_overrides: dict | None = None,
     band_cfg=None,
+    band_panels: list | None = None,
 ) -> dict[str, Any]:
     """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
     sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
@@ -3891,9 +3898,18 @@ def _cutlist_pipeline(
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path  = out_dir / f"{name}_cutlist.csv"
     json_path = out_dir / f"{name}_cutlist.json"
-    carcass_thicknesses = sorted({t for _, t in carcass_mts}, reverse=True)
-    carcass_sheets = ([_make_sheet(t) for t in carcass_thicknesses]
-                      or [_make_sheet(18.0)])
+    # Per (material, thickness) so sheet_size_overrides show up in the
+    # exported JSON's stock declarations too (review 2026-07-29 minor 6);
+    # deduped on resulting dims so same-size stocks list once.
+    carcass_sheets, _seen_sheets = [], set()
+    for mat, t in sorted(carcass_mts, key=lambda mt: -mt[1]):
+        sh = _make_sheet(t, mat)
+        skey = (sh.length, sh.width, sh.thickness)
+        if skey not in _seen_sheets:
+            _seen_sheets.add(skey)
+            carcass_sheets.append(sh)
+    if not carcass_sheets:
+        carcass_sheets = [_make_sheet(18.0)]
     csv_path.write_text(to_csv(all_panels))
     json_path.write_text(to_json(all_panels, carcass_sheets))
 
@@ -3962,7 +3978,26 @@ def _cutlist_pipeline(
     if (band_cfg is not None
             and getattr(band_cfg, "edge_band_mode", "none") == "hardwood"
             and getattr(band_cfg, "edge_band_stock", None)):
-        banded = [p for p in all_panels if p.edge_band]
+        if band_panels is not None:
+            # The caller scoped the doc to the hardwood band group's own
+            # panels — the edge_band-marker filter would also sweep in
+            # hot-melt cabinets' panels, chop-planning (and double-
+            # provisioning) edges the rolls already cover (review
+            # 2026-07-29 M3). Copy the layout part IDs onto them so the
+            # doc's labels match the drawings.
+            id_by_key = {
+                (p.name, round(p.length, 1), round(p.width, 1),
+                 round(p.thickness, 1), p.grain_direction, p.material,
+                 tuple(p.edge_band), p.source): p.part_id
+                for p in all_panels}
+            for bp in band_panels:
+                bp.part_id = bp.part_id or id_by_key.get(
+                    (bp.name, round(bp.length, 1), round(bp.width, 1),
+                     round(bp.thickness, 1), bp.grain_direction,
+                     bp.material, tuple(bp.edge_band), bp.source), "")
+            banded = [p for p in band_panels if p.edge_band]
+        else:
+            banded = [p for p in all_panels if p.edge_band]
         if banded:
             from .cutlist import (generate_banding_cutlist_html,
                                   generate_banding_cutlist_pdf,
@@ -4032,15 +4067,27 @@ def _cutlist_pipeline(
             / total_sheets, 1)
         result["unplaced_panels"] = [u for s in carcass_summaries for u in s["unplaced"]]
 
-    if optimizer == "rectpack" or (optimizer == "auto" and not _OPCUT_AVAILABLE and _RECTPACK_AVAILABLE):
-        algo = "rectpack GuillotineBssfSas"
-    elif optimizer == "strip" or (optimizer == "auto" and not _OPCUT_AVAILABLE and not _RECTPACK_AVAILABLE):
-        algo = "strip-cutting (fallback)"
-    else:
-        algo = "opcut FORWARD_GREEDY (guillotine)"
+    # Derive the note from what actually ran — the requested optimizer can
+    # be remapped per group by optimizer_overrides, and "rips_first" used
+    # to fall through to the opcut wording (review 2026-07-29 minor 5).
+    _ALGO_LABELS = {
+        "opcut": "opcut FORWARD_GREEDY (guillotine)",
+        "rectpack": "rectpack GuillotineBssfSas",
+        "strip": "strip-cutting (fallback)",
+        "rips_first": ("rips_first (track-saw strip rips → cross-cuts → "
+                       "table-saw secondary rips)"),
+    }
+    used = sorted({sg.get("algorithm", "") for sg in result["sheet_goods"]
+                   if sg.get("algorithm")})
+    if not used:
+        used = ["opcut" if _OPCUT_AVAILABLE else
+                "rectpack" if _RECTPACK_AVAILABLE else "strip"]
+    algo = " + ".join(_ALGO_LABELS.get(a, a) for a in used)
     result["optimization_note"] = (
-        f"Sheet layout via {algo}. "
-        "Every cut is a straight line across the remaining panel — "
+        f"Sheet layout via {algo}"
+        + (" (mixed per material/thickness via optimizer_overrides)"
+           if len(used) > 1 else "")
+        + ". Every cut is a straight line across the remaining panel — "
         "the layout is directly executable at the saw."
     )
 
@@ -5123,6 +5170,8 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
     per_cabinet_summary = []
     total_cabinets = 0
     band_doc_cfg = None  # first hardwood cfg with a stock spec → banding doc
+    band_doc_key = None  # that cfg's band-token key
+    band_doc_panels: list = []  # panels of every group matching that key
     from .cutlist import edge_band_lines_for_panels
     for project in projects:
         # Band lines aggregate per PROJECT, not per cabinet: one line per
@@ -5144,6 +5193,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                         and cfg.edge_band_mode == "hardwood"
                         and cfg.edge_band_stock):
                     band_doc_cfg = cfg
+                    band_doc_key = bkey
             if batch_names:
                 # Tag provenance so panels stay project-distinct rows through
                 # consolidation and the layout colours/labels by project.
@@ -5165,12 +5215,16 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
                 "panel_count_raw": sum(len(lst) for lst in (c, b, x, f)),
             })
 
-        for bcfg, bpanels in band_groups.values():
+        for bkey, (bcfg, bpanels) in band_groups.items():
             band_lines = edge_band_lines_for_panels(bpanels, bcfg)
             if batch_names:
                 for line in band_lines:
                     line.source = project.name
             hw_lines_all.extend(band_lines)
+            # The banding doc covers exactly the groups sharing the doc
+            # cfg's band token — never hot-melt (or other-stock) groups.
+            if bkey == band_doc_key:
+                band_doc_panels.extend(bpanels)
 
         if project.worktop is not None:
             wt = project.worktop
@@ -5211,6 +5265,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         sheet_size_overrides=sheet_size_overrides,
         optimizer_overrides=optimizer_overrides,
         band_cfg=band_doc_cfg,
+        band_panels=band_doc_panels if band_doc_cfg is not None else None,
     )
     result = {
         "project": out_name,
