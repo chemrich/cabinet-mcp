@@ -290,3 +290,121 @@ class TestHandlers:
         data = json.loads(_run(_tool_update_project({"name": "fork_src"}))[0].text)
         assert data["changes"] == []
         assert "nothing to change" in data["note"]
+
+
+class TestPatchCanonicalization:
+    """Review 2026-07-29 M7 + minors 8-10: convenience keys must survive
+    round-tripped snapshots, and no-op patches must not fake changes."""
+
+    def _saved(self, store, shared=None, name="fork_canon"):
+        payload = {"name": name, "cabinets": [{"name": "a", "config": {
+            "width": 600, "height": 700, "depth": 450,
+            "drawer_config": [[200, "drawer"], [200, "drawer"],
+                              [284, "drawer"]]}}]}
+        if shared:
+            payload["shared"] = shared
+        _run(_tool_design_project(payload))
+        return name
+
+    def test_pull_preset_patch_applies(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(store)
+        proj, changes = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [{"name": "a",
+                          "config": {"pull_preset": "contemporary_slab"}}]})
+        (_, cfg), = proj.resolved()
+        assert cfg.drawer_pull is not None
+        assert any("drawer_pull" in c for c in changes)
+        # And it survives another round-trip.
+        reloaded = pmod.load_project(name)
+        (_, cfg2), = reloaded.resolved()
+        assert cfg2.drawer_pull == cfg.drawer_pull
+
+    def test_pull_preset_beats_shared_token(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(
+            store, shared={"drawer_pull": "topknobs-hb-96"},
+            name="fork_canon_sh")
+        proj, _ = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [{"name": "a",
+                          "config": {"pull_preset": "contemporary_slab"}}]})
+        (_, cfg), = proj.resolved()
+        assert cfg.drawer_pull != "topknobs-hb-96"
+
+    def test_drawer_config_patch_replaces_openings(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(store, name="fork_canon_dc")
+        proj, changes = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [{"name": "a", "config": {
+                "drawer_config": [[300, "drawer"], [384, "drawer"]]}}]})
+        (_, cfg), = proj.resolved()
+        assert [o.height_mm for o in cfg.openings] == [300, 384]
+
+    def test_num_drawers_patch_regenerates_stack(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(store, name="fork_canon_nd")
+        proj, _ = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [{"name": "a", "config": {"num_drawers": 4}}]})
+        (_, cfg), = proj.resolved()
+        assert len(cfg.openings) == 4
+
+    def test_openings_patch_clears_columns(self, store):
+        import cadquery_furniture.project as pmod
+        _run(_tool_design_project({
+            "name": "fork_canon_cols", "cabinets": [{"name": "a", "config": {
+                "width": 900, "height": 700, "depth": 450,
+                "columns": [
+                    {"width_mm": 430,
+                     "openings": [[300, "door"], [330, "drawer"]]},
+                    {"width_mm": 416, "openings": [[630, "door"]]},
+                ]}}]}))
+        proj, _ = pmod.update_saved_project({
+            "name": "fork_canon_cols",
+            "cabinets": [{"name": "a", "config": {
+                "openings": [[300, "drawer"], [330, "drawer"]]}}]})
+        (_, cfg), = proj.resolved()
+        assert not cfg.columns
+        assert len(cfg.openings) == 2
+
+    def test_add_then_edit_keeps_addtime_overrides(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(
+            store, shared={"drawer_slide": "blum_tandem_550h",
+                           "door_hinge": "blum_clip_top_blumotion_110_full"},
+            name="fork_canon_ae")
+        proj, _ = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [
+                {"name": "b", "add": True, "config": {
+                    "width": 500, "height": 700, "depth": 450,
+                    "drawer_config": [[300, "drawer"], [364, "drawer"]],
+                    "drawer_slide": "blum_movento_769"}},
+                {"name": "b", "config": {
+                    "door_hinge": "blum_clip_top_blumotion_110_half"}},
+            ]})
+        cfg_b = dict(proj.resolved())["b"]
+        # The add-time explicit Movento pin must survive the same-patch edit.
+        assert cfg_b.drawer_slide == "blum_movento_769"
+
+    def test_noop_patch_neither_logs_nor_saves(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(store, name="fork_canon_noop")
+        path = pmod.project_path(name)
+        before = path.read_text()
+        mtime = path.stat().st_mtime_ns
+        _, changes = pmod.update_saved_project({
+            "name": name,
+            "cabinets": [{"name": "a", "config": {"width": 600}}]})
+        assert changes == []
+        assert path.stat().st_mtime_ns == mtime
+        assert path.read_text() == before
+
+    def test_notes_null_clears(self, store):
+        import cadquery_furniture.project as pmod
+        name = self._saved(store, name="fork_canon_notes")
+        proj, _ = pmod.update_saved_project({"name": name, "notes": None})
+        assert proj.notes == ""
