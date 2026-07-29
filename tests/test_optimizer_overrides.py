@@ -21,6 +21,14 @@ def _await(coro):
     return loop.run_until_complete(coro)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    # The cutlist tool writes real files under Path.home()/.cabinet-mcp —
+    # keep every run out of the user's actual store (review 2026-07-29 M9).
+    from pathlib import Path
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+
 class TestResolution:
     OV = {"baltic_birch@6": "opcut", "rift_white_oak_ply": "rips_first",
           "@12": "strip"}

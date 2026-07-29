@@ -60,14 +60,21 @@ class TestRipsFirst:
 
     def test_narrow_pieces_bundle_into_wide_track_rips(self):
         # 76 mm parts must NOT each own a track-saw strip: every declared
-        # breakdown rip is at least the minimum strip width.
+        # breakdown rip is at least RIPS_FIRST_MIN_STRIP_MM, except at most
+        # one remainder strip per sheet (a lone tail with nothing left to
+        # bundle). The old assertion special-cased a magic 124 mm width
+        # anywhere in the run, which let sub-minimum rips hide
+        # (review 2026-07-29).
+        from cadquery_furniture.cutlist import RIPS_FIRST_MIN_STRIP_MM
         r = _run(_boxes())
         assert r.cuts
-        widths = [e[8] for entries in r.cuts.values() for e in entries
-                  if e[7]]
-        assert widths, "expected declared breakdown rips"
-        assert min(widths) >= 124   # narrowest = a lone tail strip
-        assert all(w >= 152 for w in widths[:-1] if w != 124)
+        seen_any = False
+        for entries in r.cuts.values():
+            widths = [e[8] for e in entries if e[7]]
+            seen_any = seen_any or bool(widths)
+            tails = [w for w in widths if w < RIPS_FIRST_MIN_STRIP_MM]
+            assert len(tails) <= 1, widths
+        assert seen_any, "expected declared breakdown rips"
 
     def test_thin_splits_are_non_breakdown(self):
         r = _run(_boxes())

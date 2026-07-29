@@ -273,4 +273,4 @@ class TestImperialAnnotations:
         assert "Sheet #1 " in html and "Sheet #2 " in html
         assert "Sheet #3 " in html          # group 2 continues, not resets
         assert html.count("Sheet #") == 3
-        assert "(#1–#2)" in html and "(#3–#3)" in html or "(#3)" in html
+        assert "(#1–#2)" in html and ("(#3–#3)" in html or "(#3)" in html)

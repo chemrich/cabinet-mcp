@@ -376,10 +376,21 @@ def evaluate_assertion(data: dict, assertion: Assertion) -> AssertionResult:
             passed = bool(value) is False
         elif op == Op.NO_ERRORS:
             passed = _resolve_path(data, "summary.errors") == 0
-        elif op == Op.HAS_ERROR:
-            passed = (_resolve_path(data, "summary.errors") or 0) > 0
-        elif op == Op.HAS_WARNING:
-            passed = (_resolve_path(data, "summary.warnings") or 0) > 0
+        elif op in (Op.HAS_ERROR, Op.HAS_WARNING):
+            sev = "error" if op == Op.HAS_ERROR else "warning"
+            if assertion.expected is not None:
+                # A string expected value names the check that must have
+                # fired — the argument used to be silently ignored, so
+                # "the error is X" passed on ANY error (review 2026-07-29).
+                issues = value if isinstance(value, list) else (
+                    _resolve_path(data, "issues") or [])
+                passed = any(
+                    isinstance(i, dict)
+                    and i.get("severity") == sev
+                    and i.get("check") == assertion.expected
+                    for i in issues)
+            else:
+                passed = (_resolve_path(data, f"summary.{sev}s") or 0) > 0
         else:
             return AssertionResult(assertion, False, error=f"Unknown op: {op}")
 
@@ -543,8 +554,21 @@ def run_all(
     if difficulty:
         pool = [s for s in pool if s.difficulty == difficulty]
 
+    # Sandbox HOME for the whole run: every tool-side write (projects,
+    # cutlists, assembly docs) roots at Path.home()/.cabinet-mcp, and
+    # running against the user's real store both pollutes it and makes
+    # count/list assertions state-dependent (review 2026-07-29 M9).
+    import tempfile
+    from pathlib import Path as _Path
+
     t0 = time.perf_counter()
-    results = [run_scenario(s) for s in pool]
+    with tempfile.TemporaryDirectory(prefix="cabinet-mcp-evals-") as tmp:
+        _orig_home = _Path.home
+        _Path.home = lambda: _Path(tmp)  # type: ignore[method-assign]
+        try:
+            results = [run_scenario(s) for s in pool]
+        finally:
+            _Path.home = _orig_home
     duration_ms = (time.perf_counter() - t0) * 1000
 
     return EvalReport(results=results, duration_ms=duration_ms)
