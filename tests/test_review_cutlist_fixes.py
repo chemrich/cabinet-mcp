@@ -49,6 +49,11 @@ class TestPlacementPartIds:
 
     @pytest.mark.parametrize("algorithm", ["strip", "opcut", "rips_first"])
     def test_placements_carry_row_ids(self, algorithm):
+        if algorithm == "opcut":
+            # Lite CI has no opcut — the pure-Python algorithms still cover
+            # the part_id plumbing there (rectpack is covered implicitly by
+            # the same expansion code path).
+            pytest.importorskip("opcut")
         panels = self._panels()
         opt = optimize_cutlist(
             panels, stock_sheet=SheetStock("s", 2440, 1220, 18),
