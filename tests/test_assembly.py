@@ -155,6 +155,17 @@ class TestRenderers:
         assert "paulengel" in html
         assert "DRY FIT" in html
 
+    def test_html_declares_charset(self):
+        # Without an explicit charset the browser sniffs windows-1252 and
+        # every em-dash renders as "â€”" (Charlie's printout, 2026-07-28).
+        plan = build_assembly_plan(_box())
+        html = generate_assembly_html([plan], "proj")
+        assert html.startswith("<!DOCTYPE html>")
+        assert '<meta charset="utf-8">' in html
+        assert html.rstrip().endswith("</html>")
+        # the charset must come before any em-dash content
+        assert html.index('charset="utf-8"') < html.index("—")
+
     def test_html_shows_positions_and_part_number(self):
         plan = build_assembly_plan(_box())
         html = generate_assembly_html([plan], "proj")

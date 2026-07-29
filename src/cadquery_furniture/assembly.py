@@ -696,7 +696,15 @@ def generate_assembly_html(
     a{color:#2471a3}
     """
     out: list[str] = [
+        # Full document skeleton with an explicit charset — without it,
+        # browsers sniff windows-1252 and every em-dash renders as "â€”"
+        # (Charlie's printout, 2026-07-28). The other HTML generators
+        # (layout, banding, viewer) already declare it.
+        "<!DOCTYPE html><html><head>",
+        '<meta charset="utf-8">',
+        f"<title>Carcass Assembly — {escape(project_name)}</title>",
         f"<style>{css}</style>",
+        "</head><body>",
         f"<h1>Carcass Assembly — {escape(project_name)}</h1>",
         f"<p>Generated {date.today().isoformat()} · floating-tenon "
         "(Festool Domino) construction · all positions measured from the "
@@ -792,6 +800,7 @@ def generate_assembly_html(
                 f"<div class='{cls}'><b>Step {i} — {escape(st.title)}</b>"
                 f"{body}</div>")
 
+    out.append("</body></html>")
     return "\n".join(out)
 
 
