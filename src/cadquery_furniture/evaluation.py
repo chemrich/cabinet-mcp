@@ -610,14 +610,14 @@ def check_edge_banding(cab_cfg: CabinetConfig) -> list[Issue]:
         ))
         return issues
 
-    if mode == "hot_melt" and thk > 1.5:
+    if mode == "hot_melt" and thk > 1.0:
         issues.append(Issue(
             check="edge_banding",
             severity=Severity.WARNING,
             message=(f"edge_band_thickness_mm {thk:g} is too thick for "
                      "iron-on veneer (≤ ~1 mm) — use mode 'hardwood' for "
                      "solid strips."),
-            value=thk, limit=1.5,
+            value=thk, limit=1.0,
         ))
     if mode == "hardwood":
         if thk < 2.0:
@@ -673,13 +673,16 @@ def _check_band_stock_spec(cab_cfg, stock: dict, thk: float) -> list[Issue]:
     (inches-vs-mm, wrong axis) surfaces at design time. Hard errors are
     reserved for specs that cannot produce a usable strip at all.
     """
-    from .cutlist import BAND_RIP_KERF_MM
+    from .cutlist import BAND_PROUD_ALLOWANCE_MM
 
     issues: list[Issue] = []
     width, length = stock["width_mm"], stock["length_mm"]
     strip_w = stock["strip_width_mm"]
 
-    if not (abs(thk - 3.2) < 0.05 or abs(thk - 6.4) < 0.05):
+    # Accept both the metric labels (3.2 / 6.4) and the exact inch
+    # conversions (3.175 / 6.35) — abs(6.35 − 6.4) floats to just over
+    # 0.05, so a true-1/4" spec drew a spurious warning while 1/8" passed.
+    if not any(abs(thk - t) < 0.06 for t in (3.175, 3.2, 6.35, 6.4)):
         issues.append(Issue(
             check="edge_band_stock",
             severity=Severity.WARNING,
@@ -698,9 +701,22 @@ def _check_band_stock_spec(cab_cfg, stock: dict, thk: float) -> list[Issue]:
             value=width, limit=139.7,
         ))
 
-    # A strip must cover the thickest banded edge, ideally proud.
+    # A strip must cover the thickest banded edge, ideally proud. Door and
+    # false-front leaves are banded on all four edges too, so a per-opening
+    # door_thickness heavier than the carcass counts (review 2026-07-29).
+    door_ts = []
+    op_stacks = [getattr(cab_cfg, "openings", None) or []]
+    for col in getattr(cab_cfg, "columns", None) or []:
+        op_stacks.append(getattr(col, "openings", None) or ())
+    for ops in op_stacks:
+        for op in ops:
+            if getattr(op, "opening_type", "") in ("door", "door_pair"):
+                dt = getattr(op, "door_thickness", None)
+                if dt:
+                    door_ts.append(float(dt))
     max_edge = max(cab_cfg.side_thickness, cab_cfg.top_thickness,
-                   cab_cfg.bottom_thickness, cab_cfg.shelf_thickness)
+                   cab_cfg.bottom_thickness, cab_cfg.shelf_thickness,
+                   *door_ts)
     if strip_w < max_edge:
         issues.append(Issue(
             check="edge_band_stock",
@@ -728,12 +744,17 @@ def _check_band_stock_spec(cab_cfg, stock: dict, thk: float) -> list[Issue]:
             value=strip_w, limit=width,
         ))
 
-    # Longest banded edge vs strip length. Cheap upper bound: mitered
-    # top/bottom fronts run full exterior width, butt carcasses run the
-    # interior; the cutlist notes carry the exact per-piece flags.
-    longest = (cab_cfg.width
-               if getattr(cab_cfg, "carcass_corner_style", "butt") == "miter"
-               else cab_cfg.interior_width)
+    # Longest banded edge vs strip length. Cheap upper bound across BOTH
+    # axes: horizontally, mitered top/bottom fronts run full exterior
+    # width (butt carcasses the interior); vertically, side-panel front
+    # edges run the full cabinet height, which also bounds door/face
+    # perimeter edges. The width-only bound stayed silent on tall
+    # cabinets whose 2 m side edges dwarfed any board (review 2026-07-29
+    # M8); the cutlist notes carry the exact per-piece flags.
+    horiz = (cab_cfg.width
+             if getattr(cab_cfg, "carcass_corner_style", "butt") == "miter"
+             else cab_cfg.interior_width)
+    longest = max(float(horiz), float(cab_cfg.height))
     if longest > length:
         issues.append(Issue(
             check="edge_band_stock",
@@ -744,7 +765,7 @@ def _check_band_stock_spec(cab_cfg, stock: dict, thk: float) -> list[Issue]:
                      "for exact pieces)."),
             value=longest, limit=length,
         ))
-    elif longest > length - BAND_RIP_KERF_MM - 10.0:
+    elif longest > length - BAND_PROUD_ALLOWANCE_MM:
         issues.append(Issue(
             check="edge_band_stock",
             severity=Severity.WARNING,
@@ -788,7 +809,9 @@ def check_edge_band_face_gap(cab_cfg: CabinetConfig) -> list[Issue]:
         return []
 
     gap_after = DEFAULT_FACE_GAP_MM - 2 * thk
-    if gap_after < 0:
+    # <= : a gap closed to exactly 0 mm means the faces physically touch
+    # and bind — that's a collision, not a narrow reveal.
+    if gap_after <= 0:
         return [Issue(
             check="edge_band_face_gap",
             severity=Severity.ERROR,
