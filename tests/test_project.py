@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cadquery_furniture.project import (
+from cabineteer.project import (
     SharedDesign,
     ProjectCabinet,
     CabinetProject,
@@ -24,9 +24,9 @@ from cadquery_furniture.project import (
     project_to_dict,
     project_from_dict,
 )
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.joinery import CarcassJoinery
-from cadquery_furniture.server import (
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.joinery import CarcassJoinery
+from cabineteer.server import (
     _tool_design_project,
     _tool_evaluate_project,
     _tool_generate_project_cutlist,
@@ -101,7 +101,7 @@ class TestSharedDesignMerge:
         # Regression: shared pull_preset expands into drawer_pull/door_pull
         # at merge time, which used to clobber a child's explicit pull
         # because "drawer_pull" never intersected the shared key set.
-        from cadquery_furniture.hardware import get_pull_preset
+        from cabineteer.hardware import get_pull_preset
         preset = get_pull_preset("contemporary_slab")
 
         payload = _sample_payload()
@@ -116,7 +116,7 @@ class TestSharedDesignMerge:
         assert resolved["left"].drawer_pull == preset.drawer_pull
 
     def test_child_pull_preset_wins_over_shared_pull_preset(self):
-        from cadquery_furniture.hardware import get_pull_preset
+        from cabineteer.hardware import get_pull_preset
         child_preset = get_pull_preset("industrial_black")
 
         payload = _sample_payload()
@@ -131,7 +131,7 @@ class TestSharedDesignMerge:
         # Regression: _merge expanded a shared pull_preset into the two pull
         # keys but dropped preset.door_pull_inset_mm — latent while every
         # shipped preset used the 50.0 default, wrong the moment one doesn't.
-        from cadquery_furniture import hardware as hmod
+        from cabineteer import hardware as hmod
         real = hmod.get_pull_preset("contemporary_slab")
         from dataclasses import replace as _dc_replace
         fake = _dc_replace(real, door_pull_inset_mm=75.0)
@@ -180,7 +180,7 @@ class TestProjectPersistence:
 
     def test_save_and_load_from_disk(self, tmp_path, monkeypatch):
         # Redirect the project dir to a tmp location
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         proj = build_project(_sample_payload(name="tmp_proj"))
         path = save_project(proj)
@@ -190,7 +190,7 @@ class TestProjectPersistence:
         assert len(loaded.cabinets) == 3
 
     def test_load_missing_project_raises(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         with pytest.raises(FileNotFoundError):
             load_project("does_not_exist")
@@ -216,7 +216,7 @@ class TestProjectPersistence:
     def test_joinery_specs_survive_round_trip(self):
         # Regression: custom domino/pocket-screw/biscuit/dowel specs were
         # dropped by _config_to_dict and reset to defaults on load.
-        from cadquery_furniture.joinery import DominoSpec
+        from cabineteer.joinery import DominoSpec
         payload = {
             "name": "specs",
             "cabinets": [{"name": "a", "config": {
@@ -261,7 +261,7 @@ class TestProjectPersistence:
     def test_project_names_with_path_separators_rejected(self, tmp_path, monkeypatch):
         # Regression: raw names were used as filename stems — "kitchen/run"
         # crashed with FileNotFoundError and "../evil" escaped the projects dir.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         for bad in ("kitchen/run", "../evil", ".hidden", ""):
             with pytest.raises(ValueError):
@@ -272,7 +272,7 @@ class TestProjectPersistence:
     def test_over_long_project_name_rejected(self, tmp_path, monkeypatch):
         # Regression: names were length-unbounded, so a very long name reached
         # the filesystem and failed with OSError on write.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         assert pmod.project_path("a" * 100).name == "a" * 100 + ".json"
         with pytest.raises(ValueError):
@@ -352,7 +352,7 @@ def _run(coro):
 
 class TestDesignProjectTool:
     def test_returns_per_cabinet_summary_and_persists(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         out = _run(_tool_design_project(_sample_payload(name="tool_smoke")))
         data = json.loads(out[0].text)
@@ -390,7 +390,7 @@ class TestEvaluateProjectTool:
 class TestGenerateProjectCutlistTool:
     def test_combined_cutlist_merges_identical_panels(self, tmp_path, monkeypatch):
         # Redirect both the project dir and the cutlist output dir.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -419,7 +419,7 @@ class TestGenerateProjectCutlistTool:
         # Regression: carcass panels used to be packed (and priced) as a
         # single group at the first cabinet's side_thickness even when a
         # child overrode it.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -442,7 +442,7 @@ class TestGenerateProjectCutlistTool:
         # Regression: single-column cabinets (openings/drawer_config, no
         # columns) produced slides in the hardware BOM but zero drawer-box
         # and false-front panels in the combined cutlist.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -470,7 +470,7 @@ class TestGenerateProjectCutlistTool:
     def test_per_column_fixed_shelves_produce_shelf_panels(self, tmp_path, monkeypatch):
         # Regression: per-column fixed_shelf_positions vanished in the
         # project cutlist path (ColumnConfig didn't carry them).
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -559,7 +559,7 @@ class TestPerOpeningDetailInProjectCutlist:
         # Regression: _columns_dict_from_cfg used to flatten openings to
         # [height, type], losing hinge_key/pull_key/num_doors — project
         # hardware BOMs silently fell back to cabinet defaults.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -591,16 +591,16 @@ class TestProjectLibrary:
     """list_saved_projects + the list/load tools and batched cutlists."""
 
     def _redirect(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
 
     def test_list_saved_projects_empty_store(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import list_saved_projects
+        from cabineteer.project import list_saved_projects
         self._redirect(tmp_path / "nonexistent", monkeypatch)
         assert list_saved_projects() == []
 
     def test_list_saved_projects_metadata(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import list_saved_projects
+        from cabineteer.project import list_saved_projects
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_one")))
         entries = list_saved_projects()
@@ -612,7 +612,7 @@ class TestProjectLibrary:
         assert "modified" in e and "error" not in e
 
     def test_list_saved_projects_tolerates_corrupt_file(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import list_saved_projects
+        from cabineteer.project import list_saved_projects
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_good")))
         (tmp_path / "lib_bad.json").write_text("{not json")
@@ -622,7 +622,7 @@ class TestProjectLibrary:
         assert "error" not in by_name["lib_good"]
 
     def test_load_project_tool_round_trip(self, tmp_path, monkeypatch):
-        from cadquery_furniture.server import _tool_load_project
+        from cabineteer.server import _tool_load_project
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_rt")))
         data = json.loads(_run(_tool_load_project({"name": "lib_rt"}))[0].text)
@@ -642,7 +642,7 @@ class TestProjectLibrary:
         # consolidate WITHIN a project but stay separate, project-tagged
         # rows across projects — the combined BOM must show whose panel is
         # whose. Sheet optimization still pools everything.
-        from cadquery_furniture.server import _tool_generate_project_cutlist
+        from cabineteer.server import _tool_generate_project_cutlist
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_a")))
         save_project(build_project(_sample_payload(name="lib_b")))
@@ -663,7 +663,7 @@ class TestProjectLibrary:
         legs = [h for h in data["hardware_bom"] if h["category"] == "leg"]
         assert legs and legs[0]["by_project"] == {"lib_a": 12, "lib_b": 12}
         # Layout HTML colours by project and legends the batch.
-        html = (tmp_path / ".cabinet-mcp" / "cutlists" / "lib_a-lib_b"
+        html = (tmp_path / ".cabineteer" / "cutlists" / "lib_a-lib_b"
                 / "lib_a-lib_b_layout.html").read_text()
         assert "Projects: " in html and "lib_a" in html and "lib_b" in html
         # CSV gains the Project column in batch mode.
@@ -672,7 +672,7 @@ class TestProjectLibrary:
     def test_single_project_output_unchanged(self, tmp_path, monkeypatch):
         # No batch → no source tags: CSV header, panels_summary keys, and
         # hardware rows keep their historical shape.
-        from cadquery_furniture.server import _tool_generate_project_cutlist
+        from cabineteer.server import _tool_generate_project_cutlist
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="lib_solo")))
         monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
@@ -685,7 +685,7 @@ class TestProjectLibrary:
         assert all("by_project" not in h for h in data["hardware_bom"])
 
     def test_list_saved_projects_query_filter(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import list_saved_projects
+        from cabineteer.project import list_saved_projects
         self._redirect(tmp_path, monkeypatch)
         payload = _sample_payload(name="shop_bench_run")
         payload["notes"] = "Workshop wall of benches"
@@ -698,7 +698,7 @@ class TestProjectLibrary:
         assert len(list_saved_projects()) == 2
 
     def test_dev_artifacts_hidden_unless_asked_or_queried(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import list_saved_projects
+        from cabineteer.project import list_saved_projects
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="real_project")))
         for dev in ("eval_thing", "test_thing", "smoke_thing"):
@@ -714,7 +714,7 @@ class TestProjectLibrary:
 
     def test_sort_recent_and_name(self, tmp_path, monkeypatch):
         import os, time
-        from cadquery_furniture.project import list_saved_projects, project_path
+        from cabineteer.project import list_saved_projects, project_path
         self._redirect(tmp_path, monkeypatch)
         save_project(build_project(_sample_payload(name="older")))
         save_project(build_project(_sample_payload(name="newer")))
@@ -728,7 +728,7 @@ class TestProjectLibrary:
         assert list_saved_projects(sort="name")[0]["name"] == "aaa_last_saved"
 
     def test_rename_and_delete(self, tmp_path, monkeypatch):
-        from cadquery_furniture.project import (
+        from cabineteer.project import (
             delete_project, list_saved_projects, load_project, rename_project,
         )
         self._redirect(tmp_path, monkeypatch)
@@ -797,7 +797,7 @@ class TestSharedDrawerBoxThickness:
     def test_config_field_defaults_and_round_trips(self):
         cfg = CabinetConfig(width=700, height=400, depth=550)
         assert cfg.drawer_box_thickness == 15.0
-        from cadquery_furniture.project import _config_to_dict, config_from_dict
+        from cabineteer.project import _config_to_dict, config_from_dict
         cfg12 = CabinetConfig(width=700, height=400, depth=550,
                               drawer_box_thickness=12)
         assert config_from_dict(_config_to_dict(cfg12)).drawer_box_thickness == 12
@@ -816,7 +816,7 @@ class TestSharedDrawerBoxThickness:
         assert resolved.drawer_box_thickness == 12
 
     def test_shared_token_survives_save_load(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         proj = build_project({
             "name": "boxthick_rt",
@@ -834,7 +834,7 @@ class TestSharedDrawerBoxThickness:
 
 class TestPrefinishedDrawerBoxes:
     def test_config_round_trips(self):
-        from cadquery_furniture.project import _config_to_dict, config_from_dict
+        from cabineteer.project import _config_to_dict, config_from_dict
         cfg = CabinetConfig(width=700, height=400, depth=550,
                             drawer_box_prefinished=True)
         assert config_from_dict(_config_to_dict(cfg)).drawer_box_prefinished is True
@@ -855,7 +855,7 @@ class TestPrefinishedDrawerBoxes:
         assert resolved.drawer_box_prefinished is True
 
     def test_workshop_presets_default_on(self):
-        from cadquery_furniture.presets import get_preset, PRESETS
+        from cabineteer.presets import get_preset, PRESETS
         assert get_preset("workshop_tool_chest").config.drawer_box_prefinished
         assert get_preset("workshop_wall_cabinet").config.drawer_box_prefinished
         # Non-workshop presets stay raw stock.
@@ -894,7 +894,7 @@ class TestWorktop:
         assert project_from_dict(d).worktop is None
 
     def test_defaults_and_validation(self):
-        from cadquery_furniture.project import worktop_from_dict
+        from cabineteer.project import worktop_from_dict
         spec = worktop_from_dict({"width_mm": 1000, "depth_mm": 500})
         assert spec.thickness_mm == 19.0
         assert spec.surface_height_mm == pytest.approx(736.6)
@@ -905,7 +905,7 @@ class TestWorktop:
             worktop_from_dict({"width_mm": 1000, "depth_mm": 500, "hieght": 700})
 
     def test_patch_add_update_clear(self):
-        from cadquery_furniture.project import apply_project_patch
+        from cabineteer.project import apply_project_patch
         base = project_to_dict(build_project(_sample_payload(name="p")))
 
         patched, changes = apply_project_patch(
@@ -929,7 +929,7 @@ class TestWorktop:
             apply_project_patch(base, {"worktop": {"thickness_mm": 25}})
 
     def test_cutlist_includes_worktop_panel(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -943,7 +943,7 @@ class TestWorktop:
         assert rows[0]["width_mm"] == pytest.approx(457.2)
 
     def test_design_project_tool_echoes_worktop(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
         out = _run(_tool_design_project(self._payload_with_worktop(name="desk_echo")))
         data = json.loads(out[0].text)
@@ -951,7 +951,7 @@ class TestWorktop:
         assert load_project("desk_echo").worktop.leg_count == 4
 
     def test_leg_placement_round_trip_and_points(self):
-        from cadquery_furniture.project import worktop_from_dict
+        from cabineteer.project import worktop_from_dict
         spec = worktop_from_dict({
             "width_mm": 1219.2, "depth_mm": 457.2, "surface_height_mm": 508,
             "leg_count": 2, "leg_placement": "right_end", "leg_inset_mm": 60,
@@ -969,7 +969,7 @@ class TestWorktop:
         assert loaded.worktop.leg_placement == "right_end"
 
     def test_leg_placement_corners_preserves_old_semantics(self):
-        from cadquery_furniture.project import worktop_from_dict
+        from cabineteer.project import worktop_from_dict
         base = {"width_mm": 1000, "depth_mm": 500, "leg_inset_mm": 50}
         four = worktop_from_dict({**base, "leg_count": 4})
         two = worktop_from_dict({**base, "leg_count": 2})
@@ -986,7 +986,7 @@ class TestWorktop:
 
 class TestFaceMaterialAndDoors:
     def test_door_leaves_emitted_in_cutlist(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -1004,7 +1004,7 @@ class TestFaceMaterialAndDoors:
         assert groups[0]["panel_count"] == 3 + 6  # 3 false fronts + 6 leaves
 
     def test_face_material_bb_pools_into_sheets(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -1030,7 +1030,7 @@ class TestFaceMaterialAndDoors:
         # A '_ply' face material is sheet stock: it must be PACKED (own
         # material+thickness group, sheet count, layout) and priced from
         # PRICE_LIST — not left as an order-out note line.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -1047,7 +1047,7 @@ class TestFaceMaterialAndDoors:
         assert oak["panel_count"] == 3 + 6  # 3 fronts + 6 door leaves
 
     def test_solid_species_stays_order_out(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -1069,7 +1069,7 @@ class TestFaceMaterialAndDoors:
         assert resolved["center"].face_material == "rift_white_oak_ply"
 
     def test_bb_worktop_pools_with_carcass(self, tmp_path, monkeypatch):
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -1091,7 +1091,7 @@ class TestFaceMaterialAndDoors:
     def test_carcass_material_oak_run(self, tmp_path, monkeypatch):
         # carcass_material applies to sides/top/bottom/shelves/dividers;
         # backs and drawer boxes keep Baltic birch.
-        from cadquery_furniture import project as pmod
+        from cabineteer import project as pmod
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 

@@ -1,5 +1,5 @@
 """
-CLI entry point for running cabinet-mcp evaluations.
+CLI entry point for running cabineteer evaluations.
 
 Usage::
 
@@ -23,7 +23,7 @@ from .scenarios import SCENARIOS, ALL_TAGS
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m evals",
-        description="Run the cabinet-mcp evaluation suite.",
+        description="Run the cabineteer evaluation suite.",
     )
     parser.add_argument(
         "--tag", action="append", dest="tags", metavar="TAG",

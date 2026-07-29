@@ -17,7 +17,7 @@ skipif_no_cq = pytest.mark.skipif(cq_missing, reason="cadquery not installed")
 if not cq_missing:
     import cadquery as cq
 
-from cadquery_furniture.hardware import (
+from cabineteer.hardware import (
     OverlayType,
     BLUM_CLIP_TOP_110_FULL,
     BLUM_CLIP_TOP_110_HALF,
@@ -29,8 +29,8 @@ from cadquery_furniture.hardware import (
     get_hinge,
     HINGES,
 )
-from cadquery_furniture.door import DoorConfig
-from cadquery_furniture.evaluation import (
+from cabineteer.door import DoorConfig
+from cabineteer.evaluation import (
     Severity,
     check_door_hinge_count,
     check_door_dimensions,
@@ -452,22 +452,22 @@ class TestCabinetConfigDoorSlots:
 
     def test_door_hinge_default(self):
         # Soft-close is the shop standard (Charlie, 2026-07-22).
-        from cadquery_furniture.cabinet import CabinetConfig
+        from cabineteer.cabinet import CabinetConfig
         cfg = CabinetConfig()
         assert cfg.door_hinge == "blum_clip_top_blumotion_110_full"
 
     def test_door_slot_accepted(self):
-        from cadquery_furniture.cabinet import CabinetConfig
+        from cabineteer.cabinet import CabinetConfig
         cfg = CabinetConfig(openings=[(716, "door")])
         assert cfg.openings[0].opening_type == "door"
 
     def test_door_pair_slot_accepted(self):
-        from cadquery_furniture.cabinet import CabinetConfig
+        from cabineteer.cabinet import CabinetConfig
         cfg = CabinetConfig(openings=[(716, "door_pair")])
         assert cfg.openings[0].opening_type == "door_pair"
 
     def test_mixed_slots_accepted(self):
-        from cadquery_furniture.cabinet import CabinetConfig
+        from cabineteer.cabinet import CabinetConfig
         cfg = CabinetConfig(
             openings=[
                 (200, "drawer"),
@@ -490,7 +490,7 @@ class TestHingeCupBoringGeometry:
     """
 
     def _panel(self):
-        from cadquery_furniture.door import DoorConfig, make_door_panel
+        from cabineteer.door import DoorConfig, make_door_panel
         cfg = DoorConfig(opening_width=500, opening_height=700)
         return cfg, make_door_panel(cfg).val()
 
@@ -533,7 +533,7 @@ class TestDrawerFaceOverDoor:
     the bottom of the face stack (which would overlap the door below it)."""
 
     def _faces(self, openings):
-        from cadquery_furniture.cabinet import CabinetConfig, build_multi_bay_cabinet
+        from cabineteer.cabinet import CabinetConfig, build_multi_bay_cabinet
         cfg = CabinetConfig(
             width=600, height=720, depth=550, openings=openings
         )
@@ -566,7 +566,7 @@ class TestDoorOverlayCollisions:
 
     @staticmethod
     def _cfg(hinge):
-        from cadquery_furniture.cabinet import build_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
         return build_cabinet_config({
             "width": 1219, "height": 663.6, "depth": 457, "door_hinge": hinge,
             "columns": [
@@ -578,7 +578,7 @@ class TestDoorOverlayCollisions:
             ]})
 
     def test_full_overlay_next_to_drawers_errors(self):
-        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        from cabineteer.evaluation import check_door_overlay_collisions
         issues = check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_full"))
         assert [i for i in issues if i.severity == Severity.ERROR
                 and i.check == "door_overlay_collision"]
@@ -587,19 +587,19 @@ class TestDoorOverlayCollisions:
         assert worst.limit == pytest.approx(18.0)
 
     def test_half_overlay_warns_tight_reveal(self):
-        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        from cabineteer.evaluation import check_door_overlay_collisions
         issues = check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_half"))
         assert issues and all(i.severity == Severity.WARNING for i in issues)
         assert issues[0].value == pytest.approx(17.5)  # 9.5 + 8 -> 0.5 reveal
 
     def test_inset_hinge_clean(self):
-        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        from cabineteer.evaluation import check_door_overlay_collisions
         assert check_door_overlay_collisions(self._cfg("blum_clip_top_blumotion_110_inset")) == []
 
     def test_single_column_full_overlay_clean(self):
         # Doors hinging on the cabinet's own sides: 16 <= 18 with 2 mm reveal.
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.evaluation import check_door_overlay_collisions
         cfg = build_cabinet_config({
             "width": 610, "height": 690, "depth": 600,
             "openings": [[103, "drawer"], [551, "door_pair"]],
@@ -608,8 +608,8 @@ class TestDoorOverlayCollisions:
 
     def test_door_next_to_open_column_clean(self):
         # An open-shelf neighbour claims none of the divider.
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.evaluation import check_door_overlay_collisions
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.evaluation import check_door_overlay_collisions
         cfg = build_cabinet_config({
             "width": 900, "height": 700, "depth": 400,
             "door_hinge": "blum_clip_top_blumotion_110_full",
@@ -620,7 +620,7 @@ class TestDoorOverlayCollisions:
         assert check_door_overlay_collisions(cfg) == []
 
     def test_runs_in_evaluate_cabinet(self):
-        from cadquery_furniture.evaluation import evaluate_cabinet
+        from cabineteer.evaluation import evaluate_cabinet
         issues = evaluate_cabinet(self._cfg("blum_clip_top_blumotion_110_full"))
         assert any(i.check == "door_overlay_collision"
                    and i.severity == Severity.ERROR for i in issues)

@@ -9,17 +9,17 @@ from pathlib import Path
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.door import DoorConfig
-from cadquery_furniture.drawer import DrawerConfig
-from cadquery_furniture.evaluation import (
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.door import DoorConfig
+from cabineteer.drawer import DrawerConfig
+from cabineteer.evaluation import (
     Severity,
     check_drawer_pull,
     check_door_pull,
     check_cabinet_pull_consistency,
     evaluate_cabinet,
 )
-from cadquery_furniture.hardware import (
+from cabineteer.hardware import (
     PULLS,
     MountStyle,
     _load_pulls_from_catalog,

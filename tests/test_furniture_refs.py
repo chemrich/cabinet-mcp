@@ -12,7 +12,7 @@ Covers:
 
 import pytest
 
-from cadquery_furniture.furniture_refs import (
+from cabineteer.furniture_refs import (
     FURNITURE_REFS,
     SYNONYM_TO_PRESETS,
     FurnitureRef,
@@ -20,7 +20,7 @@ from cadquery_furniture.furniture_refs import (
     identify_furniture,
     _norm,
 )
-from cadquery_furniture.presets import PRESETS
+from cabineteer.presets import PRESETS
 
 
 # ─── Canonical piece lookup ────────────────────────────────────────────────────

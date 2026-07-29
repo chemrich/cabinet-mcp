@@ -6,7 +6,7 @@ See [ATTRIBUTIONS.md](../ATTRIBUTIONS.md) for per-brand datasheet and product-pa
 
 ## Catalogue
 
-All entries live in `cadquery_furniture/data/pulls_catalog.json` and are loaded into `hardware.PULLS` at import time. Every pull records center-to-center spacing (`cc_mm`), overall length, projection, pack quantity, finish, style, and a stable SKU key.
+All entries live in `cabineteer/data/pulls_catalog.json` and are loaded into `hardware.PULLS` at import time. Every pull records center-to-center spacing (`cc_mm`), overall length, projection, pack quantity, finish, style, and a stable SKU key.
 
 | Brand | Entries | Representative keys | Notes |
 |---|---|---|---|

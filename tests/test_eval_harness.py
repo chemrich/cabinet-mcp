@@ -206,7 +206,7 @@ class TestScenarioCatalogue:
         it silently gets zero eval coverage.
         """
         import re
-        import cadquery_furniture.server as srv
+        import cabineteer.server as srv
         from evals.harness import TOOL_DISPATCH
 
         src = open(srv.__file__).read()

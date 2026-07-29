@@ -11,12 +11,12 @@ import json
 
 import pytest
 
-from cadquery_furniture.cabinet import (
+from cabineteer.cabinet import (
     CabinetConfig,
     build_cabinet_config,
     normalize_band_stock,
 )
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     BAND_PROUD_ALLOWANCE_MM,
     CutlistPanel,
     HardwareLine,
@@ -24,7 +24,7 @@ from cadquery_furniture.cutlist import (
     edge_band_lines_for_panels,
     pack_band_strips,
 )
-from cadquery_furniture.evaluation import (
+from cabineteer.evaluation import (
     Severity,
     check_door_overlay_collisions,
     check_edge_band_face_gap,
@@ -348,7 +348,7 @@ class TestBandingCutlistDoc:
         ]
 
     def test_pack_band_pieces_assignments(self):
-        from cadquery_furniture.cutlist import pack_band_pieces
+        from cabineteer.cutlist import pack_band_pieces
         pack = pack_band_pieces(self._pieces(), self.STOCK)
         placed = [pc for st in pack["strips"] for pc in st["pieces"]]
         assert len(placed) == 3
@@ -363,7 +363,7 @@ class TestBandingCutlistDoc:
                    for pc in norm)
 
     def test_band_pieces_provenance_uses_part_ids(self):
-        from cadquery_furniture.cutlist import (assign_part_ids,
+        from cabineteer.cutlist import (assign_part_ids,
                                                 band_pieces_for_panels)
         cfg = _cfg(edge_band_stock=STOCK_55)
         panels = [CutlistPanel(name="top", length=800.0, width=400.0,
@@ -381,7 +381,7 @@ class TestBandingCutlistDoc:
             ["long edge", "long edge", "short edge", "short edge"]
 
     def test_csv_and_html_render(self):
-        from cadquery_furniture.cutlist import (assign_part_ids,
+        from cabineteer.cutlist import (assign_part_ids,
                                                 generate_banding_cutlist_html,
                                                 to_banding_csv)
         cfg = _cfg(edge_band_stock=STOCK_55)
@@ -406,11 +406,11 @@ class TestBandingCutlistDoc:
 
 class TestBandingSchedule:
     def _packs(self, cfg, panels):
-        from cadquery_furniture.cutlist import _band_packs_by_material
+        from cabineteer.cutlist import _band_packs_by_material
         return _band_packs_by_material(panels, cfg)
 
     def test_schedule_aggregates_qty_at_each_length(self):
-        from cadquery_furniture.cutlist import (assign_part_ids,
+        from cabineteer.cutlist import (assign_part_ids,
                                                 band_length_schedule)
         cfg = _cfg(edge_band_stock=STOCK_55)
         panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
@@ -434,7 +434,7 @@ class TestBandingSchedule:
         assert long_row["length"] > short_row["length"]
 
     def test_schedule_includes_over_length_rows(self):
-        from cadquery_furniture.cutlist import band_length_schedule
+        from cabineteer.cutlist import band_length_schedule
         cfg = _cfg(edge_band_stock=STOCK_55)
         panels = [CutlistPanel(name="long", length=1400.0, width=300.0,
                                thickness=18, material="baltic_birch",
@@ -443,7 +443,7 @@ class TestBandingSchedule:
         assert len(sched) == 1 and sched[0]["over"]
 
     def test_corner_notes_by_style(self):
-        from cadquery_furniture.cutlist import (_band_corner_notes,
+        from cabineteer.cutlist import (_band_corner_notes,
                                                 band_length_schedule)
         panels = [CutlistPanel(name="top", length=800.0, width=400.0,
                                thickness=18, material="baltic_birch",
@@ -464,7 +464,7 @@ class TestBandingSchedule:
         assert any("run THROUGH" in n for n in notes)
 
     def test_html_leads_with_schedule_and_corners(self):
-        from cadquery_furniture.cutlist import (assign_part_ids,
+        from cabineteer.cutlist import (assign_part_ids,
                                                 generate_banding_cutlist_html)
         cfg = _cfg(edge_band_stock=STOCK_55, carcass_corner_style="miter",
                    carcass_joinery="floating_tenon")
@@ -482,7 +482,7 @@ class TestBandingSchedule:
 
     def test_pdf_renders(self):
         pytest.importorskip("reportlab")
-        from cadquery_furniture.cutlist import (assign_part_ids,
+        from cabineteer.cutlist import (assign_part_ids,
                                                 generate_banding_cutlist_pdf)
         cfg = _cfg(edge_band_stock=STOCK_55)
         panels = [CutlistPanel(name="top", length=1219.0, width=400.0,
@@ -500,7 +500,7 @@ class TestBandingSchedule:
 class TestProjectIntegration:
     def test_token_round_trip_and_aggregation(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
-        from cadquery_furniture.server import (
+        from cabineteer.server import (
             _tool_design_project, _tool_generate_project_cutlist,
             _tool_update_project)
 

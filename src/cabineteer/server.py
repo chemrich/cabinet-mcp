@@ -8,7 +8,7 @@ conversationally.
 Transports
 ----------
 stdio (default)
-    The host process (Claude Desktop, Gemini CLI, …) launches ``cabinet-mcp``
+    The host process (Claude Desktop, Gemini CLI, …) launches ``cabineteer``
     as a subprocess and communicates over stdin/stdout.  No port is used; no
     port conflicts are possible.  This is the right choice for Claude Desktop
     and Gemini CLI.
@@ -26,25 +26,25 @@ HTTP/SSE  (``--http``)
     server tries 3750, 3751, … up to ``--max-port-attempts`` tries.  The
     resolved port is:
     - printed to **stderr** on startup
-    - written to ``~/.cabinet-mcp/cabinet-mcp.port`` so scripts / other tools
+    - written to ``~/.cabineteer/cabineteer.port`` so scripts / other tools
       can discover it without parsing log output
-    - removed from ``~/.cabinet-mcp/cabinet-mcp.port`` on clean exit
+    - removed from ``~/.cabineteer/cabineteer.port`` on clean exit
 
-Entry point: ``cabinet-mcp`` (defined in pyproject.toml [project.scripts]).
+Entry point: ``cabineteer`` (defined in pyproject.toml [project.scripts]).
 
 Usage::
 
     # stdio (default) — Claude Desktop / Gemini CLI
-    cabinet-mcp
+    cabineteer
 
     # HTTP/SSE on default port (3749, auto-increments on collision)
-    cabinet-mcp --http
+    cabineteer --http
 
     # HTTP/SSE on a specific starting port
-    cabinet-mcp --http --port 4000
+    cabineteer --http --port 4000
 
     # Via uv without installing
-    uv run cabinet-mcp --http --port 4000
+    uv run cabineteer --http --port 4000
 """
 
 from __future__ import annotations
@@ -66,6 +66,7 @@ from mcp.server.models import InitializationOptions
 
 from .cabinet import CabinetConfig, ColumnConfig, build_multi_bay_cabinet as _build_multi_bay_cabinet
 from .auto_fix import auto_fix_cabinet as _auto_fix, AutoFixResult, fixable_checks
+from .paths import data_dir
 from .proportions import (
     graduated_drawer_heights as _grad_heights,
     column_widths as _col_widths,
@@ -252,7 +253,7 @@ def _hardware_line_to_dict(line) -> dict:
 
 # ─── Server ───────────────────────────────────────────────────────────────────
 
-server = Server("cabinet-mcp")
+server = Server("cabineteer")
 
 
 def _manga_schema() -> dict:
@@ -1473,8 +1474,8 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "output_dir": {
                         "type": "string",
-                        "description": "Directory for output files. Default: ~/.cabinet-mcp/visualizations",
-                        "default": "~/.cabinet-mcp/visualizations",
+                        "description": "Directory for output files. Default: ~/.cabineteer/visualizations",
+                        "default": "~/.cabineteer/visualizations",
                     },
                     "open_browser": {
                         "type": "boolean",
@@ -2306,7 +2307,7 @@ async def list_tools() -> list[types.Tool]:
                 any field set there overrides the shared value for that child.
 
                 The resolved project is persisted to
-                ~/.cabinet-mcp/projects/<name>.json so evaluate_project and
+                ~/.cabineteer/projects/<name>.json so evaluate_project and
                 generate_project_cutlist can be called by project name later.
 
                 If the name is already taken, the call is refused unless
@@ -2456,7 +2457,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="list_projects",
             description=textwrap.dedent("""\
-                List every design saved under ~/.cabinet-mcp/projects/ —
+                List every design saved under ~/.cabineteer/projects/ —
                 name, cabinet count and names, total run width, notes, and
                 last-modified time. Use this to discover what can be loaded
                 with load_project or batched with generate_project_cutlist.
@@ -2543,7 +2544,7 @@ async def list_tools() -> list[types.Tool]:
             name="delete_project",
             description=textwrap.dedent("""\
                 PERMANENTLY delete a saved project snapshot from
-                ~/.cabinet-mcp/projects/. There is no undo — confirm with
+                ~/.cabineteer/projects/. There is no undo — confirm with
                 the user before deleting anything they might still want.
                 Generated cutlist/visualization files are not touched.
             """),
@@ -2559,7 +2560,7 @@ async def list_tools() -> list[types.Tool]:
             name="load_project",
             description=textwrap.dedent("""\
                 Load a saved project's full payload back from
-                ~/.cabinet-mcp/projects/<name>.json.
+                ~/.cabineteer/projects/<name>.json.
 
                 Returns the durable 'project' payload (shared design tokens,
                 per-cabinet configs with any per-opening options, notes,
@@ -2617,7 +2618,7 @@ async def list_tools() -> list[types.Tool]:
                 inline 'project' payload, or 'project_names' (a list of saved
                 projects — see list_projects) to batch several designs into
                 ONE merged cutlist, sheet optimization, and hardware BOM.
-                Output files land in ~/.cabinet-mcp/cutlists/<name>/ (for a
+                Output files land in ~/.cabineteer/cutlists/<name>/ (for a
                 batch, <name> is 'batch_name' or the joined project names).
 
                 Batches keep per-project identity: identical panels from
@@ -2714,7 +2715,7 @@ async def list_tools() -> list[types.Tool]:
                 Tenon size follows carcass stock thickness: 5×30 for panels
                 up to 19 mm (3/4" ply), 8×40 above — matching the hardware
                 BOM. Part IDs match the project's cutlist. Files land in
-                ~/.cabinet-mcp/assembly/<project>/.
+                ~/.cabineteer/assembly/<project>/.
             """),
             inputSchema={
                 "type": "object",
@@ -2781,7 +2782,7 @@ async def list_tools() -> list[types.Tool]:
                             "per-cabinet leg_count (e.g. 4/2/2 for a trio)."
                         ),
                     },
-                    "output_dir":   {"type": "string", "default": "~/.cabinet-mcp/visualizations"},
+                    "output_dir":   {"type": "string", "default": "~/.cabineteer/visualizations"},
                     "open_browser": {"type": "boolean", "default": True},
                     "tolerance":    {"type": "number", "default": 0.1},
                     "finish": {
@@ -4130,7 +4131,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
 
     result = _cutlist_pipeline(
         name=name,
-        out_dir=Path.home() / ".cabinet-mcp" / "cutlists",
+        out_dir=data_dir() / "cutlists",
         carcass_panels=carcass_panels, box_panels=box_panels,
         panels_6mm=panels_6mm, false_fronts=false_fronts,
         hw_lines=hw_lines,
@@ -4357,7 +4358,7 @@ def _cabinet_assembly(
 
 async def _tool_visualize_cabinet(args: dict) -> list[types.TextContent]:
     name          = _safe_stem(args.pop("name", "cabinet"), kind="visualization name")
-    output_dir    = str(args.pop("output_dir", "~/.cabinet-mcp/visualizations"))
+    output_dir    = str(args.pop("output_dir", "~/.cabineteer/visualizations"))
     open_browser  = bool(args.pop("open_browser", True))
     tolerance     = float(args.pop("tolerance", 0.1))
     num_bays      = int(args.pop("num_bays", 1))
@@ -5139,11 +5140,11 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         if explicit_batch_name:
             out_name = str(explicit_batch_name)
             # Reusing a saved project's name would silently overwrite that
-            # project's own cutlist files under ~/.cabinet-mcp/cutlists/.
+            # project's own cutlist files under ~/.cabineteer/cutlists/.
             if project_path(out_name).exists() and out_name not in batch_names:
                 result_notes.append(
                     f"batch_name {out_name!r} matches a saved project — its "
-                    f"cutlist files in ~/.cabinet-mcp/cutlists/{out_name}/ "
+                    f"cutlist files in ~/.cabineteer/cutlists/{out_name}/ "
                     f"are overwritten by this batch."
                 )
         else:
@@ -5268,7 +5269,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
 
     result = _cutlist_pipeline(
         name=out_name,
-        out_dir=Path.home() / ".cabinet-mcp" / "cutlists" / out_name,
+        out_dir=data_dir() / "cutlists" / out_name,
         carcass_panels=carcass_panels, box_panels=box_panels,
         panels_6mm=panels_6mm, false_fronts=false_fronts,
         hw_lines=hw_lines,
@@ -5386,7 +5387,7 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
             "No floating-tenon cabinets in this project — "
             + "; ".join(skipped))
 
-    out_dir = Path.home() / ".cabinet-mcp" / "assembly" / project.name
+    out_dir = data_dir() / "assembly" / project.name
     out_dir.mkdir(parents=True, exist_ok=True)
     files: dict[str, str] = {}
     if fmt in ("html", "both"):
@@ -5447,7 +5448,7 @@ async def _tool_visualize_project(args: dict) -> list[types.TextContent]:
     # Inline project payloads skip save_project's validation, so re-check the
     # name before it becomes an output GLB/HTML file stem.
     _safe_stem(project.name, kind="project name")
-    output_dir   = str(args.get("output_dir", "~/.cabinet-mcp/visualizations"))
+    output_dir   = str(args.get("output_dir", "~/.cabineteer/visualizations"))
     open_browser = bool(args.get("open_browser", True))
     tolerance    = float(args.get("tolerance", 0.1))
     gap_mm       = float(args.get("gap_mm", 0.0))
@@ -5630,9 +5631,9 @@ DEFAULT_PORT: int = 3749
 
 #: File written when the server binds in HTTP mode so other processes can
 #: discover the actual port without parsing log output.  Kept under the
-#: per-user ``~/.cabinet-mcp`` directory (not a world-writable /tmp path) so a
+#: per-user ``~/.cabineteer`` directory (not a world-writable /tmp path) so a
 #: predictable name can't be pre-created as a symlink by another user.
-PORT_FILE: Path = Path.home() / ".cabinet-mcp" / "cabinet-mcp.port"
+PORT_FILE: Path = Path.home() / ".cabineteer" / "cabineteer.port"
 
 
 def find_free_port(start: int = DEFAULT_PORT, max_attempts: int = 20) -> int:
@@ -5688,7 +5689,7 @@ def clear_port_file(path: Path = PORT_FILE) -> None:
 
 def _init_options() -> InitializationOptions:
     return InitializationOptions(
-        server_name="cabinet-mcp",
+        server_name="cabineteer",
         server_version="0.1.0",
         capabilities=server.get_capabilities(
             notification_options=NotificationOptions(),
@@ -5726,7 +5727,7 @@ async def _run_http(host: str, port: int) -> None:
     )
 
     print(
-        f"cabinet-mcp  HTTP/SSE  http://{host}:{port}/sse",
+        f"cabineteer  HTTP/SSE  http://{host}:{port}/sse",
         file=sys.stderr,
         flush=True,
     )
@@ -5748,7 +5749,7 @@ def main() -> None:
     import asyncio
 
     parser = argparse.ArgumentParser(
-        prog="cabinet-mcp",
+        prog="cabineteer",
         description="Cabinet-design MCP server (stdio by default, HTTP/SSE with --http).",
     )
     parser.add_argument(

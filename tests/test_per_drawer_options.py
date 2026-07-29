@@ -3,13 +3,13 @@ bottom-thickness default (boxes > 5" tall and ≥ 16" wide get 12 mm bottoms).""
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig, OpeningConfig, to_opening
-from cadquery_furniture.drawer import (
+from cabineteer.cabinet import CabinetConfig, OpeningConfig, to_opening
+from cabineteer.drawer import (
     DEFAULT_BOTTOM_THICKNESS,
     HEAVY_BOTTOM_THICKNESS,
     DrawerConfig,
 )
-from cadquery_furniture.project import _opening_to_dict
+from cabineteer.project import _opening_to_dict
 
 
 class TestOpeningRowParsing:
@@ -42,13 +42,13 @@ class TestOpeningRowParsing:
     def test_slide_key_option_round_trips(self):
         op = to_opening([300, "drawer", {"slide_key": "blum_movento_769"}])
         assert op.slide_key == "blum_movento_769"
-        from cadquery_furniture.project import _opening_to_dict
+        from cabineteer.project import _opening_to_dict
         d = _opening_to_dict(op)
         assert d["slide_key"] == "blum_movento_769"
         assert to_opening(d).slide_key == "blum_movento_769"
 
     def test_slide_key_override_reaches_bom(self):
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
         cfg = CabinetConfig(
             width=700, height=764, depth=600,
             drawer_slide="blum_tandem_550h",
@@ -66,7 +66,7 @@ class TestOpeningRowParsing:
                          "T51.7601 LI": 1, "T51.7601 RE": 1}
 
     def test_unknown_slide_key_skips_that_drawer_only(self):
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
         cfg = CabinetConfig(
             width=700, height=764, depth=600,
             drawer_slide="blum_tandem_550h",

@@ -9,7 +9,7 @@ JS: dedup-suffix-tolerant regexes and parent-uuid-scoped pair keys.
 
 import re
 
-from cadquery_furniture.visualize import _build_html
+from cabineteer.visualize import _build_html
 
 HTML = _build_html("t", "AAAA", {})
 

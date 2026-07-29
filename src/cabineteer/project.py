@@ -252,11 +252,12 @@ def _merge(
 
 
 def project_dir() -> Path:
-    """Directory under ~/.cabinet-mcp where serialized projects live."""
-    return Path.home() / ".cabinet-mcp" / "projects"
+    """Directory under ~/.cabineteer where serialized projects live."""
+    from .paths import data_dir
+    return data_dir() / "projects"
 
 
-# Project names become filename stems under ~/.cabinet-mcp/projects/ —
+# Project names become filename stems under ~/.cabineteer/projects/ —
 # restrict them so a name can never contain a path separator or traverse
 # out of the projects directory.
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
@@ -286,7 +287,7 @@ def project_path(name: str) -> Path:
 
 
 def save_project(project: CabinetProject) -> Path:
-    """Serialize a project to ~/.cabinet-mcp/projects/<name>.json.
+    """Serialize a project to ~/.cabineteer/projects/<name>.json.
 
     Persisted form is each cabinet's *original* (unmerged) config alongside
     the shared design block and per-cabinet override sets — i.e. exactly the

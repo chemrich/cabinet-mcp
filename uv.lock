@@ -78,25 +78,7 @@ wheels = [
 ]
 
 [[package]]
-name = "cadquery"
-version = "2.5.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cadquery-ocp" },
-    { name = "casadi" },
-    { name = "ezdxf" },
-    { name = "multimethod" },
-    { name = "nlopt" },
-    { name = "path" },
-    { name = "typish" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/b1/434f6105de7bc5aa9ccadabbc221956b51387d7955dfc2a443b8ce3421f5/cadquery-2.5.2.tar.gz", hash = "sha256:c5db8d71f6581cc2baac9e6949ca975e9293541580dc8499f5bb90323b4e8ad7", size = 241938, upload-time = "2025-01-03T18:09:12.718Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/96/e0e863c85d4a467302d064faf0a90c688a8a415f176b698b47b57232bed1/cadquery-2.5.2-py3-none-any.whl", hash = "sha256:d9d375c702b1e599069a4f049f5d751e6cd296400cd32f72b6c88d1655e61dbc", size = 163863, upload-time = "2025-01-03T18:09:10.763Z" },
-]
-
-[[package]]
-name = "cadquery-furniture"
+name = "cabineteer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -147,8 +129,8 @@ full = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cabineteer", extras = ["cad", "cutlist"], marker = "extra == 'full'" },
     { name = "cadquery", marker = "extra == 'cad'", specifier = ">=2.4" },
-    { name = "cadquery-furniture", extras = ["cad", "cutlist"], marker = "extra == 'full'" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.9.0,!=1.27.0" },
     { name = "numpy" },
     { name = "opcut", marker = "extra == 'cutlist'", specifier = "==0.1.3" },
@@ -175,6 +157,24 @@ full = [
     { name = "opcut", specifier = "==0.1.3" },
     { name = "rectpack" },
     { name = "reportlab" },
+]
+
+[[package]]
+name = "cadquery"
+version = "2.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cadquery-ocp" },
+    { name = "casadi" },
+    { name = "ezdxf" },
+    { name = "multimethod" },
+    { name = "nlopt" },
+    { name = "path" },
+    { name = "typish" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/b1/434f6105de7bc5aa9ccadabbc221956b51387d7955dfc2a443b8ce3421f5/cadquery-2.5.2.tar.gz", hash = "sha256:c5db8d71f6581cc2baac9e6949ca975e9293541580dc8499f5bb90323b4e8ad7", size = 241938, upload-time = "2025-01-03T18:09:12.718Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/96/e0e863c85d4a467302d064faf0a90c688a8a415f176b698b47b57232bed1/cadquery-2.5.2-py3-none-any.whl", hash = "sha256:d9d375c702b1e599069a4f049f5d751e6cd296400cd32f72b6c88d1655e61dbc", size = 163863, upload-time = "2025-01-03T18:09:10.763Z" },
 ]
 
 [[package]]

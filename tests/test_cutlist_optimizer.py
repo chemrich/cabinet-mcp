@@ -1,7 +1,7 @@
 """Tests for the strip-cutting sheet-goods optimiser in cutlist.py."""
 
 import pytest
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     CutlistPanel,
     OptimizationResult,
     Placement,
@@ -234,7 +234,7 @@ class TestNoRectpack:
     """Strip cutting is pure Python — neither opcut nor rectpack is required."""
 
     def test_works_without_rectpack(self, monkeypatch):
-        import cadquery_furniture.cutlist as cl
+        import cabineteer.cutlist as cl
         # Disable BOTH optional solvers so "auto" actually reaches the strip
         # fallback — otherwise opcut (installed in full/dev) would answer and
         # this test would silently exercise opcut, not strip.

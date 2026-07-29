@@ -8,9 +8,9 @@ import math
 
 import pytest
 
-from cadquery_furniture.auto_fix import auto_fix_cabinet
-from cadquery_furniture.cabinet import CabinetConfig, OpeningConfig, to_opening
-from cadquery_furniture.cutlist import (
+from cabineteer.auto_fix import auto_fix_cabinet
+from cabineteer.cabinet import CabinetConfig, OpeningConfig, to_opening
+from cabineteer.cutlist import (
     CutlistPanel,
     SheetStock,
     consolidate_hardware_lines,
@@ -18,13 +18,13 @@ from cadquery_furniture.cutlist import (
     slide_lines_for_cabinet_config,
     _panel_colour,
 )
-from cadquery_furniture.evaluation import Severity, evaluate_cabinet
-from cadquery_furniture.hardware import (
+from cabineteer.evaluation import Severity, evaluate_cabinet
+from cabineteer.hardware import (
     BLUM_MOVENTO_769,
     SALICE_FUTURA,
     SALICE_FUTURA_SMOVE,
 )
-from cadquery_furniture.joinery import DrawerJoineryStyle, drawer_joinery_spec
+from cabineteer.joinery import DrawerJoineryStyle, drawer_joinery_spec
 
 
 class TestM1DynamicLoadRatings:
@@ -97,7 +97,7 @@ class TestM7BayConfigsCarryEveryField:
     def test_multi_column_bay_inherits_box_stock_and_legs(self):
         # The visualize path rebuilds per-column bay configs; a hand-picked
         # field list silently dropped drawer_box_thickness/prefinished.
-        from cadquery_furniture import server as srv
+        from cabineteer import server as srv
         import dataclasses as dc
 
         cfg = srv._build_cabinet_config({
@@ -143,7 +143,7 @@ class TestInputValidation:
             to_opening([300, "door", {"num_doors": 3}])
 
     def test_mixed_column_rows_normalize(self):
-        from cadquery_furniture.cabinet import ColumnConfig
+        from cabineteer.cabinet import ColumnConfig
         cfg = CabinetConfig(width=600, height=400, depth=550, columns=[
             ColumnConfig(width_mm=564,
                          openings=(OpeningConfig(150, "drawer"),
@@ -153,7 +153,7 @@ class TestInputValidation:
                    for op in cfg.columns[0].openings)
 
     def test_unknown_shared_token_is_value_error(self):
-        from cadquery_furniture.project import build_project
+        from cabineteer.project import build_project
         with pytest.raises(ValueError, match="shared design token"):
             build_project({"name": "x", "shared": {"bogus_token": 1},
                            "cabinets": []})
@@ -202,24 +202,24 @@ class TestFollowUps:
     """Post-review follow-ups: deferred-data resolutions + remaining nits."""
 
     def test_blum_hinge_chart(self):
-        from cadquery_furniture.hardware import BLUM_CLIP_TOP_110_FULL as h
+        from cabineteer.hardware import BLUM_CLIP_TOP_110_FULL as h
         # Blum's published chart (ea.blum.com "Number of hinges").
         assert [h.hinges_for_height(x) for x in (900, 901, 1600, 1601, 2000, 2001)] \
             == [2, 3, 3, 4, 4, 5]
 
     def test_9mm_sheet_prices_present(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         assert price_for("sheet_baltic_birch_9mm") == 56.0
         assert price_for("sheet_baltic_birch_prefinished_9mm") == 78.0
 
     def test_multi_column_preset_summary_shows_columns(self):
-        from cadquery_furniture.presets import get_preset
+        from cabineteer.presets import get_preset
         s = get_preset("armoire_2col").summary()
         assert len(s["columns"]) == 2
         assert s["columns"][0]["opening_stack"], "column stacks must be populated"
 
     def test_progressa_inch_series_kept(self):
-        from cadquery_furniture.hardware import get_slide
+        from cabineteer.hardware import get_slide
         assert 686 in get_slide("salice_progressa_plus").available_lengths
 
 
@@ -228,14 +228,14 @@ class TestPresetIntegrity:
         # Guard: config_dict → build_cabinet_config must reproduce the
         # preset's config exactly, so no CabinetConfig field can silently
         # fall out of preset serialization again.
-        from cadquery_furniture.presets import PRESETS
-        from cadquery_furniture.cabinet import build_cabinet_config
+        from cabineteer.presets import PRESETS
+        from cabineteer.cabinet import build_cabinet_config
         for name, preset in PRESETS.items():
             rebuilt = build_cabinet_config(dict(preset.config_dict()))
             assert rebuilt == preset.config, name
 
     def test_tall_presets_drill_pins_high_enough(self):
-        from cadquery_furniture.presets import get_preset
+        from cabineteer.presets import get_preset
         for name in ("kitchen_tall_pantry", "bedroom_armoire",
                      "bathroom_linen_tower"):
             c = get_preset(name).config
@@ -247,7 +247,7 @@ class TestDoorOverridesThread:
         # num_doors / hinge_key / pull_key overrides must reach the door
         # assemblies, matching how the hinge BOM bills them.
         pytest.importorskip("cadquery")
-        from cadquery_furniture.door import doors_from_cabinet_config
+        from cabineteer.door import doors_from_cabinet_config
 
         cfg = CabinetConfig(width=1000, height=800, depth=550, openings=[
             [700, "door", {"num_doors": 2,

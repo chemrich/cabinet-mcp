@@ -141,7 +141,7 @@ class DrawerConfig:
     face_thickness: float = 18.0  # 3/4"
 
     # Pull hardware (optional).  ``pull_key`` is a key into the PULLS registry
-    # (see ``hardware.PULLS`` / ``cadquery_furniture/data/pulls_catalog.json``).
+    # (see ``hardware.PULLS`` / ``cabineteer/data/pulls_catalog.json``).
     # When ``None``, no pull is placed on the drawer face and the BOM omits it.
     # ``pull_count`` of 0 defers to :func:`pulls.recommend_pull_count` (1 for
     # knobs/flush; 1 if face_width ≤ 762 mm (30″), else 2 for surface/edge pulls).

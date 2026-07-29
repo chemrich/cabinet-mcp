@@ -2,11 +2,11 @@
 
 import pytest
 
-from cadquery_furniture.assembly import (
+from cabineteer.assembly import (
     build_assembly_plan,
     generate_assembly_html,
 )
-from cadquery_furniture.cabinet import CabinetConfig, ColumnConfig
+from cabineteer.cabinet import CabinetConfig, ColumnConfig
 
 
 def _miter_cfg(**kw) -> CabinetConfig:
@@ -113,7 +113,7 @@ class TestBandingSteps:
 class TestCombinedRender:
     def test_miter_plus_hardwood_pdf(self):
         pytest.importorskip("reportlab")
-        from cadquery_furniture.assembly import generate_assembly_pdf
+        from cabineteer.assembly import generate_assembly_pdf
         plan = build_assembly_plan(_miter_cfg(
             edge_band_mode="hardwood", edge_band_thickness_mm=6.4))
         pdf = generate_assembly_pdf([plan], "v2")

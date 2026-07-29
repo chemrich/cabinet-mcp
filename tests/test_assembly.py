@@ -3,13 +3,13 @@ thickness rule they share with the hardware BOM."""
 
 import pytest
 
-from cadquery_furniture.assembly import (
+from cabineteer.assembly import (
     DRY_FIT_TENON_URL,
     build_assembly_plan,
     generate_assembly_html,
 )
-from cadquery_furniture.cabinet import CabinetConfig, CarcassJoinery, ColumnConfig
-from cadquery_furniture.joinery import (
+from cabineteer.cabinet import CabinetConfig, CarcassJoinery, ColumnConfig
+from cabineteer.joinery import (
     DOMINO_SIZES,
     carcass_domino_size_for_thickness,
 )
@@ -48,13 +48,13 @@ class TestDominoThicknessRule:
         assert DOMINO_SIZES["5x30"].part_number == "494938"
 
     def test_5x30_pack_priced(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         assert price_for("festool-494938") == 25.00
 
 
 class TestJoineryBomFollowsRule:
     def _domino_line(self, cfg):
-        from cadquery_furniture.cutlist import (
+        from cabineteer.cutlist import (
             joinery_lines_for_cabinet_config,
         )
         lines = joinery_lines_for_cabinet_config(cfg, None)
@@ -175,7 +175,7 @@ class TestRenderers:
 
     def test_pdf_renders(self):
         pytest.importorskip("reportlab")
-        from cadquery_furniture.assembly import generate_assembly_pdf
+        from cabineteer.assembly import generate_assembly_pdf
         plan = build_assembly_plan(_two_col())
         pdf = generate_assembly_pdf([plan], "proj")
         assert pdf.startswith(b"%PDF")
@@ -187,7 +187,7 @@ class TestRenderers:
 
 class TestDividerConstruction:
     def _divider(self, cfg):
-        from cadquery_furniture.server import _raw_panels_for_cabinet
+        from cabineteer.server import _raw_panels_for_cabinet
         carcass, _, _, _ = _raw_panels_for_cabinet(
             cfg, [{"width_mm": 373, "openings": [],
                    "fixed_shelf_positions": []},
@@ -215,7 +215,7 @@ class TestPlanBomSpanParity:
     4/joint)."""
 
     def _bom_pieces(self, cfg):
-        from cadquery_furniture.cutlist import joinery_lines_for_cabinet_config
+        from cabineteer.cutlist import joinery_lines_for_cabinet_config
         lines = joinery_lines_for_cabinet_config(cfg)
         (line,) = [l for l in lines if "Domino" in l.name]
         return line.pieces_needed
@@ -336,8 +336,8 @@ class TestAssemblyPartIdCollisions:
         import asyncio
         import json
         from pathlib import Path
-        from cadquery_furniture import project as pmod
-        from cadquery_furniture.server import (
+        from cabineteer import project as pmod
+        from cabineteer.server import (
             _tool_design_project, _tool_generate_assembly_instructions,
         )
         monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "proj")

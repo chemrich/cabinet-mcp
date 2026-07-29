@@ -1,6 +1,6 @@
 ---
 name: add-scenario
-description: Add a new eval scenario to cabinet-mcp's eval suite. Use when covering a new tool behavior, a bug regression, or a workflow chain in evals/scenarios.py. Covers the Scenario/ToolCall/Assertion structure, the assertion operators, context chaining between calls, and the meta-tests every scenario must satisfy.
+description: Add a new eval scenario to cabineteer's eval suite. Use when covering a new tool behavior, a bug regression, or a workflow chain in evals/scenarios.py. Covers the Scenario/ToolCall/Assertion structure, the assertion operators, context chaining between calls, and the meta-tests every scenario must satisfy.
 ---
 
 # Adding an eval scenario
@@ -60,4 +60,4 @@ uv run python -m evals --name overflow_drawer_stack --verbose   # your scenario
 uv run python -m evals                            # full suite stays green
 ```
 
-Baseline is 305 scenarios / 1139 assertions (current counts live in CLAUDE.md); expect your additions to raise both counts. Remember evals run in **lite CI too** — CadQuery-only tools (visualize_*) cannot be scenario-covered at all: the harness treats an `ERROR:`-prefixed response as a failed call (there is no expect-error mechanism), so stick to tools with pure-Python paths. Cutlist scenarios must pass an `eval_`-prefixed `name` — the default stem ("cabinet") overwrites real user files under ~/.cabinet-mcp/cutlists/.
+Baseline is 305 scenarios / 1139 assertions (current counts live in CLAUDE.md); expect your additions to raise both counts. Remember evals run in **lite CI too** — CadQuery-only tools (visualize_*) cannot be scenario-covered at all: the harness treats an `ERROR:`-prefixed response as a failed call (there is no expect-error mechanism), so stick to tools with pure-Python paths. Cutlist scenarios must pass an `eval_`-prefixed `name` — the default stem ("cabinet") overwrites real user files under ~/.cabineteer/cutlists/.

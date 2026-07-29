@@ -3,7 +3,7 @@ and the declared cut plan."""
 
 import pytest
 
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     CutlistPanel,
     RIPS_FIRST_FENCE_LIMIT_MM,
     RIPS_FIRST_MIN_STRIP_MM,
@@ -65,7 +65,7 @@ class TestRipsFirst:
         # bundle). The old assertion special-cased a magic 124 mm width
         # anywhere in the run, which let sub-minimum rips hide
         # (review 2026-07-29).
-        from cadquery_furniture.cutlist import RIPS_FIRST_MIN_STRIP_MM
+        from cabineteer.cutlist import RIPS_FIRST_MIN_STRIP_MM
         r = _run(_boxes())
         assert r.cuts
         seen_any = False

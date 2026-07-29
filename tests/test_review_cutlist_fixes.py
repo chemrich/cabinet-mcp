@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     CutlistPanel,
     assign_part_ids,
     consolidate_bom,
@@ -24,7 +24,7 @@ def _run(coro):
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    from cadquery_furniture import project as pmod
+    from cabineteer import project as pmod
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path / "projects")
     return tmp_path
@@ -87,7 +87,7 @@ class TestBandStockGuards:
     def test_offal_accounts_for_final_kerf(self):
         # minor 2: 89 mm board / 20 mm strips / 3.2 kerf → 3 strips consume
         # 3 kerfs when an offcut remains: 89 − 60 − 9.6 = 19.4, not 22.6.
-        from cadquery_furniture.cutlist import generate_banding_cutlist_html
+        from cabineteer.cutlist import generate_banding_cutlist_html
         panels = [CutlistPanel(name="side", length=500, width=450,
                                thickness=18, edge_band=["front"])]
 
@@ -108,7 +108,7 @@ class TestBandingDocScope:
     plan the hot-melt cabinet's edges as hardwood board stock."""
 
     def test_hot_melt_panels_excluded(self, home):
-        from cadquery_furniture.server import (
+        from cabineteer.server import (
             _tool_design_project, _tool_generate_project_cutlist,
         )
         stock = {"width_mm": 89.0, "length_mm": 1219.2, "price_usd": 10.0,
@@ -144,7 +144,7 @@ class TestBandingDocScope:
         assert len(cats) == 2
 
     def test_banding_doc_ids_match_layout(self, home):
-        from cadquery_furniture.server import (
+        from cabineteer.server import (
             _tool_design_project, _tool_generate_project_cutlist,
         )
         stock = {"width_mm": 89.0, "length_mm": 1219.2, "price_usd": 10.0,
@@ -168,7 +168,7 @@ class TestBandingDocScope:
 
 class TestPipelineCosmetics:
     def test_optimization_note_names_rips_first(self, home):
-        from cadquery_furniture.server import _tool_generate_cutlist
+        from cabineteer.server import _tool_generate_cutlist
         res = _run(_tool_generate_cutlist({
             "name": "test_note", "width": 800, "height": 720, "depth": 450,
             "drawer_config": [[300, "drawer"], [384, "drawer"]],
@@ -178,7 +178,7 @@ class TestPipelineCosmetics:
         assert "opcut" not in payload["optimization_note"]
 
     def test_json_stock_reflects_override(self, home):
-        from cadquery_furniture.server import _tool_generate_cutlist
+        from cabineteer.server import _tool_generate_cutlist
         res = _run(_tool_generate_cutlist({
             "name": "test_stockov", "width": 800, "height": 720,
             "depth": 450, "drawer_config": [[300, "drawer"]],
@@ -191,6 +191,6 @@ class TestPipelineCosmetics:
         assert 2440.0 not in lengths
 
     def test_string_override_rejected(self):
-        from cadquery_furniture.server import _parse_sheet_size_overrides
+        from cabineteer.server import _parse_sheet_size_overrides
         with pytest.raises(ValueError, match="must be"):
             _parse_sheet_size_overrides({"baltic_birch": "2453x1234"})

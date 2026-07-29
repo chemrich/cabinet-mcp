@@ -25,7 +25,7 @@
 | `visualize_cabinet` | 3D assembly → GLB + HTML viewer with x-ray (X) and open-drawer (O) toggles |
 | `identify_furniture_type` | Map a natural-language furniture name to the closest preset / opening layout |
 | `list_pull_presets` | Named pull bundles (drawer pull + door pull + orientation) |
-| `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabinet-mcp/projects/<name>.json` |
+| `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabineteer/projects/<name>.json` |
 | `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times; `query=` substring filter, newest-first sort, dev-artifact hiding |
 | `load_project` | Load a saved project's durable payload back for continued editing or reuse |
 | `rename_project` | Rename a snapshot (file stem + embedded name); refuses to overwrite |
@@ -51,7 +51,7 @@ Tool descriptions encode this sequence — the LLM is instructed never to skip e
 One-liner — registers at user scope so it's available in every session:
 
 ```bash
-claude mcp add cabinet -- uv --directory /absolute/path/to/cabinet-mcp run cabinet-mcp
+claude mcp add cabinet -- uv --directory /absolute/path/to/cabineteer run cabineteer
 claude mcp list          # verify "cabinet" connected
 claude mcp remove cabinet
 ```
@@ -65,9 +65,9 @@ Inside a Claude Code session, `/mcp` lists connected servers and their tools.
 ```json
 {
   "mcpServers": {
-    "cabinet-mcp": {
+    "cabineteer": {
       "command": "uv",
-      "args": ["--directory", "/absolute/path/to/cabinet-mcp", "run", "cabinet-mcp"]
+      "args": ["--directory", "/absolute/path/to/cabineteer", "run", "cabineteer"]
     }
   }
 }
@@ -81,9 +81,9 @@ Inside a Claude Code session, `/mcp` lists connected servers and their tools.
 {
   "mcp": {
     "servers": {
-      "cabinet-mcp": {
+      "cabineteer": {
         "command": "uv",
-        "args": ["--directory", "/absolute/path/to/cabinet-mcp", "run", "cabinet-mcp"]
+        "args": ["--directory", "/absolute/path/to/cabineteer", "run", "cabineteer"]
       }
     }
   }
@@ -96,7 +96,7 @@ Or HTTP/SSE pointing at a running server:
 {
   "mcp": {
     "servers": {
-      "cabinet-mcp": { "url": "http://127.0.0.1:3749/sse" }
+      "cabineteer": { "url": "http://127.0.0.1:3749/sse" }
     }
   }
 }
@@ -107,15 +107,15 @@ Or HTTP/SSE pointing at a running server:
 The default starting port is **3749**; it auto-increments if occupied, so running multiple servers never collides.
 
 ```bash
-cabinet-mcp --http                               # port 3749 (or next free)
-cabinet-mcp --http --port 4200
-cabinet-mcp --http --port 4200 --max-port-attempts 40
-cabinet-mcp --http --host 0.0.0.0                # bind all interfaces
+cabineteer --http                               # port 3749 (or next free)
+cabineteer --http --port 4200
+cabineteer --http --port 4200 --max-port-attempts 40
+cabineteer --http --host 0.0.0.0                # bind all interfaces
 ```
 
-The chosen port is printed to stderr and written to `/tmp/cabinet-mcp.port`:
+The chosen port is printed to stderr and written to `/tmp/cabineteer.port`:
 
 ```bash
-PORT=$(cat /tmp/cabinet-mcp.port)
+PORT=$(cat /tmp/cabineteer.port)
 curl "http://127.0.0.1:${PORT}/sse"
 ```

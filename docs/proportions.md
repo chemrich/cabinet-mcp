@@ -65,7 +65,7 @@ The tool computes the interior height, runs `graduated_drawer_heights`, and inse
 ## Using proportions from Python
 
 ```python
-from cadquery_furniture.proportions import (
+from cabineteer.proportions import (
     graduated_drawer_heights,
     column_widths,
     describe_proportions,

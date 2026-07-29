@@ -24,13 +24,13 @@ skipif_no_cq = pytest.mark.skipif(cq_missing, reason="cadquery not installed")
 if not cq_missing:
     import cadquery as cq
 
-from cadquery_furniture.drawer import (
+from cabineteer.drawer import (
     DrawerConfig,
     make_drawer_bottom,
     make_drawer_front_back,
     make_drawer_side,
 )
-from cadquery_furniture.joinery import DrawerJoineryStyle
+from cabineteer.joinery import DrawerJoineryStyle
 
 
 OPENING_SIZES = [

@@ -38,7 +38,7 @@ from .scenarios import (
     SCENARIOS,
 )
 
-from cadquery_furniture.server import (
+from cabineteer.server import (
     _tool_list_hardware,
     _tool_list_joinery,
     _tool_design_cabinet,
@@ -555,14 +555,14 @@ def run_all(
         pool = [s for s in pool if s.difficulty == difficulty]
 
     # Sandbox HOME for the whole run: every tool-side write (projects,
-    # cutlists, assembly docs) roots at Path.home()/.cabinet-mcp, and
+    # cutlists, assembly docs) roots at Path.home()/.cabineteer, and
     # running against the user's real store both pollutes it and makes
     # count/list assertions state-dependent (review 2026-07-29 M9).
     import tempfile
     from pathlib import Path as _Path
 
     t0 = time.perf_counter()
-    with tempfile.TemporaryDirectory(prefix="cabinet-mcp-evals-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cabineteer-evals-") as tmp:
         _orig_home = _Path.home
         _Path.home = lambda: _Path(tmp)  # type: ignore[method-assign]
         try:
@@ -580,7 +580,7 @@ def print_report(report: EvalReport, verbose: bool = False) -> None:
     """Print a human-readable eval report to stdout."""
     print()
     print("=" * 72)
-    print("  CABINET-MCP EVALUATION REPORT")
+    print("  CABINETEER EVALUATION REPORT")
     print("=" * 72)
     print()
     print(f"  Scenarios:   {report.scenarios_passed}/{report.scenarios_total} passed")

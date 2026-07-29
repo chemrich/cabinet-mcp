@@ -85,7 +85,7 @@ class DoorConfig:
     gap_between: float = 2.0    # pairs only
 
     # Pull hardware (optional).  ``pull_key`` is a key into the PULLS registry
-    # (see ``hardware.PULLS`` / ``cadquery_furniture/data/pulls_catalog.json``).
+    # (see ``hardware.PULLS`` / ``cabineteer/data/pulls_catalog.json``).
     # When ``None``, no pull is placed on the door and the BOM omits it.
     # ``pull_count`` of 0 defers to :func:`pulls.recommend_pull_count`.
     # Doors are usually fitted with a single pull; surface/edge pulls on doors

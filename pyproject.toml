@@ -1,5 +1,5 @@
 [project]
-name = "cadquery-furniture"
+name = "cabineteer"
 version = "0.1.0"
 description = "Parametric furniture design, evaluation, and cutlist optimization with CadQuery"
 requires-python = ">=3.10"
@@ -15,7 +15,7 @@ cad = ["cadquery>=2.4"]
 # opcut 0.1.3 is the last pure-Python release; 0.2+ are Linux-only compiled wheels.
 cutlist = ["opcut==0.1.3", "rectpack", "reportlab"]
 # Everything: cad + cutlist.  Recommended for normal use.
-full = ["cadquery-furniture[cad,cutlist]"]
+full = ["cabineteer[cad,cutlist]"]
 # Lite: explicit alias for a base-only install (no extras needed — documented for clarity)
 lite = []
 # Developer tools
@@ -29,8 +29,8 @@ full    = [{include-group = "cad"}, {include-group = "cutlist"}]
 dev     = ["pytest>=7.0", "pytest-cov"]
 
 [tool.uv]
-# "uv run cabinet-mcp" and "uv run pytest" both work out of the box.
-# For a lightweight install without CadQuery: uv run --no-group full cabinet-mcp
+# "uv run cabineteer" and "uv run pytest" both work out of the box.
+# For a lightweight install without CadQuery: uv run --no-group full cabineteer
 default-groups = ["full", "dev"]
 # opcut 0.1.3 pins jsonschema==3.0.1, but we only use opcut.common/csp which
 # never import jsonschema. Override to keep mcp's required jsonschema 4.x.
@@ -44,7 +44,10 @@ override-dependencies = [
 ]
 
 [project.scripts]
-cabinet-mcp = "cadquery_furniture.server:main"
+cabineteer = "cabineteer.server:main"
+# Deprecated alias — keeps pre-rename client configs launching until they
+# migrate to "cabineteer"; remove after one release.
+cabinet-mcp = "cabineteer.server:main"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
@@ -54,7 +57,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-cadquery_furniture = ["data/*.json"]
+cabineteer = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
