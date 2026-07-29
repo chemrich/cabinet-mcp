@@ -28,9 +28,10 @@ jobs:
       - name: Install (lite)
         run: uv sync --no-group full
       - name: Assert lite is lite
-        # If a dep change ever pulls CadQuery into the lite env, this job
-        # would silently test the full paths — fail loudly instead.
-        run: uv run --no-group full python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('cadquery') is None else 1)"
+        # If a dep change ever pulls any full-group package into the lite
+        # env, this job would silently test the full paths — fail loudly
+        # instead (cadquery, opcut, rectpack, reportlab all guarded).
+        run: uv run --no-group full python -c "import importlib.util, sys; missing = [m for m in ('cadquery', 'opcut', 'rectpack', 'reportlab') if importlib.util.find_spec(m) is not None]; sys.exit(1 if missing else 0)"
       - name: Tests
         run: uv run --no-group full pytest tests/ -q
       - name: Evals

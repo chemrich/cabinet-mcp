@@ -33,8 +33,9 @@ class Op(Enum):
     IS_TRUE   = "is_true"     # truthy
     IS_FALSE  = "is_false"    # falsy
     NO_ERRORS = "no_errors"   # summary.errors == 0
-    HAS_ERROR = "has_error"   # summary.errors > 0
-    HAS_WARNING = "has_warning"  # summary.warnings > 0
+    HAS_ERROR = "has_error"   # summary.errors > 0; with a string expected
+    #                           value, an ERROR issue with check == expected
+    HAS_WARNING = "has_warning"  # same, for warnings
 
 
 @dataclass(frozen=True)

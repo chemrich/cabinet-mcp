@@ -22,6 +22,14 @@ from cadquery_furniture.server import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    # The cutlist tool writes real files under Path.home()/.cabinet-mcp —
+    # keep every run out of the user's actual store (review 2026-07-29 M9).
+    from pathlib import Path
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+
 def _run(extra):
     args = {
         "name": "eval_sheetsize", "width": 1219.2, "height": 663.6,
