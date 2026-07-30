@@ -29,7 +29,7 @@ uv manages Python automatically — you do not need a separate Python install.
 Clone the repo and install in one step:
 
 ```bash
-git clone https://github.com/your-org/cabineteer.git
+git clone https://github.com/chemrich/cabineteer.git
 cd cabineteer
 uv sync          # full install: CadQuery + rectpack + dev tools
 ```
@@ -59,17 +59,17 @@ stdio is the default transport. The AI client launches `cabineteer` as a child p
 **Claude Code** — register once at user scope so it's available in every project:
 
 ```bash
-claude mcp add cabinet -- uv --directory /absolute/path/to/cabineteer run cabineteer
+claude mcp add cabineteer -- uv --directory /absolute/path/to/cabineteer run cabineteer
 ```
 
 Verify it registered:
 
 ```bash
 claude mcp list
-# cabinet: uv --directory /…/cabineteer run cabineteer
+# cabineteer: uv --directory /…/cabineteer run cabineteer
 ```
 
-Inside any Claude Code session, `/mcp` lists connected servers and confirms the seventeen cabinet tools are visible.
+Inside any Claude Code session, `/mcp` lists connected servers and confirms the thirty cabineteer tools are visible.
 
 **Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -243,7 +243,7 @@ uv sync --no-group full
 uv run --no-group full cabineteer
 ```
 
-The server will start and all seventeen tools are available; `visualize_cabinet` returns a "CadQuery not installed" error instead of geometry, and `evaluate_cabinet` skips interference checks.
+The server will start and all thirty tools are available; the visualize tools return a "CadQuery not installed" error instead of geometry, `evaluate_cabinet` skips interference checks, PDF outputs are skipped (HTML/CSV/JSON still generate), and sheet layouts fall back to the pure-Python strip optimizer.
 
 ### Smoke-testing the stdio protocol manually
 
@@ -287,7 +287,7 @@ uv sync
 uv run cabineteer --help
 
 # Register with Claude Code
-claude mcp add cabinet -- uv --directory $(pwd) run cabineteer
+claude mcp add cabineteer -- uv --directory $(pwd) run cabineteer
 claude mcp list
 
 # HTTP server

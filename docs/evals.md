@@ -1,6 +1,6 @@
 # Eval harness
 
-`evals/` benchmarks the MCP server against realistic cabinetry prompts. Run it after any non-trivial code change to catch regressions. The harness calls tool handlers directly via `TOOL_DISPATCH`, so the full suite finishes in under a second.
+`evals/` benchmarks the MCP server against realistic cabinetry prompts. Run it after any non-trivial code change to catch regressions. The harness calls tool handlers directly via `TOOL_DISPATCH`, so the full suite finishes in under a second, and it runs in a sandboxed temp HOME so it never touches your real project store.
 
 ## Running
 
@@ -18,40 +18,44 @@ uv run python -m evals --list                        # print scenario catalogue
 ## Baseline
 
 ```
-Scenarios:   77/77 passed
-Assertions:  332/332 passed
+Scenarios:   305/305 passed
+Assertions:  1139/1139 passed
 Score:       100.0%
 ```
 
+(2026-07-29. If you add scenarios, update this block, the counts in CLAUDE.md, and the `add-scenario` guard tests together.)
+
 ## Scenario catalogue
 
-| Tag | Count | What it covers |
-|-----|-------|----------------|
-| `basic_cabinet` | 7 | Standard, narrow, tall, wide, shallow cabinets |
-| `drawer` | 18 | Butt, QQQ, half-lap, drawer-lock joints + standard-height snapping |
-| `standard_height` | 4 | Height snapping to 4″/6″/8″ tiers, opt-out, exact boundary match |
-| `door` | 9 | Full/half/inset overlay, pairs, BLUMOTION, tall doors (3 hinges) |
-| `joinery` | 12 | All drawer styles + all carcass methods + side-by-side comparisons |
-| `cutlist` | 7 | JSON + CSV output, custom sheet sizes, guillotine optimiser |
-| `optimizer` | 4 | Sheet optimiser: single-sheet fit, multi-sheet, oversized panels, custom kerf |
-| `kitchen` | 6 | Multi-tool workflows, full kitchen design, kitchen presets |
-| `presets` | 12 | Listing, filtering, overrides, mismatch warning, unknown name |
-| `living_room` | 6 | Console, credenza, sideboard, media console + describe |
-| `evaluation` | 9 | Designs that should produce errors (overflow, thin panels, column widths) |
-| `edge_case` | 9 | Extreme dimensions, unusual configs, oversized panels, preset override edges |
-| `workshop` | 2 | Tool chest preset, heavy-duty slide validation |
-| `auto_fix` | 4 | Oversized repair, undersized no-op, clean pass-through, full workflow |
-| `describe` | 3 | Basic prose, credenza preset summary, full workflow |
-| `workflow` | 6 | End-to-end: design → evaluate → auto-fix → describe |
-| `legs` | 4 | Default legs, load check, 6-leg pattern, `list_hardware` |
-| `multi_column` | 3 | Drawers+door, width mismatch error, 3-column dresser |
-| `hardware` | 6 | `list_hardware` for slides, hinges, and legs |
-| `proportions` | 3 | Drawer height presets, column width presets, combined layout |
-| `pulls` | 8 | Pull placement, pack-quantity math, style mismatch, IKEA multi-packs |
+Scenarios carry multiple tags, so counts overlap. Domain and feature tags:
+
+| Tag | Count | | Tag | Count |
+|-----|-------|-|-----|-------|
+| `drawer` | 92 | | `legs` | 8 |
+| `evaluation` | 67 | | `optimizer` | 8 |
+| `cutlist` | 52 | | `bathroom` | 7 |
+| `door` | 43 | | `basic_cabinet` | 7 |
+| `kitchen` | 33 | | `standard_height` | 5 |
+| `joinery` | 32 | | `edge_band` | 4 |
+| `presets` | 32 | | `entryway` | 3 |
+| `describe` | 31 | | `assembly` | 2 |
+| `proportions` | 29 | | `miter` | 2 |
+| `workflow` | 25 | | `office` | 2 |
+| `hardware` | 22 | | `face_material` | 1 |
+| `multi_column` | 19 | | `sheet_size` | 1 |
+| `pulls` | 19 | | `storage` | 1 |
+| `auto_fix` | 18 | | `worktop` | 1 |
+| `bedroom` | 18 | | `tall` | 14 |
+| `project` | 16 | | `wide` | 9 |
+| `workshop` | 14 | | `furniture` | 9 |
+| `living_room` | 13 | | `edge_case` | 11 |
+| `identify_furniture` | 12 | | `furniture_refs` | 12 |
+
+Persona tags slice the same scenarios by who'd be asking: `homeowner` (50), `furniture_maker` (49), `cabinet_maker` (48).
 
 ## Adding a scenario
 
-Scenarios live in `evals/scenarios.py`. Each has a natural-language `prompt`, a list of `ToolCall`s with typed `Assertion`s, and tags for filtering.
+Scenarios live in `evals/scenarios.py`. Each has a natural-language `prompt`, a list of `ToolCall`s with typed `Assertion`s, and tags for filtering. (There's a project skill, `add-scenario`, that walks through the conventions — including the meta-tests every scenario must satisfy.)
 
 ```python
 _s(Scenario(
@@ -80,4 +84,4 @@ Assertion("opening_stack.0.type",   Op.EQ, "drawer")  # dot notation
 Assertion("opening_stack[0].type",  Op.EQ, "drawer")  # bracket notation — identical
 ```
 
-Assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`.
+Assertion operators: `EQ`, `APPROX`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `CONTAINS`, `HAS_KEY`, `LEN_EQ`, `LEN_GTE`, `IS_TRUE`, `IS_FALSE`, `NO_ERRORS`, `HAS_ERROR`, `HAS_WARNING`. `HAS_ERROR`/`HAS_WARNING` accept an expected check-name filter, so a scenario can assert *which* check fired, not just that something did.
