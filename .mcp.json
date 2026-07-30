@@ -1,10 +1,9 @@
 {
   "mcpServers": {
-    "cabinet": {
+    "cabineteer": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "cabinet-mcp"],
-      "cwd": "/Users/charlie/code/cabinet-mcp"
+      "args": ["run", "cabineteer"]
     }
   }
 }

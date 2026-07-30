@@ -1,7 +1,7 @@
 {
     "version": "1.7.0",
     "metadata": {
-        "description": "Full hardware catalog for cabinet-mcp. Each pull has an explicit mount_style: surface | edge | flush | knob.",
+        "description": "Full hardware catalog for cabineteer. Each pull has an explicit mount_style: surface | edge | flush | knob.",
         "total_items": 45,
         "brands": [
             "Top Knobs",

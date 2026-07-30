@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cadquery_furniture.visualize import _build_html, generate_viewer_html
+from cabineteer.visualize import _build_html, generate_viewer_html
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ class TestGenerateViewerHtml:
 class TestExportGlb:
     def test_raises_without_cadquery(self, tmp_path):
         """ImportError when cadquery is not installed."""
-        import cadquery_furniture.visualize as viz
+        import cabineteer.visualize as viz
 
         original = viz.cq
         viz.cq = None
@@ -204,8 +204,8 @@ class TestExportGlb:
     def test_export_produces_glb(self, tmp_path):
         """Integration: build a real cabinet and export to GLB."""
         import cadquery as cq
-        from cadquery_furniture.cabinet import CabinetConfig, build_cabinet
-        from cadquery_furniture.visualize import export_glb
+        from cabineteer.cabinet import CabinetConfig, build_cabinet
+        from cabineteer.visualize import export_glb
 
         cfg = CabinetConfig(width=400, height=500, depth=350)
         assy, _ = build_cabinet(cfg)
@@ -224,12 +224,12 @@ class TestExportGlb:
 
 class TestBuildAndVisualize:
     def test_raises_without_cadquery(self, tmp_path):
-        import cadquery_furniture.visualize as viz
+        import cabineteer.visualize as viz
 
         original = viz.cq
         viz.cq = None
         try:
-            from cadquery_furniture.cabinet import CabinetConfig
+            from cabineteer.cabinet import CabinetConfig
             with pytest.raises(ImportError, match="cadquery is required"):
                 viz.build_and_visualize(CabinetConfig(), output_dir=tmp_path)
         finally:
@@ -240,8 +240,8 @@ class TestBuildAndVisualize:
         reason="cadquery not installed",
     )
     def test_returns_correct_keys(self, tmp_path):
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.visualize import build_and_visualize
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.visualize import build_and_visualize
 
         cfg = CabinetConfig(width=400, height=500, depth=350)
         result = build_and_visualize(cfg, output_dir=tmp_path, open_browser=False)
@@ -256,8 +256,8 @@ class TestBuildAndVisualize:
         reason="cadquery not installed",
     )
     def test_output_files_exist(self, tmp_path):
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.visualize import build_and_visualize
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.visualize import build_and_visualize
 
         cfg = CabinetConfig(width=400, height=500, depth=350)
         result = build_and_visualize(
@@ -273,8 +273,8 @@ class TestBuildAndVisualize:
     )
     def test_html_is_self_contained(self, tmp_path):
         """The HTML must not reference the GLB by file path — only via base64."""
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.visualize import build_and_visualize
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.visualize import build_and_visualize
 
         cfg = CabinetConfig(width=400, height=500, depth=350)
         result = build_and_visualize(
@@ -297,7 +297,7 @@ class TestVisualizeProject:
     def test_project_composed_at_run_offsets(self, tmp_path, monkeypatch):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_project
+        from cabineteer.server import _tool_visualize_project
 
         payload = {
             "name": "viz_test",
@@ -328,14 +328,14 @@ class TestVisualizeProject:
     def test_missing_project_args_raises(self):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_project
+        from cabineteer.server import _tool_visualize_project
         with pytest.raises(ValueError, match="project_name"):
             asyncio.get_event_loop().run_until_complete(_tool_visualize_project({}))
 
     def test_worktop_rendered_with_legs(self, tmp_path, monkeypatch):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_project
+        from cabineteer.server import _tool_visualize_project
 
         payload = {
             "name": "viz_worktop",
@@ -381,7 +381,7 @@ class TestMangaScaleReference:
     def test_manga_stack_in_glb(self, tmp_path):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_cabinet
+        from cabineteer.server import _tool_visualize_cabinet
 
         out = asyncio.get_event_loop().run_until_complete(
             _tool_visualize_cabinet({
@@ -400,7 +400,7 @@ class TestMangaScaleReference:
     def test_manga_off_by_default(self, tmp_path):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_cabinet
+        from cabineteer.server import _tool_visualize_cabinet
 
         out = asyncio.get_event_loop().run_until_complete(
             _tool_visualize_cabinet({
@@ -414,7 +414,7 @@ class TestMangaScaleReference:
     def test_short_drawer_raises_named_error(self, tmp_path):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_cabinet
+        from cabineteer.server import _tool_visualize_cabinet
 
         # A 104 mm opening snaps to a 76 mm box; interior ~58 mm < 75 mm stack.
         with pytest.raises(ValueError, match=r"bay0_drawer0.*manga"):
@@ -430,7 +430,7 @@ class TestMangaScaleReference:
     def test_project_path_names_cabinet_in_error(self, tmp_path, monkeypatch):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_project
+        from cabineteer.server import _tool_visualize_project
 
         payload = {
             "name": "viz_manga_err",
@@ -454,7 +454,7 @@ class TestSharedJunctionFeet:
     def test_shared_junction_feet(self, tmp_path):
         pytest.importorskip("cadquery")
         import asyncio
-        from cadquery_furniture.server import _tool_visualize_project
+        from cabineteer.server import _tool_visualize_project
 
         payload = {
             "name": "viz_shared_feet",

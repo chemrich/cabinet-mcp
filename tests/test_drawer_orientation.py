@@ -14,12 +14,12 @@ import importlib.util
 
 import pytest
 
-from cadquery_furniture.drawer import (
+from cabineteer.drawer import (
     DrawerConfig,
     make_drawer_front_back,
     make_drawer_side,
 )
-from cadquery_furniture.joinery import DrawerJoineryStyle
+from cabineteer.joinery import DrawerJoineryStyle
 
 
 cq_missing = importlib.util.find_spec("cadquery") is None

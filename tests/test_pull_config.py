@@ -6,11 +6,11 @@ loader and placement math themselves are covered in tests/test_pulls.py.
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.door import DoorConfig
-from cadquery_furniture.drawer import DrawerConfig
-from cadquery_furniture.hardware import get_pull
-from cadquery_furniture.pulls import PullPlacement
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.door import DoorConfig
+from cabineteer.drawer import DrawerConfig
+from cabineteer.hardware import get_pull
+from cabineteer.pulls import PullPlacement
 
 
 # ─── DrawerConfig ────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ class TestDoorConfigPullFields:
         assert len(placements) == 1
         # Pull is on the latch side (default hinge_side="left" → latch on right)
         # cx = door_width - pull_inset_mm - pull_length/2
-        from cadquery_furniture.hardware import PULLS
+        from cabineteer.hardware import PULLS
         pull = PULLS["topknobs-hb-96"]
         expected_cx = d.door_width - d.pull_inset_mm - pull.length_mm / 2
         assert placements[0].center[0] == pytest.approx(expected_cx)

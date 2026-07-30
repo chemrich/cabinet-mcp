@@ -7,18 +7,18 @@ The parametric checks, BOM, and cutlist all work with pure Python.
 When CadQuery is available, geometric checks (interference, bounding box) are also run.
 
 Usage:
-    python -m cadquery_furniture.examples.base_cabinet_with_drawers
+    python -m cabineteer.examples.base_cabinet_with_drawers
 """
 
-from cadquery_furniture.cabinet import CabinetConfig, build_cabinet
-from cadquery_furniture.drawer import DrawerConfig, build_drawer, drawers_from_cabinet_config
-from cadquery_furniture.evaluation import (
+from cabineteer.cabinet import CabinetConfig, build_cabinet
+from cabineteer.drawer import DrawerConfig, build_drawer, drawers_from_cabinet_config
+from cabineteer.evaluation import (
     evaluate_cabinet,
     check_shelf_deflection,
     print_report,
     Severity,
 )
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     extract_bom,
     consolidate_bom,
     print_bom,
@@ -131,7 +131,7 @@ def main():
 
         # Run geometric evaluation
         print("Running geometric interference check...")
-        from cadquery_furniture.evaluation import check_interference
+        from cabineteer.evaluation import check_interference
         geo_issues = check_interference(cabinet_assy)
         print_report(geo_issues)
 
@@ -148,7 +148,7 @@ def main():
 
         # Generate approximate BOM from config without geometry
         print("Generating BOM from parametric config...")
-        from cadquery_furniture.cutlist import CutlistPanel
+        from cabineteer.cutlist import CutlistPanel
 
         # Manually create BOM from known dimensions
         all_panels = [

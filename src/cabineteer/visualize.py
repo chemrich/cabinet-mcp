@@ -11,8 +11,8 @@ Typical usage
 -------------
 ::
 
-    from cadquery_furniture.cabinet import CabinetConfig
-    from cadquery_furniture.visualize import build_and_visualize
+    from cabineteer.cabinet import CabinetConfig
+    from cabineteer.visualize import build_and_visualize
 
     cfg = CabinetConfig(width=600, height=720, depth=550)
     result = build_and_visualize(cfg, output_dir="~/Desktop/cabinet_view")
@@ -843,7 +843,7 @@ def generate_viewer_html(
 def visualize_assembly(
     assy: "cq.Assembly",
     parts: list,
-    output_dir: "Path | str" = "~/.cabinet-mcp/visualizations",
+    output_dir: "Path | str" = "~/.cabineteer/visualizations",
     name: str = "cabinet",
     open_browser: bool = True,
     tolerance: float = 0.1,
@@ -928,7 +928,7 @@ def visualize_assembly(
 
 def build_and_visualize(
     cfg: "CabinetConfig",  # type: ignore[name-defined]
-    output_dir: "Path | str" = "~/.cabinet-mcp/visualizations",
+    output_dir: "Path | str" = "~/.cabineteer/visualizations",
     name: str = "cabinet",
     open_browser: bool = True,
     tolerance: float = 0.1,
@@ -942,7 +942,7 @@ def build_and_visualize(
     Args:
         cfg: Cabinet configuration (``CabinetConfig`` instance).
         output_dir: Directory for output files (created if absent).
-            Defaults to ``~/.cabinet-mcp/visualizations``.
+            Defaults to ``~/.cabineteer/visualizations``.
         name: Base filename stem (e.g. ``"kitchen_base"`` →
             ``kitchen_base.glb`` + ``kitchen_base_viewer.html``).
         open_browser: If ``True``, open the HTML file in the default browser.

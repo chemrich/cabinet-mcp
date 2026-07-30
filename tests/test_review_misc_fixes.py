@@ -3,8 +3,8 @@
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.evaluation import (
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.evaluation import (
     check_edge_band_face_gap,
     check_edge_banding,
 )
@@ -86,7 +86,7 @@ class TestFaceGapBoundary:
 class TestPresetHinges:
     def test_all_presets_use_blumotion_hinges(self):
         # kitchen_base_door_pair_wide was missed by the BLUMOTION sweep.
-        from cadquery_furniture.presets import PRESETS
+        from cabineteer.presets import PRESETS
         for name, preset in PRESETS.items():
             hinge = getattr(preset.config, "door_hinge", None) or ""
             if hinge:
@@ -96,7 +96,7 @@ class TestPresetHinges:
 class TestMangaJitterClamp:
     def test_jitter_clamped_in_tight_interior(self):
         cq = pytest.importorskip("cadquery")
-        from cadquery_furniture.drawer import (
+        from cabineteer.drawer import (
             DrawerConfig, build_drawer, MANGA_MAX_STACK,
         )
         # Find an opening whose interior width lands in the tight-but-
@@ -131,7 +131,7 @@ class TestMangaJitterClamp:
 
 class TestViewerMangaGate:
     def test_emitted_js_gates_manga_on_drawer_parent(self):
-        from cadquery_furniture import visualize
+        from cabineteer import visualize
         # The structural gate must be present in the emitted viewer JS —
         # without it a cabinet legitimately named "manga2" classifies as
         # manga volumes and renders invisible.

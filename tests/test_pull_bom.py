@@ -11,10 +11,10 @@ import json
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig, ColumnConfig
-from cadquery_furniture.door import DoorConfig
-from cadquery_furniture.drawer import DrawerConfig
-from cadquery_furniture.cutlist import (
+from cabineteer.cabinet import CabinetConfig, ColumnConfig
+from cabineteer.door import DoorConfig
+from cabineteer.drawer import DrawerConfig
+from cabineteer.cutlist import (
     HardwareLine,
     consolidate_hardware_lines,
     print_hardware_bom,
@@ -372,8 +372,8 @@ class TestSlideLockingDevices:
 
     @staticmethod
     def _lines(**cfg_extra):
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
         cfg = build_cabinet_config({
             "width": 600, "height": 720, "depth": 550,
             "drawer_config": [[300, "drawer"], [384, "drawer"]],
@@ -400,8 +400,8 @@ class TestSlideLockingDevices:
         assert not [l for l in lines if l.category == "slide_accessory"]
 
     def test_mixed_slides_split_by_family(self):
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
         cfg = build_cabinet_config({
             "width": 600, "height": 720, "depth": 550,
             "drawer_slide": "blum_tandem_plus_563h",
@@ -414,7 +414,7 @@ class TestSlideLockingDevices:
                           "blum_t51_7601_li": 1, "blum_t51_7601_re": 1}
 
     def test_clips_are_priced(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         assert price_for("blum_t51_1901_l") == 2.25
         assert price_for("blum_t51_1901_r") == 2.25
         assert price_for("blum_t51_7601_li") == 2.50

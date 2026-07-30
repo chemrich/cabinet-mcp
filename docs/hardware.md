@@ -48,7 +48,7 @@ All Clip Top hinges use a 35 mm cup (13 mm deep, 22.5 mm from door edge). `Hinge
 `hardware.py` exports a `PRICE_LIST` dict and a `price_for(key)` helper used by `generate_cutlist` to add cost estimates to the BOM output.
 
 ```python
-from cadquery_furniture.hardware import price_for, PRICE_LIST
+from cabineteer.hardware import price_for, PRICE_LIST
 
 price_for("blum_tandem_550h")   # → 28.5  (per pair)
 price_for("topknobs-hb-96")     # → 10.0  (each)

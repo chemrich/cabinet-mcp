@@ -1,11 +1,11 @@
 ---
 name: add-preset
-description: Add a new named cabinet preset to cabinet-mcp. Use when asked to add a preset, template, or canned design to presets.py (surfaced via list_presets / apply_preset). Covers the CabinetPreset registration pattern, the opening-stack sum invariant, and the guard test that every preset must evaluate with zero errors.
+description: Add a new named cabinet preset to cabineteer. Use when asked to add a preset, template, or canned design to presets.py (surfaced via list_presets / apply_preset). Covers the CabinetPreset registration pattern, the opening-stack sum invariant, and the guard test that every preset must evaluate with zero errors.
 ---
 
 # Adding a cabinet preset
 
-Presets live in `src/cadquery_furniture/presets.py` as frozen `CabinetPreset` dataclasses, registered by wrapping each in `_p(...)`.
+Presets live in `src/cabineteer/presets.py` as frozen `CabinetPreset` dataclasses, registered by wrapping each in `_p(...)`.
 
 ## Steps
 
@@ -47,8 +47,8 @@ Presets live in `src/cadquery_furniture/presets.py` as frozen `CabinetPreset` da
   ```
 - **Spot-check** the new preset has no ERROR-severity issues by driving the handler (see `drive-mcp-handlers`):
   ```python
-  from cadquery_furniture.presets import PRESETS
-  from cadquery_furniture.evaluation import evaluate_cabinet
+  from cabineteer.presets import PRESETS
+  from cabineteer.evaluation import evaluate_cabinet
   issues = evaluate_cabinet(PRESETS["workshop_tool_chest"].config)
   print([(i.check, i.severity.name) for i in issues])   # no ERROR entries; a cumulative_heights WARNING is expected
   ```

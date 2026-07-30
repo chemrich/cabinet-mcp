@@ -1,4 +1,4 @@
-# cabinet-mcp
+# cabineteer
 
 Design kitchen and furniture cabinets conversationally. Talk to Claude, get back validated configurations, optimised cutlists, and interactive 3D previews — with real Blum/Accuride/Salice hardware specs, five carcass joinery methods, eight procedural wood finishes, and proportions rooted in traditional cabinet-making.
 
@@ -10,7 +10,7 @@ Design kitchen and furniture cabinets conversationally. Talk to Claude, get back
 
 ```bash
 uv pip install -e ".[full]"
-claude mcp add cabinet -- uv --directory $(pwd) run cabinet-mcp
+claude mcp add cabinet -- uv --directory $(pwd) run cabineteer
 ```
 
 Then ask Claude anything:
@@ -67,13 +67,13 @@ That single request buys plywood once for both builds: panels from every project
 | `uv pip install -e ".[cad]"` | CadQuery only — 3D geometry, interference checks, HTML viewer |
 | `uv pip install -e .` | **Lite.** Pure-Python only — parametric design, evaluation, cutlist BOM, MCP server |
 
-With `uv run`, the full install is the default (configured via `default-groups = ["full", "dev"]` in `pyproject.toml`). To run in lite mode: `uv run --no-group full cabinet-mcp`.
+With `uv run`, the full install is the default (configured via `default-groups = ["full", "dev"]` in `pyproject.toml`). To run in lite mode: `uv run --no-group full cabineteer`.
 
 ## Using it from Python
 
 ```python
-from cadquery_furniture.presets import get_preset
-from cadquery_furniture.evaluation import evaluate_cabinet, print_report
+from cabineteer.presets import get_preset
+from cabineteer.evaluation import evaluate_cabinet, print_report
 
 cfg = get_preset("kitchen_base_3_drawer").config
 print_report(evaluate_cabinet(cfg))

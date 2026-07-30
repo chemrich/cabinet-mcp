@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from cadquery_furniture.hardware import (
+from cabineteer.hardware import (
     MountStyle,
     PullSpec,
     PULLS,
     get_pull,
     _load_pulls_from_catalog,
 )
-from cadquery_furniture.pulls import (
+from cabineteer.pulls import (
     DUAL_PULL_THRESHOLD_MM,
     END_MARGIN_MM,
     PullPlacement,

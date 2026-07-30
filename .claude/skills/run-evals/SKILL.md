@@ -1,6 +1,6 @@
 ---
 name: run-evals
-description: Run the cabinet-mcp eval suite and interpret results. Use whenever you finish a non-trivial change, want to check the eval baseline (current counts live in CLAUDE.md and this skill's body), filter evals by tag/difficulty/name, or debug a failing scenario. The eval harness calls tool handlers directly (no MCP transport) and runs in ~1 second.
+description: Run the cabineteer eval suite and interpret results. Use whenever you finish a non-trivial change, want to check the eval baseline (current counts live in CLAUDE.md and this skill's body), filter evals by tag/difficulty/name, or debug a failing scenario. The eval harness calls tool handlers directly (no MCP transport) and runs in ~1 second.
 ---
 
 # Running the eval suite

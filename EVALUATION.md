@@ -1,4 +1,4 @@
-# cadquery-furniture — Evaluation Report
+# cabineteer — Evaluation Report
 
 **Date:** 2026-04-05
 **Environment:** uv 0.11.2 / Python 3.10.12
@@ -11,7 +11,7 @@
 ```bash
 uv venv --python /usr/bin/python3
 uv pip install -e ".[dev]"
-uv run pytest cadquery_furniture/tests/ -v -p no:cacheprovider
+uv run pytest cabineteer/tests/ -v -p no:cacheprovider
 ```
 
 A `uv.lock` file has been generated for reproducibility. Add `addopts = "-p no:cacheprovider"` to `[tool.pytest.ini_options]` in `pyproject.toml` to avoid a temp-file cleanup error when running inside a sandbox/mounted filesystem.
@@ -28,7 +28,7 @@ All **33 tests pass** cleanly. Coverage is solid for the pure-Python evaluation 
 
 ### BUG 1 — `cutlist.py`: `extract_bom_parametric` always returns empty list
 
-**File:** `cadquery_furniture/cutlist.py`, line 129–151
+**File:** `cabineteer/cutlist.py`, line 129–151
 **Severity:** High — this function is broken and silently returns nothing
 
 ```python
@@ -71,7 +71,7 @@ def extract_bom_parametric(parts: list[PartInfo]) -> list[CutlistPanel]:
 
 ### BUG 2 — `cabinet.py`: `dado_x` mirror logic is inverted
 
-**File:** `cadquery_furniture/cabinet.py`, lines 129 and 139
+**File:** `cabineteer/cabinet.py`, lines 129 and 139
 **Severity:** High — dados are cut on the wrong face of each side panel
 
 ```python
@@ -94,7 +94,7 @@ The same inversion affects the rabbet cut for the back panel (line 119–125) an
 
 ### BUG 3 — `cabinet.py`: shelf pin hole x-position is identical for both sides
 
-**File:** `cadquery_furniture/cabinet.py`, line 151
+**File:** `cabineteer/cabinet.py`, line 151
 **Severity:** Medium — drilling goes to the same column on both left and right panels
 
 ```python
@@ -116,7 +116,7 @@ hole_x = cfg.side_thickness - cfg.shelf_pin_row_inset  if not mirror else cfg.sh
 
 ### BUG 4 — `evaluation.py`: duplicate drawer height error
 
-**File:** `cadquery_furniture/evaluation.py`, lines 118–135 and 136–146
+**File:** `cabineteer/evaluation.py`, lines 118–135 and 136–146
 **Severity:** Low — users see the same height violation twice
 
 `check_drawer_hardware_clearances` calls `slide.validate_drawer_dims(...)`, which already checks `drawer_height < min_drawer_height`. Then it checks the same condition again explicitly. A short drawer generates two `ERROR` issues with nearly identical messages.
@@ -127,7 +127,7 @@ hole_x = cfg.side_thickness - cfg.shelf_pin_row_inset  if not mirror else cfg.sh
 
 ### BUG 5 — `cutlist.py`: `consolidate_bom` discards original part notes
 
-**File:** `cadquery_furniture/cutlist.py`, line 181
+**File:** `cabineteer/cutlist.py`, line 181
 **Severity:** Low — "1/4 inch plywood" and similar material notes vanish after consolidation
 
 When a new key is first inserted, `notes=panel.name` overwrites `panel.notes`. Subsequent merges append only part names. Original notes (e.g. "1/4 inch plywood") are lost.
@@ -220,7 +220,7 @@ def test_evaluate_cabinet_clean():
 
 ```toml
 [tool.pytest.ini_options]
-testpaths = ["cadquery_furniture/tests"]
+testpaths = ["cabineteer/tests"]
 addopts = "-p no:cacheprovider"
 ```
 

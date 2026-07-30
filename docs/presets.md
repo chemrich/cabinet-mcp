@@ -59,8 +59,8 @@ visualize_cabinet(
 
 ```python
 from dataclasses import replace
-from cadquery_furniture.presets import get_preset
-from cadquery_furniture.evaluation import evaluate_cabinet, print_report
+from cabineteer.presets import get_preset
+from cabineteer.evaluation import evaluate_cabinet, print_report
 
 cfg = get_preset("kitchen_base_3_drawer").config
 

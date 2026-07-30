@@ -1157,7 +1157,7 @@ def _load_pulls_from_catalog(catalog_path=None) -> dict[str, PullSpec]:
     ``data/pulls_catalog.json`` is used.
     """
     if catalog_path is None:
-        data_resource = resources.files("cadquery_furniture") / "data" / "pulls_catalog.json"
+        data_resource = resources.files("cabineteer") / "data" / "pulls_catalog.json"
         raw_text = data_resource.read_text(encoding="utf-8")
     else:
         with open(catalog_path, "r", encoding="utf-8") as fh:
@@ -1228,7 +1228,7 @@ class PullPreset:
 
 
 def _load_pull_presets() -> dict[str, "PullPreset"]:
-    data_resource = resources.files("cadquery_furniture") / "data" / "pull_presets.json"
+    data_resource = resources.files("cabineteer") / "data" / "pull_presets.json"
     raw: dict = json.loads(data_resource.read_text(encoding="utf-8"))
     return {key: PullPreset(key=key, **vals) for key, vals in raw.items()}
 

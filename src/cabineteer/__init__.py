@@ -1,5 +1,5 @@
 """
-cadquery-furniture: Parametric furniture design, evaluation, and cutlist optimization.
+cabineteer: Parametric furniture design, evaluation, and cutlist optimization.
 
 Modules:
     hardware    - Slide/hinge specs as dataclasses

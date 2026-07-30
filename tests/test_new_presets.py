@@ -14,16 +14,16 @@ import asyncio
 import json
 import pytest
 
-from cadquery_furniture.presets import PRESETS, get_preset
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.evaluation import evaluate_cabinet, Severity
-from cadquery_furniture.furniture_refs import (
+from cabineteer.presets import PRESETS, get_preset
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.evaluation import evaluate_cabinet, Severity
+from cabineteer.furniture_refs import (
     FURNITURE_REFS,
     SYNONYM_TO_PRESETS,
     identify_furniture,
     _norm,
 )
-from cadquery_furniture.server import (
+from cabineteer.server import (
     _tool_identify_furniture_type,
     _tool_apply_preset,
 )
@@ -293,7 +293,7 @@ class TestDescribeMultiColumn:
     pull-selection gate)."""
 
     def test_multi_column_preset_reports_openings_and_hardware(self):
-        from cadquery_furniture.describe import describe_design
+        from cabineteer.describe import describe_design
 
         d = describe_design(get_preset("armoire_2col").config)
         # Aggregated counts across both columns: 6 drawers + 2 doors.
@@ -311,7 +311,7 @@ class TestDescribeMultiColumn:
         assert d["pull_selection_required"] is False
 
     def test_multi_column_without_pulls_triggers_pull_gate(self):
-        from cadquery_furniture.describe import describe_design
+        from cabineteer.describe import describe_design
 
         # bedroom_gentleman_chest is multi-column with no pull keys set.
         d = describe_design(get_preset("bedroom_gentleman_chest").config)
@@ -319,7 +319,7 @@ class TestDescribeMultiColumn:
         assert d["openings"]["counts"]  # non-empty
 
     def test_multi_column_stack_fills_interior_true_for_valid_preset(self):
-        from cadquery_furniture.describe import describe_design
+        from cabineteer.describe import describe_design
 
         d = describe_design(get_preset("armoire_2col").config)
         assert d["openings"]["stack_fills_interior"] is True
@@ -330,12 +330,12 @@ class TestImperialFormatter:
     '1 ft 12 in' because it rounded the inch remainder without carrying."""
 
     def test_600mm_renders_as_1ft_11_half_in(self):
-        from cadquery_furniture.describe import _mm_to_ft_in
+        from cabineteer.describe import _mm_to_ft_in
 
         assert _mm_to_ft_in(600) == "1 ft 11½ in"
 
     def test_no_twelve_inch_remainder(self):
-        from cadquery_furniture.describe import _mm_to_ft_in
+        from cabineteer.describe import _mm_to_ft_in
 
         # Sweep a range and assert we never emit "12 in" (must carry to feet).
         for mm in range(150, 3000, 3):
@@ -343,7 +343,7 @@ class TestImperialFormatter:
             assert "12 in" not in out, f"{mm} mm -> {out!r}"
 
     def test_exact_foot_boundaries(self):
-        from cadquery_furniture.describe import _mm_to_ft_in
+        from cabineteer.describe import _mm_to_ft_in
 
         assert _mm_to_ft_in(304.8) == "1 ft"      # exactly 12 in
         assert _mm_to_ft_in(1828.8) == "6 ft"     # exactly 72 in

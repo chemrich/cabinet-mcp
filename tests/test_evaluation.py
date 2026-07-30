@@ -6,10 +6,10 @@ is available.
 """
 
 import pytest
-from cadquery_furniture.cabinet import CabinetConfig
-from cadquery_furniture.drawer import DrawerConfig
-from cadquery_furniture.door import DoorConfig
-from cadquery_furniture.evaluation import (
+from cabineteer.cabinet import CabinetConfig
+from cabineteer.drawer import DrawerConfig
+from cabineteer.door import DoorConfig
+from cabineteer.evaluation import (
     Severity,
     check_cumulative_heights,
     check_drawer_hardware_clearances,
@@ -21,8 +21,8 @@ from cadquery_furniture.evaluation import (
     check_dado_alignment,
     evaluate_cabinet,
 )
-from cadquery_furniture.auto_fix import auto_fix_cabinet
-from cadquery_furniture.proportions import graduated_drawer_heights, column_widths
+from cabineteer.auto_fix import auto_fix_cabinet
+from cabineteer.proportions import graduated_drawer_heights, column_widths
 
 
 class TestCumulativeHeights:
@@ -613,9 +613,9 @@ cq = pytest.importorskip("cadquery", reason="geometric checks need CadQuery")
 class TestGeometricPaths:
     def test_drawer_in_opening_excludes_applied_face(self):
         """Review #3: bbox fit must ignore the overhanging applied face."""
-        from cadquery_furniture.drawer import build_drawer
-        from cadquery_furniture.hardware import get_slide
-        from cadquery_furniture.evaluation import check_drawer_in_opening
+        from cabineteer.drawer import build_drawer
+        from cabineteer.hardware import get_slide
+        from cabineteer.evaluation import check_drawer_in_opening
 
         dcfg = DrawerConfig(opening_width=564, opening_height=150, opening_depth=541)
         assy, _ = build_drawer(dcfg)
@@ -629,8 +629,8 @@ class TestGeometricPaths:
 
     def test_interference_ignores_group_nodes(self):
         """Review #3: root/group compounds must not self-intersect their children."""
-        from cadquery_furniture.drawer import build_drawer
-        from cadquery_furniture.evaluation import check_interference
+        from cabineteer.drawer import build_drawer
+        from cabineteer.evaluation import check_interference
 
         dcfg = DrawerConfig(opening_width=564, opening_height=150, opening_depth=541)
         assy, _ = build_drawer(dcfg)

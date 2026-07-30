@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from cadquery_furniture.visualize import (
+from cabineteer.visualize import (
     DEFAULT_DRAWER_BOX_FINISH,
     WOOD_FINISHES,
     _build_html,
@@ -199,8 +199,8 @@ class TestHtmlInjection:
 class TestNameValidation:
     def test_visualize_assembly_rejects_traversal_name(self, tmp_path):
         pytest.importorskip("cadquery")
-        from cadquery_furniture.cabinet import CabinetConfig, build_cabinet
-        from cadquery_furniture.visualize import visualize_assembly
+        from cabineteer.cabinet import CabinetConfig, build_cabinet
+        from cabineteer.visualize import visualize_assembly
 
         assy, parts = build_cabinet(CabinetConfig(width=400, height=500, depth=350))
         with pytest.raises(ValueError, match="Invalid name"):
@@ -211,8 +211,8 @@ class TestNameValidation:
 
     def test_build_and_visualize_rejects_traversal_name(self, tmp_path):
         pytest.importorskip("cadquery")
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.visualize import build_and_visualize
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.visualize import build_and_visualize
 
         with pytest.raises(ValueError, match="Invalid name"):
             build_and_visualize(
@@ -226,7 +226,7 @@ class TestVisualizeCabinetHandler:
         pytest.importorskip("cadquery")
         import asyncio
 
-        from cadquery_furniture import server as srv
+        from cabineteer import server as srv
 
         out = asyncio.run(srv._tool_visualize_cabinet({
             "width": 305, "height": 300, "depth": 300,

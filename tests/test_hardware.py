@@ -1,7 +1,7 @@
 """Tests for hardware specifications."""
 
 import pytest
-from cadquery_furniture.hardware import (
+from cabineteer.hardware import (
     BLUM_TANDEM_550H,
     BLUM_TANDEM_PLUS_563H,
     BLUM_MOVENTO_760H,
@@ -186,7 +186,7 @@ class TestPartNumberPricing:
     manufacturer part numbers for hinges/legs, catalog keys as fallback."""
 
     def test_every_priced_hinge_part_number_is_priced(self):
-        from cadquery_furniture.hardware import HINGES, PRICE_LIST, price_for
+        from cabineteer.hardware import HINGES, PRICE_LIST, price_for
         for key, spec in HINGES.items():
             if key in PRICE_LIST and spec.part_number:
                 assert price_for(spec.part_number) == PRICE_LIST[key], (
@@ -196,13 +196,13 @@ class TestPartNumberPricing:
     def test_170_hinge_part_number_priced(self):
         # Regression: PRICE_LIST used a dead '71T6580' alias while the spec
         # carries part_number '71B3750', pricing 170-degree hinges at $0.
-        from cadquery_furniture.hardware import get_hinge, price_for
+        from cabineteer.hardware import get_hinge, price_for
         assert price_for(get_hinge("blum_clip_top_170_full").part_number) == 12.00
 
     def test_every_priced_leg_part_number_is_priced(self):
         # Regression: leg BOM lines use spec.part_number as the SKU, but
         # PRICE_LIST only listed catalog keys — all Richelieu legs priced $0.
-        from cadquery_furniture.hardware import LEGS, PRICE_LIST, price_for
+        from cabineteer.hardware import LEGS, PRICE_LIST, price_for
         for key, spec in LEGS.items():
             if key in PRICE_LIST and spec.part_number:
                 assert price_for(spec.part_number) == PRICE_LIST[key], (
@@ -210,26 +210,26 @@ class TestPartNumberPricing:
                 )
 
     def test_leg_bom_line_prices_nonzero(self):
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.cutlist import leg_lines_for_cabinet_config
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.cutlist import leg_lines_for_cabinet_config
+        from cabineteer.hardware import price_for
         lines = leg_lines_for_cabinet_config(CabinetConfig())
         assert lines and price_for(lines[0].sku) == 18.00
 
 
 class TestSoldAsPair:
     def test_undermount_slides_sold_as_pairs(self):
-        from cadquery_furniture.hardware import get_slide
+        from cabineteer.hardware import get_slide
         for key in ("blum_tandem_550h", "blum_movento_769", "salice_futura"):
             assert get_slide(key).sold_as_pair, key
 
     def test_accuride_side_mount_sold_as_singles(self):
-        from cadquery_furniture.hardware import get_slide
+        from cabineteer.hardware import get_slide
         assert not get_slide("accuride_3832").sold_as_pair
 
     def test_pack_quantity_follows_sold_as_pair(self):
-        from cadquery_furniture.cabinet import CabinetConfig
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cabinet import CabinetConfig
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
 
         blum = CabinetConfig(drawer_slide="blum_tandem_550h", openings=[[200, "drawer"]])
         line = slide_lines_for_cabinet_config(blum)[0]
@@ -242,14 +242,14 @@ class TestSoldAsPair:
 
 class TestBuildConfigValidation:
     def test_unknown_key_raises_value_error_with_valid_keys(self):
-        from cadquery_furniture.cabinet import build_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
         with pytest.raises(ValueError, match="heigth.*Valid parameters"):
             build_cabinet_config({"width": 600, "heigth": 720})
 
 
 class TestShowWoodSheetPrices:
     def test_rift_white_oak_ply_priced(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         assert price_for("sheet_rift_white_oak_ply_18mm") == 209.00
 
 
@@ -258,14 +258,14 @@ class TestSlideExtension:
     swap was full extension from the paperwork (2026-07-23)."""
 
     def test_550h_is_the_only_partial_extension_slide(self):
-        from cadquery_furniture.hardware import SLIDES
+        from cabineteer.hardware import SLIDES
         assert SLIDES["blum_tandem_550h"].extension == "3/4"
         assert all(s.extension == "full" for k, s in SLIDES.items()
                    if k != "blum_tandem_550h")
 
     def test_bom_notes_state_extension(self):
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.cutlist import slide_lines_for_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.cutlist import slide_lines_for_cabinet_config
         cfg = build_cabinet_config({
             "width": 600, "height": 720, "depth": 550,
             "drawer_slide": "blum_tandem_plus_563h",
@@ -282,8 +282,8 @@ class TestHingeSystemBOM:
     add a 606N fastener line."""
 
     def _lines(self, hinge_key):
-        from cadquery_furniture.cabinet import build_cabinet_config
-        from cadquery_furniture.cutlist import hinge_lines_for_cabinet_config
+        from cabineteer.cabinet import build_cabinet_config
+        from cabineteer.cutlist import hinge_lines_for_cabinet_config
         cfg = build_cabinet_config({
             "width": 600, "height": 720, "depth": 550,
             "door_hinge": hinge_key,
@@ -326,7 +326,7 @@ class TestHingeSystemBOM:
     def test_all_clip_top_part_numbers_are_real_blum(self):
         # Suffix scheme: 71T=plain / 71B=BLUMOTION; 35/36/37 = full/half/
         # inset; ..90 INSERTA, ..50 screw-on; 71T6550 = 170°.
-        from cadquery_furniture.hardware import HINGES
+        from cabineteer.hardware import HINGES
         real = {"71T3590", "71B3590", "71T3690", "71B3690",
                 "71T3790", "71B3790", "71T6550"}
         clip_tops = {k: s for k, s in HINGES.items() if "clip_top" in k}

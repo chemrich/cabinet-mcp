@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cadquery_furniture.project import (
+from cabineteer.project import (
     apply_project_patch,
     build_project,
     duplicate_project,
@@ -24,7 +24,7 @@ from cadquery_furniture.project import (
     save_project,
     update_saved_project,
 )
-from cadquery_furniture.server import (
+from cabineteer.server import (
     _tool_design_project,
     _tool_duplicate_project,
     _tool_update_project,
@@ -57,7 +57,7 @@ def _payload(name: str = "fork_src") -> dict:
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     """Redirect the project store to tmp and pre-save the sample project."""
-    from cadquery_furniture import project as pmod
+    from cabineteer import project as pmod
     monkeypatch.setattr(pmod, "project_dir", lambda: tmp_path)
     save_project(build_project(_payload()))
     return tmp_path
@@ -307,7 +307,7 @@ class TestPatchCanonicalization:
         return name
 
     def test_pull_preset_patch_applies(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(store)
         proj, changes = pmod.update_saved_project({
             "name": name,
@@ -322,7 +322,7 @@ class TestPatchCanonicalization:
         assert cfg2.drawer_pull == cfg.drawer_pull
 
     def test_pull_preset_beats_shared_token(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(
             store, shared={"drawer_pull": "topknobs-hb-96"},
             name="fork_canon_sh")
@@ -334,7 +334,7 @@ class TestPatchCanonicalization:
         assert cfg.drawer_pull != "topknobs-hb-96"
 
     def test_drawer_config_patch_replaces_openings(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(store, name="fork_canon_dc")
         proj, changes = pmod.update_saved_project({
             "name": name,
@@ -344,7 +344,7 @@ class TestPatchCanonicalization:
         assert [o.height_mm for o in cfg.openings] == [300, 384]
 
     def test_num_drawers_patch_regenerates_stack(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(store, name="fork_canon_nd")
         proj, _ = pmod.update_saved_project({
             "name": name,
@@ -353,7 +353,7 @@ class TestPatchCanonicalization:
         assert len(cfg.openings) == 4
 
     def test_openings_patch_clears_columns(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         _run(_tool_design_project({
             "name": "fork_canon_cols", "cabinets": [{"name": "a", "config": {
                 "width": 900, "height": 700, "depth": 450,
@@ -371,7 +371,7 @@ class TestPatchCanonicalization:
         assert len(cfg.openings) == 2
 
     def test_add_then_edit_keeps_addtime_overrides(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(
             store, shared={"drawer_slide": "blum_tandem_550h",
                            "door_hinge": "blum_clip_top_blumotion_110_full"},
@@ -391,7 +391,7 @@ class TestPatchCanonicalization:
         assert cfg_b.drawer_slide == "blum_movento_769"
 
     def test_noop_patch_neither_logs_nor_saves(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(store, name="fork_canon_noop")
         path = pmod.project_path(name)
         before = path.read_text()
@@ -404,7 +404,7 @@ class TestPatchCanonicalization:
         assert path.read_text() == before
 
     def test_notes_null_clears(self, store):
-        import cadquery_furniture.project as pmod
+        import cabineteer.project as pmod
         name = self._saved(store, name="fork_canon_notes")
         proj, _ = pmod.update_saved_project({"name": name, "notes": None})
         assert proj.notes == ""

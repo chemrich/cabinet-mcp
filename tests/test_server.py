@@ -13,12 +13,12 @@ def test_server_importable():
 
     This catches broken MCP package releases (e.g. mcp 1.27.0 shipped without
     its own mcp.client.experimental subpackage, making *every* mcp import fail
-    at startup).  If this test fails, check `uv run cabinet-mcp --help` and
+    at startup).  If this test fails, check `uv run cabineteer --help` and
     compare the installed mcp version against the known-bad list in
     pyproject.toml.
     """
     import importlib
-    importlib.import_module("cadquery_furniture.server")
+    importlib.import_module("cabineteer.server")
 
 import asyncio
 import importlib.util
@@ -33,7 +33,7 @@ _cq_missing = importlib.util.find_spec("cadquery") is None
 skipif_no_cq = pytest.mark.skipif(_cq_missing, reason="cadquery not installed")
 
 # Import the internal handler functions directly (they're module-level)
-from cadquery_furniture.server import (
+from cabineteer.server import (
     DEFAULT_PORT,
     PORT_FILE,
     call_tool,
@@ -391,9 +391,16 @@ class TestDesignDrawer:
 # ─── generate_cutlist ─────────────────────────────────────────────────────────
 
 class TestGenerateCutlist:
+    @pytest.fixture(autouse=True)
+    def _isolated_home(self, tmp_path, monkeypatch):
+        # The tool writes real files under Path.home()/.cabineteer — keep
+        # every run out of the user's actual store (this class was the
+        # source of the test_cutlist_* strays found in the 2026-07-29
+        # review sweep).
+        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
     def _cutlist(self, **kwargs):
-        # Always name the output: the tool's default stem ("cabinet") would
-        # overwrite a user's real ~/.cabinet-mcp/cutlists/cabinet_* files.
         args = {"width": 600, "height": 720, "depth": 550,
                 "name": "test_cutlist", **kwargs}
         return parse(run(_tool_generate_cutlist(args)))
@@ -462,7 +469,7 @@ class TestGenerateCutlist:
     # They are skipped automatically when it is absent.
 
     def test_sheets_used_present_when_rectpack(self):
-        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        from cabineteer.cutlist import _RECTPACK_AVAILABLE
         if not _RECTPACK_AVAILABLE:
             pytest.skip("rectpack not installed")
         data = self._cutlist()
@@ -471,7 +478,7 @@ class TestGenerateCutlist:
         assert data["sheets_used"] >= 1
 
     def test_waste_pct_present_when_rectpack(self):
-        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        from cabineteer.cutlist import _RECTPACK_AVAILABLE
         if not _RECTPACK_AVAILABLE:
             pytest.skip("rectpack not installed")
         data = self._cutlist()
@@ -479,7 +486,7 @@ class TestGenerateCutlist:
         assert 0.0 <= data["waste_pct"] <= 100.0
 
     def test_unplaced_panels_present_when_rectpack(self):
-        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        from cabineteer.cutlist import _RECTPACK_AVAILABLE
         if not _RECTPACK_AVAILABLE:
             pytest.skip("rectpack not installed")
         data = self._cutlist()
@@ -487,7 +494,7 @@ class TestGenerateCutlist:
         assert isinstance(data["unplaced_panels"], list)
 
     def test_standard_cabinet_has_no_unplaced(self):
-        from cadquery_furniture.cutlist import _RECTPACK_AVAILABLE
+        from cabineteer.cutlist import _RECTPACK_AVAILABLE
         if not _RECTPACK_AVAILABLE:
             pytest.skip("rectpack not installed")
         # A 600×720×550 cabinet should fit on standard 4×8 sheets with no oversized panels.
@@ -495,16 +502,16 @@ class TestGenerateCutlist:
         assert data["unplaced_panels"] == []
 
     def test_optimization_note_mentions_guillotine(self):
-        from cadquery_furniture.cutlist import _OPCUT_AVAILABLE, _RECTPACK_AVAILABLE
+        from cabineteer.cutlist import _OPCUT_AVAILABLE, _RECTPACK_AVAILABLE
         if not (_OPCUT_AVAILABLE or _RECTPACK_AVAILABLE):
             pytest.skip("no guillotine optimizer installed (lite mode)")
         data = self._cutlist()
         assert "guillotine" in data["optimization_note"].lower()
 
     def test_optimization_note_strip_fallback_when_no_opcut(self, monkeypatch):
-        import cadquery_furniture.server as srv
+        import cabineteer.server as srv
         monkeypatch.setattr(srv, "_OPCUT_AVAILABLE", False)
-        import cadquery_furniture.cutlist as cl
+        import cabineteer.cutlist as cl
         monkeypatch.setattr(cl, "_OPCUT_AVAILABLE", False)
         data = self._cutlist()
         assert "sheets_used" in data
@@ -617,35 +624,35 @@ class TestPortFile:
     """Tests for the port-file write/clear helpers."""
 
     def test_write_creates_file(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         write_port_file(3749, path=p)
         assert p.exists()
 
     def test_write_contains_port_number(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         write_port_file(4242, path=p)
         assert p.read_text() == "4242"
 
     def test_write_overwrites_previous(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         write_port_file(1111, path=p)
         write_port_file(2222, path=p)
         assert p.read_text() == "2222"
 
     def test_clear_removes_file(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         p.write_text("3749")
         clear_port_file(path=p)
         assert not p.exists()
 
     def test_clear_is_idempotent(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         # File does not exist — clear should not raise.
         clear_port_file(path=p)
         clear_port_file(path=p)
 
     def test_roundtrip(self, tmp_path):
-        p = tmp_path / "cabinet-mcp.port"
+        p = tmp_path / "cabineteer.port"
         port = find_free_port(start=19900)
         write_port_file(port, path=p)
         assert int(p.read_text()) == port

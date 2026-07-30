@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from cadquery_furniture.server import (
+from cabineteer.server import (
     _tool_list_hardware,
     _tool_design_pulls,
     _tool_design_drawer,

@@ -6,7 +6,7 @@ All tests are pure-Python (no CadQuery).
 
 import pytest
 
-from cadquery_furniture.joinery import (
+from cabineteer.joinery import (
     DrawerJoineryStyle,
     CarcassJoinery,
     DrawerJoinerySpec,
@@ -26,15 +26,15 @@ from cadquery_furniture.joinery import (
     DEFAULT_BISCUIT,
     DEFAULT_DOWEL,
 )
-from cadquery_furniture.evaluation import (
+from cabineteer.evaluation import (
     Severity,
     check_drawer_joinery,
     check_domino_layout,
     check_pocket_screw_layout,
     check_carcass_joinery,
 )
-from cadquery_furniture.drawer import DrawerConfig
-from cadquery_furniture.cabinet import CabinetConfig
+from cabineteer.drawer import DrawerConfig
+from cabineteer.cabinet import CabinetConfig
 
 
 # ─── DrawerJoinerySpec ────────────────────────────────────────────────────────

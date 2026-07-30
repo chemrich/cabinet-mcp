@@ -2,10 +2,10 @@
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig, ColumnConfig
-from cadquery_furniture.cutlist import edge_band_lines_for_panels
-from cadquery_furniture.evaluation import check_edge_banding
-from cadquery_furniture.server import _raw_panels_for_cabinet
+from cabineteer.cabinet import CabinetConfig, ColumnConfig
+from cabineteer.cutlist import edge_band_lines_for_panels
+from cabineteer.evaluation import check_edge_banding
+from cabineteer.server import _raw_panels_for_cabinet
 
 
 def _cfg(**kw) -> CabinetConfig:
@@ -100,12 +100,12 @@ class TestBandBom:
         assert line.pieces_needed == math.ceil(mm / 304.8 * 1.15)
 
     def test_hot_melt_priced(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         assert price_for("edgeband-hotmelt-white_oak") == 14.80
         assert price_for("edgeband-hotmelt-white_birch") == 15.50
 
     def test_hardwood_line_unpriced_rip_stock(self):
-        from cadquery_furniture.hardware import price_for
+        from cabineteer.hardware import price_for
         cfg = _cfg(edge_band_mode="hardwood", edge_band_thickness_mm=6.4)
         c, f = _panels(cfg)
         lines = edge_band_lines_for_panels(c + f, cfg)
@@ -160,7 +160,7 @@ class TestEdgeBandingCheck:
 
 class TestSharedToken:
     def test_token_round_trips_and_merges(self):
-        from cadquery_furniture.project import (
+        from cabineteer.project import (
             SharedDesign, _merge, _shared_to_dict, shared_from_dict,
         )
         shared = shared_from_dict({
@@ -176,6 +176,6 @@ class TestSharedToken:
         assert _shared_to_dict(shared)["edge_band_mode"] == "hardwood"
 
     def test_unknown_token_still_rejected(self):
-        from cadquery_furniture.project import shared_from_dict
+        from cabineteer.project import shared_from_dict
         with pytest.raises(ValueError, match="Unknown shared design token"):
             shared_from_dict({"edge_band_moed": "hardwood"})

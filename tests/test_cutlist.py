@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from cadquery_furniture.cutlist import (
+from cabineteer.cutlist import (
     CutlistPanel,
     SheetStock,
     SHEET_4x8_3_4,
@@ -11,7 +11,7 @@ from cadquery_furniture.cutlist import (
     to_json,
     to_csv,
 )
-from cadquery_furniture.cabinet import PartInfo
+from cabineteer.cabinet import PartInfo
 
 
 class TestConsolidateBom:
@@ -143,7 +143,7 @@ class TestLiteModeImport:
         import subprocess, sys
         code = (
             "import sys; sys.modules['reportlab'] = None; "
-            "import cadquery_furniture.cutlist as cl; "
+            "import cabineteer.cutlist as cl; "
             "assert not cl._REPORTLAB_AVAILABLE; "
             "assert not hasattr(cl, '_SheetDrawingFlowable')"
         )
@@ -155,7 +155,7 @@ class TestImperialAnnotations:
     print request, Jul 2026."""
 
     def test_inch_frac_values(self):
-        from cadquery_furniture.cutlist import _inch_frac
+        from cabineteer.cutlist import _inch_frac
         assert _inch_frac(1219.2) == "48"          # exact inches drop fraction
         assert _inch_frac(457) == "18"             # rounds to whole
         assert _inch_frac(324) == "12 3/4"         # reduced from 24/32
@@ -164,7 +164,7 @@ class TestImperialAnnotations:
         assert _inch_frac(663.6) == "26 1/8"
 
     def test_thickness_nominal_labels(self):
-        from cadquery_furniture.cutlist import _thickness_imperial
+        from cabineteer.cutlist import _thickness_imperial
         assert _thickness_imperial(18) == '3/4"'   # trade name, not 23/32
         assert _thickness_imperial(12) == '1/2"'
         assert _thickness_imperial(6) == '1/4"'
@@ -172,7 +172,7 @@ class TestImperialAnnotations:
     def test_graphics_metric_only_with_part_ids(self):
         # Charlie's split (Jul 2026): imperial lives in the TABLES; the
         # cut-sheet graphics stay metric-only and carry the row IDs.
-        from cadquery_furniture.cutlist import (
+        from cabineteer.cutlist import (
             CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
             generate_sheet_layout_html)
         panels = [CutlistPanel(name="side", length=663.6, width=457,
@@ -193,7 +193,7 @@ class TestImperialAnnotations:
         # line — they overprinted. Both lines must rotate as ONE group so
         # their spacing stays perpendicular to the reading direction.
         import re
-        from cadquery_furniture.cutlist import (
+        from cabineteer.cutlist import (
             CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
             generate_sheet_layout_html)
         panels = [CutlistPanel(name="back", length=522.8, width=711.2,
@@ -216,7 +216,7 @@ class TestImperialAnnotations:
         assert "rotate" not in m.group(3)  # no per-line rotation inside
 
     def test_part_ids_batch_lettering(self):
-        from cadquery_furniture.cutlist import CutlistPanel, assign_part_ids
+        from cabineteer.cutlist import CutlistPanel, assign_part_ids
         ps = [CutlistPanel(name="side", length=100, width=50, thickness=18,
                            source="dining"),
               CutlistPanel(name="drawer_box_side", length=100, width=50,
@@ -230,7 +230,7 @@ class TestImperialAnnotations:
         assert [x.part_id for x in ps] == ["A-S1", "A-DB1", "B-DB1", "B-DB2"]
 
     def test_per_sheet_project_key_lists_only_present_projects(self):
-        from cadquery_furniture.cutlist import (
+        from cabineteer.cutlist import (
             CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
             generate_sheet_layout_html)
         stock = SheetStock(name="s", length=2440, width=1220, thickness=18)
@@ -255,7 +255,7 @@ class TestImperialAnnotations:
     def test_global_sheet_numbers_across_groups(self):
         # Numbers run 1..N across ALL groups (never reset per material) so
         # Charlie can pencil them on the physical sheet edges.
-        from cadquery_furniture.cutlist import (
+        from cabineteer.cutlist import (
             CutlistPanel, SheetStock, optimize_cutlist, assign_part_ids,
             generate_sheet_layout_html)
         stock = SheetStock(name="s", length=2440, width=1220, thickness=18)

@@ -1,9 +1,9 @@
 ---
 name: cabinet-review
-description: Run Charlie's full-codebase or multi-module review-and-fix workflow for cabinet-mcp. Use for a broad correctness/security review across many modules, or when asked for a "top-to-bottom" review. Covers the parallel module-agent fan-out, verification, the fixes-as-their-own-PR convention, and merging only on explicit go.
+description: Run Charlie's full-codebase or multi-module review-and-fix workflow for cabineteer. Use for a broad correctness/security review across many modules, or when asked for a "top-to-bottom" review. Covers the parallel module-agent fan-out, verification, the fixes-as-their-own-PR convention, and merging only on explicit go.
 ---
 
-# Cabinet-mcp review → fix → merge workflow
+# Cabineteer review → fix → merge workflow
 
 This is the established shape for a broad review of this repo (used for PR #21). It fans review out across modules in parallel, verifies findings independently, then lands fixes as a dedicated PR that Charlie merges on his explicit call.
 

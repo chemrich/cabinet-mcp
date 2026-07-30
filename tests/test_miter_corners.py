@@ -2,13 +2,13 @@
 
 import pytest
 
-from cadquery_furniture.cabinet import CabinetConfig, CarcassJoinery
-from cadquery_furniture.evaluation import check_miter_corners
-from cadquery_furniture.joinery import (
+from cabineteer.cabinet import CabinetConfig, CarcassJoinery
+from cabineteer.evaluation import check_miter_corners
+from cabineteer.joinery import (
     get_domino_size,
     miter_mortise_placement,
 )
-from cadquery_furniture.server import _raw_panels_for_cabinet
+from cabineteer.server import _raw_panels_for_cabinet
 
 
 def _cfg(**kw) -> CabinetConfig:
@@ -119,7 +119,7 @@ class TestMiterCheck:
 
 class TestMiterToken:
     def test_shared_token_merges(self):
-        from cadquery_furniture.project import _merge, shared_from_dict
+        from cabineteer.project import _merge, shared_from_dict
         shared = shared_from_dict({"carcass_corner_style": "miter"})
         merged = _merge(CabinetConfig(width=800, height=700, depth=457),
                         shared, frozenset())
