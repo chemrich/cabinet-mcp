@@ -1,38 +1,70 @@
 # MCP server
 
-`server.py` exposes the full pipeline as twenty-seven MCP tools. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
+`server.py` exposes the full pipeline as **thirty MCP tools**. The server runs over stdio by default; pass `--http` to run a persistent HTTP/SSE process instead.
+
+(MCP — Model Context Protocol — is the plug-in standard that lets AI clients like Claude Code, Claude Desktop, and Gemini CLI call local tools. You register the server once; after that, everything happens in plain-English conversation.)
 
 ## Tools
+
+### Discover
 
 | Tool | What it does |
 |---|---|
 | `list_presets` | Browse the named preset catalogue; filter by category or tag |
-| `apply_preset` | Load a preset config dict; optionally override individual fields |
-| `list_hardware` | Catalogue of slides, hinges, legs, and pulls (keys, specs, clearances); accepts `brand=` / `mount_style=` filters on pulls |
+| `apply_preset` | Load a preset config; optionally override individual fields |
+| `list_hardware` | Catalogue of slides, hinges, legs, and pulls (keys, specs, clearances); `brand=` / `mount_style=` filters on pulls |
 | `list_joinery_options` | Drawer and carcass joinery styles; Domino tenon sizes |
-| `design_cabinet` | Parametric layout — panel sizes, opening stack, joinery; accepts `num_drawers` + `drawer_proportion` for auto-graduated heights |
-| `design_multi_column_cabinet` | Multi-column carcass; accepts `num_columns` + `column_proportion` + `wide_index` plus `num_drawers` + `drawer_proportion` for fully proportional auto-layout |
-| `evaluate_cabinet` | Full structural/fit evaluation; returns issues by severity |
-| `auto_fix_cabinet` | One-pass deterministic repair of common errors (stack height, rabbet alignment) |
-| `describe_design` | Prose summary for design review before visualization |
-| `design_door` | Door dimensions, hinge count, Z-positions; optional pull block with per-leaf placements and BOM |
-| `design_drawer` | Drawer box dimensions, joinery cut specs, standard-height snapping; optional pull block with placements and BOM |
-| `design_legs` | Leg placement coordinates, load-per-leg check, hardware BOM |
-| `design_pulls` | Whole-cabinet pull pass — per-slot placements, cabinet-level style check, consolidated hardware BOM with pack-quantity totals — [docs/pulls.md](pulls.md) |
-| `generate_cutlist` | Panel BOM with guillotine sheet layout (sheets used, waste %), hardware BOM with list-price cost estimate, JSON/CSV export |
-| `compare_joinery` | Side-by-side drawer joinery cut dimensions for a stock thickness |
-| `suggest_proportions` | Compare all four proportion presets (equal / subtle / classic / golden) for a given cabinet — [docs/proportions.md](proportions.md) |
-| `visualize_cabinet` | 3D assembly → GLB + HTML viewer with x-ray (X) and open-drawer (O) toggles |
-| `identify_furniture_type` | Map a natural-language furniture name to the closest preset / opening layout |
 | `list_pull_presets` | Named pull bundles (drawer pull + door pull + orientation) |
-| `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabineteer/projects/<name>.json` |
-| `list_projects` | Catalogue of every saved project — names, cabinet counts, run widths, notes, modified times; `query=` substring filter, newest-first sort, dev-artifact hiding |
-| `load_project` | Load a saved project's durable payload back for continued editing or reuse |
-| `rename_project` | Rename a snapshot (file stem + embedded name); refuses to overwrite |
+| `identify_furniture_type` | Map a natural-language furniture name ("chiffoniere?") to the closest preset / opening layout |
+| `suggest_proportions` | Compare all four proportion presets (equal / subtle / classic / golden) for a cabinet — [proportions.md](proportions.md) |
+
+### Design
+
+| Tool | What it does |
+|---|---|
+| `design_cabinet` | Parametric layout — panel sizes, opening stack, joinery; `num_drawers` + `drawer_proportion` for auto-graduated heights |
+| `design_multi_column_cabinet` | Multi-column carcass; `num_columns` + `column_proportion` + `wide_index` for fully proportional auto-layout |
+| `design_drawer` | Drawer box dimensions, joinery cut specs, standard-height snapping; optional pull block with placements and BOM |
+| `design_door` | Door dimensions, hinge count, positions; optional pull block with per-leaf placements and BOM |
+| `design_legs` | Leg placement coordinates, load-per-leg check, hardware BOM |
+| `design_pulls` | Whole-cabinet pull pass — per-slot placements, style check, consolidated BOM with pack quantities — [pulls.md](pulls.md) |
+| `compare_joinery` | Side-by-side drawer joinery cut dimensions for a stock thickness |
+
+### Check and describe
+
+| Tool | What it does |
+|---|---|
+| `evaluate_cabinet` | Full structural/fit evaluation; returns issues by severity with measured values |
+| `auto_fix_cabinet` | One-pass deterministic repair of common errors (stack height, rabbet alignment) |
+| `describe_design` | Prose summary (metric + imperial) for design review before visualization |
+
+### Visualize
+
+| Tool | What it does |
+|---|---|
+| `visualize_cabinet` | 3D assembly → self-contained HTML viewer; wood finishes, grain direction, open/x-ray/clip/diagnostic shortcuts — [viewer.md](viewer.md) |
+| `visualize_project` | All cabinets of a project in one 3D scene at their run offsets, worktop included |
+
+### Projects — [projects.md](projects.md)
+
+| Tool | What it does |
+|---|---|
+| `design_project` | Multi-cabinet project with a shared design-token block; persists to `~/.cabineteer/projects/<name>.json`; refuses to overwrite unless asked |
+| `list_projects` | Saved-project catalogue — names, cabinet counts, run widths, notes, modified times; `query=` filter, newest-first, dev-artifact hiding |
+| `load_project` | Load a saved project back for continued editing or reuse |
+| `update_project` | **Delta edits** — patch fields, rename/add/remove cabinets, adjust the worktop, all without re-describing the design |
+| `rename_project` | Rename a snapshot (file + embedded name); refuses to overwrite |
+| `duplicate_project` | Fork a design; the copy carries `forked_from` lineage forever |
 | `delete_project` | Permanently delete a saved snapshot (confirm with the user first) |
 | `evaluate_project` | Per-cabinet evaluation plus cross-cabinet consistency checks |
-| `generate_project_cutlist` | Merged cutlist/BOM for one project — or several saved projects batched via `project_names`, with per-project colours, labels, and hardware breakdowns |
-| `visualize_project` | All cabinets in one 3D scene at their run offsets |
+
+### Build documents
+
+| Tool | What it does |
+|---|---|
+| `generate_cutlist` | Panel BOM with part IDs, sheet layouts (4 algorithms incl. shop-sequence `rips_first`), priced hardware BOM, HTML/PDF/CSV/JSON — [cutlists.md](cutlists.md) |
+| `generate_project_cutlist` | Same for a whole project — or several projects batched into one purchase with per-project colors and labels |
+| `generate_assembly_instructions` | Printable carcass assembly docs — joint census, mortise maps, machine setup, dry-fit-first steps — [assembly.md](assembly.md) |
 
 ## Recommended workflow
 
@@ -42,6 +74,8 @@ list_presets → apply_preset → evaluate_cabinet
         auto_fix_cabinet → evaluate_cabinet
             ↓
         describe_design → user review → visualize_cabinet
+            ↓
+        design_project (save) → generate_project_cutlist → generate_assembly_instructions
 ```
 
 Tool descriptions encode this sequence — the LLM is instructed never to skip evaluation or visualize before the user has approved the described design.
@@ -51,9 +85,9 @@ Tool descriptions encode this sequence — the LLM is instructed never to skip e
 One-liner — registers at user scope so it's available in every session:
 
 ```bash
-claude mcp add cabinet -- uv --directory /absolute/path/to/cabineteer run cabineteer
-claude mcp list          # verify "cabinet" connected
-claude mcp remove cabinet
+claude mcp add cabineteer -- uv --directory /absolute/path/to/cabineteer run cabineteer
+claude mcp list          # verify "cabineteer" connected
+claude mcp remove cabineteer
 ```
 
 Inside a Claude Code session, `/mcp` lists connected servers and their tools.

@@ -2,6 +2,8 @@
 
 `presets.py` ships twenty-six named, pre-validated `CabinetConfig` instances. Each one has its opening-stack heights pre-calculated to fill `interior_height` exactly, so it passes `evaluate_cabinet` with zero issues. They're exposed via the `list_presets` and `apply_preset` MCP tools, and directly via `get_preset(name)` in Python.
 
+Sensible defaults across the catalogue: every door preset specs Blum BLUMOTION soft-close hinges (full-overlay except where a neighbouring column forces half-overlay), and the workshop presets use pre-finished Baltic birch drawer boxes — no finishing step on shop furniture.
+
 | Name | Category | Dimensions (W×H×D) | Notes |
 |------|----------|--------------------|-------|
 | `kitchen_base_3_drawer` | kitchen | 600 × 720 × 550 | 300/192/192 mm stack, Blum Tandem 550H |

@@ -1,5 +1,7 @@
 # cabineteer — Evaluation Report
 
+> **Historical document** — an external evaluation from April 2026, kept for the record alongside the dated code-review docs. **Every bug listed below has since been fixed** (see CLAUDE.md "Known issues" for the fix notes), and the test counts are long superseded.
+
 **Date:** 2026-04-05
 **Environment:** uv 0.11.2 / Python 3.10.12
 **Test run:** 33 passed, 0 failed in 0.03s
