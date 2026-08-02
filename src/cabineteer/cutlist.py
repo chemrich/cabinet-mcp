@@ -44,7 +44,9 @@ except ImportError:
     _OPCUT_AVAILABLE = False
 
 try:
-    from reportlab.lib.pagesizes import A4, landscape as _rl_landscape
+    from reportlab.lib.pagesizes import (
+        A4, letter as _rl_letter, landscape as _rl_landscape,
+    )
     from reportlab.lib.units import mm as _rl_mm
     from reportlab.lib.colors import HexColor as _HexColor
     from reportlab.platypus import (
@@ -93,6 +95,21 @@ _PROJECT_PALETTE = (
     "#EBC9DC",  # reddish purple (base #CC79A7)
     "#D6D6D6",  # grey         (base #999999)
 )
+
+
+def _paper_size(paper: str):
+    """Resolve a paper name to a reportlab page size (portrait tuple).
+
+    US Letter is the default for every generated PDF — Charlie prints on
+    letter, not A4 (2026-08-02); pass paper="a4" for A4. Only call from
+    PDF paths that have already checked _REPORTLAB_AVAILABLE.
+    """
+    sizes = {"letter": _rl_letter, "a4": A4}
+    try:
+        return sizes[paper.lower()]
+    except KeyError:
+        raise ValueError(
+            f"Unknown paper size {paper!r} — use 'letter' or 'a4'")
 
 
 def _inch_frac(mm: float) -> str:
@@ -2233,6 +2250,7 @@ schedule below — longest first.</div>
 
 def generate_banding_cutlist_pdf(
     panels: list["CutlistPanel"], cfg, cabinet_name: str,
+    paper: str = "letter",
 ) -> bytes:
     """Printable banding cutlist as PDF (same content as the HTML).
 
@@ -2240,7 +2258,7 @@ def generate_banding_cutlist_pdf(
     corner treatment; the board-by-board chop plan follows. Free-text cells
     are Paragraphs (plain strings never wrap — the #43 lesson). Raises
     ``ImportError`` when reportlab is unavailable (callers degrade like the
-    layout PDF).
+    layout PDF). ``paper``: "letter" (default) or "a4".
     """
     if not _REPORTLAB_AVAILABLE:
         raise ImportError(
@@ -2249,7 +2267,6 @@ def generate_banding_cutlist_pdf(
         )
     from xml.sax.saxutils import escape as _xml
     from reportlab.lib import colors as _colors
-    from reportlab.lib.pagesizes import A4 as _A4
     from reportlab.lib.styles import getSampleStyleSheet as _styles
     from reportlab.lib.units import mm as _MM
     from reportlab.platypus import (
@@ -2354,7 +2371,7 @@ def generate_banding_cutlist_pdf(
     # Margins sized so the 180 mm chop-plan table fits the frame — the
     # default 1" margins left a 159 mm frame under a 176 mm table and the
     # Offcut column ran into the right margin (review 2026-07-29 minor 6).
-    _Doc(buf, pagesize=_A4,
+    _Doc(buf, pagesize=_paper_size(paper),
          leftMargin=15 * _MM, rightMargin=15 * _MM,
          title=f"Banding cutlist — {cabinet_name}").build(story)
     return buf.getvalue()
@@ -3158,6 +3175,7 @@ def generate_sheet_layout_pdf(
     cabinet_name: str = "Cabinet",
     kerf: float = 3.2,
     hardware_lines: "list[HardwareLine] | None" = None,
+    paper: str = "letter",
 ) -> bytes:
     """Generate a PDF cutlist document with sheet layouts and parts list.
 
@@ -3170,6 +3188,8 @@ def generate_sheet_layout_pdf(
         Used in the document title.
     kerf:
         Saw kerf in mm (shown in the header).
+    paper:
+        "letter" (default) or "a4"; the document is landscape either way.
 
     Returns
     -------
@@ -3196,7 +3216,7 @@ def generate_sheet_layout_pdf(
     # and aborts the whole PDF. Escape before interpolation.
     safe_cabinet_name = _xml_escape(cabinet_name)
 
-    PAGE = _rl_landscape(A4)
+    PAGE = _rl_landscape(_paper_size(paper))
     MARGIN = 15 * _rl_mm
     CW = PAGE[0] - 2 * MARGIN   # usable content width
 

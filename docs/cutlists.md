@@ -75,7 +75,7 @@ Override keys are `material@thickness`, `material`, or `@thickness` (most specif
 
 ## The layout drawings
 
-`generate_cutlist` writes a self-contained HTML file (per-sheet SVG drawings, tabs per thickness) and an A4-landscape PDF (sheet drawings + parts list + guillotine cut-sequence tables). Both show:
+`generate_cutlist` writes a self-contained HTML file (per-sheet SVG drawings, tabs per thickness) and a landscape PDF (sheet drawings + parts list + guillotine cut-sequence tables; US Letter by default, `paper: "a4"` for A4). Both show:
 
 - Numbered breakdown cuts with dimensions, in cutting order
 - Rotated part labels with part IDs, fitted to their panels

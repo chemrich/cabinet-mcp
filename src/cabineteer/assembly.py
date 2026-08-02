@@ -3,8 +3,8 @@
 Pure Python (no CadQuery).  Builds an :class:`AssemblyPlan` from a
 ``CabinetConfig`` — the per-joint tenon layout, DF 500 machine settings,
 per-panel mortise maps, and an ordered step list with a mandatory dry fit
-before glue-up — then renders it as a self-contained HTML document or an
-A4-landscape PDF.
+before glue-up — then renders it as a self-contained HTML document or a
+portrait PDF (US Letter default, A4 optional).
 
 Conventions
 -----------
@@ -1247,8 +1247,10 @@ def generate_assembly_html(
 def generate_assembly_pdf(
     plans: list[AssemblyPlan],
     project_name: str = "Cabinet",
+    paper: str = "letter",
 ) -> bytes:
-    """A4-landscape PDF mirroring the HTML content."""
+    """Portrait PDF mirroring the HTML content — US Letter by default,
+    ``paper="a4"`` for A4."""
     from .cutlist import _REPORTLAB_AVAILABLE
     if not _REPORTLAB_AVAILABLE:
         raise ImportError(
@@ -1260,16 +1262,15 @@ def generate_assembly_pdf(
     from xml.sax.saxutils import escape as xesc
 
     from .cutlist import (
-        A4 as _A4,
         _getSampleStyleSheet, _HexColor, _KeepTogether, _PageBreak,
-        _Paragraph, _ParagraphStyle, _rl_mm,
+        _Paragraph, _ParagraphStyle, _paper_size, _rl_mm,
         _SimpleDocTemplate, _Spacer, _Table, _TableStyle, _Flowable,
     )
 
-    # Portrait A4 with ~10 pt body text: these pages are read at the bench,
+    # Portrait with ~10 pt body text: these pages are read at the bench,
     # not at a desk — readability beats density (Charlie, 2026-08-02;
     # the old landscape layout ran 7.5–8.5 pt and was hard to read).
-    PAGE = _A4
+    PAGE = _paper_size(paper)
     MARGIN = 14 * _rl_mm
     CW = PAGE[0] - 2 * MARGIN
 
