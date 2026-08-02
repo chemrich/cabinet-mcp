@@ -53,10 +53,11 @@ class TestMiterPlan:
         assert top.draw_width == pytest.approx(1219.2)
         assert all(r.kind == "miter" for r in top.rows if r.axis == "v"
                    and r.label == "")
-        # Divider centreline shifts right by side_thickness under the
-        # long-point panel origin: 582.6 + 18/2 + 18 = 609.6.
+        # Row = divider LEFT face + 10 mm base-height reference, shifted
+        # right by side_thickness under the long-point panel origin:
+        # 582.6 + 10 + 18 = 610.6.
         div_row = next(r for r in top.rows if "divider" in r.label)
-        assert div_row.offset == pytest.approx(582.6 + 9 + 18)
+        assert div_row.offset == pytest.approx(582.6 + 10 + 18)
 
     def test_miter_steps_and_ordering(self):
         plan = build_assembly_plan(_miter_cfg())

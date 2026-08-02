@@ -12,7 +12,9 @@ Identical cabinets in a run collapse into one set of instructions marked ×N, an
 
 **Mortise positions measured from the front edge.** For floating-tenon carcasses, mortise centres come from the same spacing rule the BOM uses, measured from the FRONT edge on **both** mating parts — the single convention that keeps a divider from going in offset. Tenon size follows stock thickness: 5 × 30 mm for stock up to 19 mm, 8 × 40 mm above.
 
-**Machine setup block.** For a Festool DF 500: cutter, plunge depth, fence height, and a per-thickness fence schedule when the build mixes stock.
+**One registration system in the thickness direction too.** Every slot sits **10 mm from a marked reference face** (top/bottom: outside face; shelves: underside; dividers: left face) — 10 mm because that's the DF 500's *fixed* base height, the only registration available for face mortises mid-panel. The fence is therefore set to 10 mm to match (a 0-offset base plate like the Seneca Domiplate is the same setting), **not** centred at t/2: centring the edge slots while the face slots ride the base puts the two halves of a joint 1 mm out of plane in 18 mm stock, and a tight-width Domino joint won't close. Slots land slightly off-centre in the stock — intentional and harmless. Stock under 15 mm falls back to centred slots with an explicit batten offset in the machine table.
+
+**Machine setup block.** For a Festool DF 500: cutter, plunge depth, the 10 mm fence/registration setting, and the batten lines for face rows.
 
 **Per-panel mortise maps.** A drawing per panel showing every mortise on it — face mortises in red, edge mortises in blue — so you can lay a panel on the bench and drill everything it needs in one session.
 
