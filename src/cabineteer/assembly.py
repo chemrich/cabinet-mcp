@@ -583,7 +583,8 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             f"height drops the cutter axis {DF500_BASE_HEIGHT_MM:g} mm "
             "past the line, exactly where the fence put the mating edge "
             "slots. Never register face rows off the fence numbers or by "
-            "eye against the mating panel. "
+            "eye against the mating panel. (Section drawings in the "
+            "'Registration' pages show this joint in cross-section.) "
             + (f"Face rows land on: {', '.join(face_panels)} — the RED "
                "rows in the mortise maps. "
                if face_panels else "")
@@ -717,6 +718,283 @@ _SVG_W = 460.0   # px drawing width per panel
 
 #: Mortise-row colours by kind (shared by the SVG and PDF renderers).
 _ROW_COLOURS = {"face": "#c0392b", "edge": "#2471a3", "miter": "#8e44ad"}
+
+
+# ─── Registration explainer (section diagrams) ──────────────────────────────
+# Charlie couldn't picture how an internal divider's mortises line up from
+# the flat maps alone (2026-08-02): the maps show WHERE the rows go, but not
+# how the two halves of a joint register in the thickness direction. These
+# three section views — cut the face slots, cut the edge slots, assembled —
+# make the shared 10 mm reference visible. Scene geometry is built ONCE
+# (primitive shapes in mm coordinates, y-up) and walked by a small SVG
+# renderer for HTML and a small Flowable for the PDF.
+
+_EXPLAIN_GREY = "#b9b1a3"      # battens / fence / machine bodies
+_EXPLAIN_WOOD = "#f7efd8"      # panel fill (matches the mortise maps)
+_EXPLAIN_WOOD_EDGE = "#7a6a4f"
+_EXPLAIN_REF = "#c0392b"       # the reference line — same red as face rows
+_EXPLAIN_TENON = "#6d4c2f"
+
+
+def _registration_case(plan: AssemblyPlan) -> Optional[dict]:
+    """Pick the most instructive butt joint for the explainer's labels.
+
+    Dividers first (the case that confuses — mid-panel, nothing to hook a
+    fence on), then fixed shelves (same geometry), then plain corners.
+    Returns None when the plan has no butt joints (all-miter corners only).
+    """
+    if not any(j.kind == "butt" for j in plan.joints):
+        return None
+    names = " ".join(j.name for j in plan.joints)
+    if "divider" in names:
+        return {
+            "case": "divider",
+            "host": "bottom (or top) panel",
+            "standing": "divider",
+            "ref_line": "divider's LEFT-face layout line",
+            "ride_face": "LEFT face",
+            "footprint": "divider stands here",
+        }
+    if "shelf" in names:
+        return {
+            "case": "shelf",
+            "host": "side panel (or divider), lying on the bench",
+            "standing": "fixed shelf",
+            "ref_line": "shelf's UNDERSIDE layout line",
+            "ride_face": "UNDERSIDE",
+            "footprint": "shelf lands here",
+        }
+    return {
+        "case": "corner",
+        "host": "side panel",
+        "standing": "bottom / top panel",
+        "ref_line": "panel END (= outside-face line)",
+        "ride_face": "OUTSIDE face",
+        "footprint": "top/bottom sits here",
+    }
+
+
+def _registration_scenes(plan: AssemblyPlan) -> Optional[dict]:
+    """Build the explainer: intro prose + three primitive-shape scenes.
+
+    Primitives (mm coordinates, y-up; renderers scale and flip as needed):
+      ("rect",  x, y, w, h, fill, stroke, dashed)
+      ("line",  x1, y1, x2, y2, colour, dashed)
+      ("text",  x, y, string, anchor)          anchor: start|middle|end
+      ("dim",   x1, x2, y, label)              horizontal dimension
+      ("dimv",  y1, y2, x, label)              vertical dimension
+    """
+    labels = _registration_case(plan)
+    if labels is None:
+        return None
+    t = plan.stock_thickness
+    ref = _ref_offset(t)
+    off = DF500_BASE_HEIGHT_MM
+    thin = t < BASE_REF_MIN_THICKNESS_MM
+
+    intro = [
+        "Every butt joint here is two sets of slots: FACE slots plunged "
+        "into one panel's face, and EDGE slots plunged into the mating "
+        "panel's end. They line up because both are measured from the SAME "
+        "reference — a marked reference face and its layout line: "
+        "top/bottom → outside face · fixed shelves → underside · dividers "
+        "→ left face.",
+        f"Why {off:g} mm? The DF 500 standing on its base puts the cutter "
+        f"axis a fixed {off:g} mm above the surface — that number is "
+        "machined into the tool and registers every FACE slot. So the "
+        f"fence is set to the same {off:g} mm for the EDGE slots (a "
+        "0-offset Domiplate rides at exactly this height), and the two "
+        "cuts meet. Setting the fence to t/2 to \"centre\" the slot breaks "
+        "this — the halves miss by 1 mm in 18 mm stock and a tight joint "
+        "will not close.",
+        "The slots sit slightly off-centre in the stock. That is fine: "
+        "flushness comes from sharing one reference, not from centring. "
+        "Do not recentre.",
+    ]
+    if labels["case"] == "divider":
+        # Count actual dividers by edge part ("divider N ↔ bottom/top") —
+        # matching on joint NAME would also catch shelf ↔ divider joints.
+        div_names = sorted({j.edge_part for j in plan.joints
+                            if j.edge_part.startswith("divider")})
+        n_div = len(div_names)
+        intro.append(
+            "For an internal divider there is no panel end to feel for — "
+            "the LEFT-face layout line on the top/bottom panel does that "
+            "job. Strike it where the divider's left face goes (the "
+            "mortise maps mark these lines), clamp the batten ON it, and "
+            "the base drops the face slots exactly where the divider's "
+            f"edge slots expect them ({n_div} divider"
+            f"{'s' if n_div != 1 else ''} in this build, all cut the same "
+            "way).")
+    if thin:
+        intro.append(
+            f"THIN-STOCK NOTE: this build has {t:g} mm carcass panels — "
+            f"too thin for the {off:g} mm reference, so the machine table "
+            f"uses centred slots (fence {t / 2:g} mm) and the batten "
+            f"clamps {off - t / 2:g} mm SHORT of the line instead. The "
+            "diagrams below show the standard ≥ 15 mm geometry.")
+
+    # Diagrams always draw the standard ≥ 15 mm geometry (18 mm stock,
+    # 10 mm reference) — the thin-stock intro note covers the exception.
+    host_t = 18.0                        # drawn host thickness
+    lx = 120.0                           # reference line x
+    ax = lx + off                        # cutter axis x
+
+    # Scene A — face slots on the host panel.
+    a: list = [
+        ("rect", 0, 0, 250, host_t, _EXPLAIN_WOOD, _EXPLAIN_WOOD_EDGE, False),
+        ("text", 4, host_t / 2 - 3, labels["host"], "start"),
+        # Footprint of the standing panel (ghost).
+        ("rect", lx, host_t, host_t, 58, "none", _EXPLAIN_WOOD_EDGE, True),
+        ("text", lx + host_t + 4, host_t + 46, labels["footprint"],
+         "start"),
+        # Reference line.
+        ("line", lx, -6, lx, 92, _EXPLAIN_REF, True),
+        ("text", lx - 4, 84, labels["ref_line"] + " — batten HERE", "end"),
+        # Batten (outside the footprint) and machine (inside it).
+        ("rect", lx - 26, host_t, 26, 24, _EXPLAIN_GREY,
+         _EXPLAIN_WOOD_EDGE, False),
+        ("text", lx - 13, host_t + 9, "batten", "middle"),
+        ("rect", lx, host_t, 96, 42, "#e8e4dc", _EXPLAIN_WOOD_EDGE, False),
+        ("text", lx + 48, host_t + 28, "DF 500 standing on its base,",
+         "middle"),
+        ("text", lx + 48, host_t + 17, "front butted against the batten",
+         "middle"),
+        # Cutter axis + face slot (15 mm plunge → 3 mm wall in 18 mm).
+        ("line", ax, host_t + 42, ax, 1, _ROW_COLOURS["face"], True),
+        ("rect", ax - 2.5, host_t - 15, 5, 15, "none",
+         _ROW_COLOURS["face"], False),
+        ("dim", lx, ax, -12, f"{(ax - lx):g} mm — fixed base height"),
+    ]
+    scene_a = {"title": "1 · FACE slots — host panel, machine on its base",
+               "w": 250.0, "h": 100.0, "pad_b": 22.0, "prims": a}
+
+    # Scene B — edge slots on the standing panel (lying flat, ref face up).
+    end_x = 170.0
+    slot_cy = host_t - (ax - lx)          # 10 mm down from the ref face
+    b: list = [
+        ("rect", 0, 0, end_x, host_t, _EXPLAIN_WOOD, _EXPLAIN_WOOD_EDGE,
+         False),
+        ("text", 4, host_t / 2 - 3, labels["standing"] + " (lying flat)",
+         "start"),
+        # Reference face on top, fence/plate riding it.
+        ("line", 0, host_t, end_x, host_t, _EXPLAIN_REF, False),
+        ("rect", 40, host_t, 130, 9, _EXPLAIN_GREY, _EXPLAIN_WOOD_EDGE,
+         False),
+        ("text", 105, host_t + 12,
+         f"fence @ {(ax - lx):g} mm (or 0-offset plate) rides the "
+         f"{labels['ride_face']} — the REFERENCE face", "middle"),
+        # Edge slot plunged into the end (15 mm deep).
+        ("rect", end_x - 15, slot_cy - 2.5, 15, 5, "none",
+         _ROW_COLOURS["edge"], False),
+        ("text", end_x - 16, slot_cy - 1.5, "plunge into the end", "end"),
+        ("dimv", host_t, slot_cy, end_x + 10, f"{(ax - lx):g}"),
+    ]
+    scene_b = {"title": "2 · EDGE slots — standing panel, fence or plate "
+                        "on the reference face",
+               "w": 200.0, "h": 52.0, "pad_b": 8.0, "prims": b}
+
+    # Scene C — assembled: one shared axis, flush by construction.
+    c: list = [
+        ("rect", 0, 0, 250, host_t, _EXPLAIN_WOOD, _EXPLAIN_WOOD_EDGE,
+         False),
+        ("text", 4, host_t / 2 - 3, labels["host"], "start"),
+        ("rect", lx, host_t, host_t, 74, _EXPLAIN_WOOD, _EXPLAIN_WOOD_EDGE,
+         False),
+        ("text", lx + host_t / 2, host_t + 78, labels["standing"],
+         "middle"),
+        ("line", lx, -6, lx, 100, _EXPLAIN_REF, True),
+        ("text", lx - 4, 92, "your layout line", "end"),
+        # The 5×30 tenon: 15 mm in each part, on the shared axis.
+        ("rect", ax - 2.5, host_t - 15, 5, 30, _EXPLAIN_TENON,
+         _EXPLAIN_TENON, False),
+        ("rect", ax - 2.5, host_t - 15, 5, 15, "none",
+         _ROW_COLOURS["face"], False),
+        ("rect", ax - 2.5, host_t, 5, 15, "none", _ROW_COLOURS["edge"],
+         False),
+        ("dim", lx, ax, -12, f"{(ax - lx):g} mm in BOTH parts"),
+        ("text", lx + host_t + 6, host_t + 40,
+         f"{labels['ride_face']} lands ON the line — flush, no math",
+         "start"),
+    ]
+    scene_c = {"title": "3 · Assembled — the two cuts meet on one axis",
+               "w": 250.0, "h": 118.0, "pad_b": 22.0, "prims": c}
+
+    return {"intro": intro, "scenes": [scene_a, scene_b, scene_c],
+            "case": labels["case"]}
+
+
+def _scene_svg(scene: dict) -> str:
+    """Render one explainer scene as an inline SVG (y flipped to y-down)."""
+    from xml.sax.saxutils import escape
+
+    S = 2.1                     # px per mm
+    pad = 14.0
+    pad_b = scene.get("pad_b", 8.0) * S
+    W = scene["w"] * S + 2 * pad
+    H = scene["h"] * S + pad + pad_b
+
+    def X(mm: float) -> float:
+        return pad + mm * S
+
+    def Y(mm: float) -> float:
+        return pad + scene["h"] * S - mm * S
+
+    out = [f'<svg viewBox="0 0 {W:.0f} {H:.0f}" '
+           f'style="max-width:{W:.0f}px" xmlns="http://www.w3.org/2000/svg">']
+    for p in scene["prims"]:
+        kind = p[0]
+        if kind == "rect":
+            _, x, y, w, h, fill, stroke, dashed = p
+            dash = ' stroke-dasharray="5 3"' if dashed else ""
+            out.append(
+                f'<rect x="{X(x):.1f}" y="{Y(y + h):.1f}" '
+                f'width="{w * S:.1f}" height="{h * S:.1f}" '
+                f'fill="{fill}" stroke="{stroke}" stroke-width="1"{dash}/>')
+        elif kind == "line":
+            _, x1, y1, x2, y2, colour, dashed = p
+            dash = ' stroke-dasharray="5 3"' if dashed else ""
+            out.append(
+                f'<line x1="{X(x1):.1f}" y1="{Y(y1):.1f}" x2="{X(x2):.1f}" '
+                f'y2="{Y(y2):.1f}" stroke="{colour}" '
+                f'stroke-width="1.2"{dash}/>')
+        elif kind == "text":
+            _, x, y, s, anchor = p
+            out.append(
+                f'<text x="{X(x):.1f}" y="{Y(y):.1f}" font-size="10" '
+                f'fill="#333" text-anchor="{anchor}">{escape(s)}</text>')
+        elif kind == "dim":
+            _, x1, x2, y, label = p
+            yy = Y(y)
+            out.append(
+                f'<line x1="{X(x1):.1f}" y1="{yy:.1f}" x2="{X(x2):.1f}" '
+                f'y2="{yy:.1f}" stroke="#333" stroke-width="1"/>')
+            for xx in (x1, x2):
+                out.append(
+                    f'<line x1="{X(xx):.1f}" y1="{yy - 4:.1f}" '
+                    f'x2="{X(xx):.1f}" y2="{yy + 4:.1f}" stroke="#333" '
+                    'stroke-width="1"/>')
+            out.append(
+                f'<text x="{X((x1 + x2) / 2):.1f}" y="{yy + 13:.1f}" '
+                f'font-size="10" font-weight="bold" fill="#333" '
+                f'text-anchor="middle">{escape(label)}</text>')
+        elif kind == "dimv":
+            _, y1, y2, x, label = p
+            xx = X(x)
+            out.append(
+                f'<line x1="{xx:.1f}" y1="{Y(y1):.1f}" x2="{xx:.1f}" '
+                f'y2="{Y(y2):.1f}" stroke="#333" stroke-width="1"/>')
+            for yy in (y1, y2):
+                out.append(
+                    f'<line x1="{xx - 4:.1f}" y1="{Y(yy):.1f}" '
+                    f'x2="{xx + 4:.1f}" y2="{Y(yy):.1f}" stroke="#333" '
+                    'stroke-width="1"/>')
+            out.append(
+                f'<text x="{xx + 6:.1f}" y="{Y((y1 + y2) / 2) + 3:.1f}" '
+                f'font-size="10" font-weight="bold" fill="#333" '
+                f'text-anchor="start">{escape(label)}</text>')
+    out.append("</svg>")
+    return "".join(out)
 
 
 def _panel_svg(pm: PanelMortiseMap) -> str:
@@ -908,6 +1186,22 @@ def generate_assembly_html(
             "at a time; reused across copies</td></tr>")
         out.append("</table>")
 
+        # Registration explainer — three section views showing how the
+        # face and edge slots share one reference (Charlie, 2026-08-02).
+        reg = _registration_scenes(plan)
+        if reg is not None:
+            out.append("<h3>Registration — how the two halves of a joint "
+                       "line up</h3>")
+            for para in reg["intro"]:
+                out.append(f"<p class='reg'>{escape(para)}</p>")
+            out.append("<div class='maps'>")
+            for scene in reg["scenes"]:
+                out.append("<div class='map'>")
+                out.append(f"<h4>{escape(scene['title'])}</h4>")
+                out.append(_scene_svg(scene))
+                out.append("</div>")
+            out.append("</div>")
+
         # Mortise maps
         out.append("<h3>Mortise maps</h3>")
         legend = ("<p class='legend'><span class='f'>◗ red = face "
@@ -1079,6 +1373,87 @@ def generate_assembly_pdf(
             c.drawCentredString(self.width / 2, 2,
                                 "mortise centres, mm from front edge")
 
+    class _SceneFlowable(_Flowable):
+        """Draws one registration-explainer scene (mm coords, y-up —
+        matching the canvas, so no flip)."""
+
+        _S = 2.0                                  # pt per mm
+
+        def __init__(self, scene: dict, avail_w: float) -> None:
+            super().__init__()
+            self._sc = scene
+            self._pad = 10.0
+            self._pad_b = scene.get("pad_b", 8.0) * self._S
+            self.width = min(avail_w,
+                             scene["w"] * self._S + 2 * self._pad)
+            self.height = (scene["h"] * self._S + self._pad
+                           + self._pad_b)
+
+        def draw(self) -> None:
+            c = self.canv
+            S, pad = self._S, self._pad
+
+            def X(mm: float) -> float:
+                return pad + mm * S
+
+            def Y(mm: float) -> float:
+                return self._pad_b + mm * S
+
+            for p in self._sc["prims"]:
+                kind = p[0]
+                if kind == "rect":
+                    _, x, y, w, h, fill, stroke, dashed = p
+                    c.setDash(4, 3) if dashed else c.setDash()
+                    c.setStrokeColor(_HexColor(stroke))
+                    c.setLineWidth(0.8)
+                    if fill == "none":
+                        c.rect(X(x), Y(y), w * S, h * S, fill=0, stroke=1)
+                    else:
+                        c.setFillColor(_HexColor(fill))
+                        c.rect(X(x), Y(y), w * S, h * S, fill=1, stroke=1)
+                    c.setDash()
+                elif kind == "line":
+                    _, x1, y1, x2, y2, colour, dashed = p
+                    c.setDash(4, 3) if dashed else c.setDash()
+                    c.setStrokeColor(_HexColor(colour))
+                    c.setLineWidth(0.9)
+                    c.line(X(x1), Y(y1), X(x2), Y(y2))
+                    c.setDash()
+                elif kind == "text":
+                    _, x, y, s, anchor = p
+                    c.setFillColor(_HexColor("#333333"))
+                    c.setFont("Helvetica", 6.5)
+                    if anchor == "middle":
+                        c.drawCentredString(X(x), Y(y), s)
+                    elif anchor == "end":
+                        c.drawRightString(X(x), Y(y), s)
+                    else:
+                        c.drawString(X(x), Y(y), s)
+                elif kind == "dim":
+                    _, x1, x2, y, label = p
+                    yy = Y(y)
+                    c.setStrokeColor(_HexColor("#333333"))
+                    c.setLineWidth(0.8)
+                    c.setDash()
+                    c.line(X(x1), yy, X(x2), yy)
+                    for xx in (x1, x2):
+                        c.line(X(xx), yy - 3, X(xx), yy + 3)
+                    c.setFillColor(_HexColor("#333333"))
+                    c.setFont("Helvetica-Bold", 6.5)
+                    c.drawCentredString(X((x1 + x2) / 2), yy - 9, label)
+                elif kind == "dimv":
+                    _, y1, y2, x, label = p
+                    xx = X(x)
+                    c.setStrokeColor(_HexColor("#333333"))
+                    c.setLineWidth(0.8)
+                    c.setDash()
+                    c.line(xx, Y(y1), xx, Y(y2))
+                    for yy in (y1, y2):
+                        c.line(xx - 3, Y(yy), xx + 3, Y(yy))
+                    c.setFillColor(_HexColor("#333333"))
+                    c.setFont("Helvetica-Bold", 6.5)
+                    c.drawString(xx + 4, Y((y1 + y2) / 2) - 2, label)
+
     buf = io.BytesIO()
     doc = _SimpleDocTemplate(
         buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN,
@@ -1145,6 +1520,24 @@ def generate_assembly_pdf(
         t = _Table(data, colWidths=[CW * 0.52, CW * 0.08, CW * 0.40])
         t.setStyle(tbl_style())
         story.append(t)
+
+        # Registration explainer — section views of one joint showing the
+        # shared 10 mm reference (Charlie, 2026-08-02).
+        reg = _registration_scenes(plan)
+        if reg is not None:
+            story.append(_PageBreak())
+            story.append(_Paragraph(
+                "Registration — how the two halves of a joint line up",
+                h1))
+            for para in reg["intro"]:
+                story.append(_Paragraph(xesc(para), norm))
+                story.append(_Spacer(1, 1.5 * _rl_mm))
+            for scene in reg["scenes"]:
+                story.append(_KeepTogether([
+                    _Spacer(1, 2 * _rl_mm),
+                    _Paragraph(f"<b>{xesc(scene['title'])}</b>", norm),
+                    _SceneFlowable(scene, CW),
+                ]))
 
         story.append(_PageBreak())
         story.append(_Paragraph(

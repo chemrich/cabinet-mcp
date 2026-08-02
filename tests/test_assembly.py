@@ -380,6 +380,33 @@ class TestReferenceFaceRegistration:
         div_map = next(p for p in plan.panels if "divider" in p.panel)
         assert "LEFT face" in div_map.note
 
+    def test_registration_explainer_prefers_dividers(self):
+        from cabineteer.assembly import _registration_scenes
+        reg = _registration_scenes(build_assembly_plan(_two_col()))
+        assert reg["case"] == "divider"
+        assert len(reg["scenes"]) == 3
+        intro = " ".join(reg["intro"])
+        assert "LEFT-face layout line" in intro
+        assert "10 mm" in intro
+        # Corner-only build falls back to the corner labels.
+        reg2 = _registration_scenes(build_assembly_plan(_box()))
+        assert reg2["case"] == "corner"
+
+    def test_registration_section_renders_in_html(self):
+        from cabineteer.assembly import generate_assembly_html
+        html = generate_assembly_html(
+            [build_assembly_plan(_two_col())], "p")
+        assert "Registration — how the two halves" in html
+        assert "DF 500 standing on its base," in html
+        assert "flush, no math" in html
+
+    def test_registration_section_renders_in_pdf(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.assembly import generate_assembly_pdf
+        pdf = generate_assembly_pdf(
+            [build_assembly_plan(_two_col())], "p")
+        assert pdf.startswith(b"%PDF")
+
     def test_steps_carry_the_reference_system(self):
         plan = build_assembly_plan(_box())
         titles = [s.title for s in plan.steps]
