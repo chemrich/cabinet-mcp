@@ -407,6 +407,46 @@ class TestReferenceFaceRegistration:
             [build_assembly_plan(_two_col())], "p")
         assert pdf.startswith(b"%PDF")
 
+
+class TestPaperSize:
+    """US Letter is the default page everywhere (Charlie prints letter,
+    2026-08-02); A4 stays available via paper='a4'."""
+
+    def test_paper_size_resolver(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.cutlist import _paper_size
+        assert _paper_size("letter") == (612.0, 792.0)
+        assert round(_paper_size("a4")[1], 2) == 841.89
+        assert _paper_size("A4") == _paper_size("a4")
+        with pytest.raises(ValueError, match="letter"):
+            _paper_size("legal")
+
+    def test_assembly_pdf_defaults_to_letter(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.assembly import generate_assembly_pdf
+        plan = build_assembly_plan(_box())
+        pdf = generate_assembly_pdf([plan], "p")
+        assert b"612" in pdf and b"792" in pdf          # letter MediaBox
+        pdf_a4 = generate_assembly_pdf([plan], "p", paper="a4")
+        assert b"841.8" in pdf_a4                        # A4 MediaBox
+
+    def test_layout_and_banding_pdfs_accept_paper(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.cutlist import (
+            CutlistPanel, SheetStock, optimize_cutlist,
+            generate_sheet_layout_pdf,
+        )
+        panels = [CutlistPanel(name="side", length=700, width=400,
+                               thickness=18, quantity=2)]
+        result = optimize_cutlist(
+            panels, SheetStock(name="s", length=2440, width=1220,
+                               thickness=18))
+        pdf = generate_sheet_layout_pdf([("18mm", panels, result)], "t")
+        assert b"612" in pdf                             # letter default
+        pdf_a4 = generate_sheet_layout_pdf(
+            [("18mm", panels, result)], "t", paper="a4")
+        assert b"841.8" in pdf_a4
+
     def test_steps_carry_the_reference_system(self):
         plan = build_assembly_plan(_box())
         titles = [s.title for s in plan.steps]

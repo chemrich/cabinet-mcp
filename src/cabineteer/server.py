@@ -1277,6 +1277,12 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Output format.",
                         "default": "both",
                     },
+                    "paper": {
+                        "type": "string",
+                        "enum": ["letter", "a4"],
+                        "default": "letter",
+                        "description": "PDF paper size — US Letter by default; 'a4' for A4.",
+                    },
                     "optimizer": {
                         "type": "string",
                         "enum": ["auto", "opcut", "rectpack", "strip", "rips_first"],
@@ -2690,6 +2696,7 @@ async def list_tools() -> list[types.Tool]:
                     "kerf":         {"type": "number", "default": 3.2},
                     "format":       {"type": "string", "enum": ["json", "csv", "both"], "default": "both"},
                     "optimizer":    {"type": "string", "enum": ["auto", "opcut", "rectpack", "strip", "rips_first"], "default": "auto"},
+                    "paper":        {"type": "string", "enum": ["letter", "a4"], "default": "letter", "description": "PDF paper size — US Letter by default; 'a4' for A4."},
                 },
             },
         ),
@@ -2732,6 +2739,12 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "enum": ["html", "pdf", "both"],
                         "default": "both",
+                    },
+                    "paper": {
+                        "type": "string",
+                        "enum": ["letter", "a4"],
+                        "default": "letter",
+                        "description": "PDF paper size — US Letter by default; 'a4' for A4.",
                     },
                 },
             },
@@ -3753,6 +3766,7 @@ def _cutlist_pipeline(
     optimizer_overrides: dict | None = None,
     band_cfg=None,
     band_panels: list | None = None,
+    paper: str = "letter",
 ) -> dict[str, Any]:
     """Shared post-panel cutlist pipeline: per-thickness sheet optimisation,
     sheet-goods pricing, file output (CSV/JSON/hardware BOM/layout HTML/PDF),
@@ -3965,7 +3979,7 @@ def _cutlist_pipeline(
         try:
             pdf_bytes = generate_sheet_layout_pdf(
                 layout_groups, cabinet_name=name, kerf=kerf,
-                hardware_lines=hw_lines or None,
+                hardware_lines=hw_lines or None, paper=paper,
             )
             pdf_path = out_dir / f"{name}_layout.pdf"
             pdf_path.write_bytes(pdf_bytes)
@@ -3973,6 +3987,39 @@ def _cutlist_pipeline(
         except ImportError:
             pipeline_notes.append(
                 "Layout PDF skipped — reportlab not installed (lite mode).")
+
+        # Standalone portrait cut-parts documents — the pages taped to the
+        # saw (Charlie, 2026-08-02). One combined doc always; per-project
+        # docs additionally on multi-project batches.
+        try:
+            from .cutlist import (
+                generate_parts_list_pdf, _source_letters_from_groups,
+            )
+            all_parts = [p for _, pnls, _ in layout_groups for p in pnls]
+            all_parts.sort(
+                key=lambda p: (p.source, p.thickness, p.material, p.name))
+            letters = _source_letters_from_groups(layout_groups)
+            p_path = out_dir / f"{name}_parts.pdf"
+            p_path.write_bytes(generate_parts_list_pdf(
+                all_parts, cabinet_name=name, paper=paper,
+                source_letters=letters or None))
+            files["parts_pdf"] = str(p_path)
+            if letters:
+                for src, letter in letters.items():
+                    sub = [p for p in all_parts if p.source == src]
+                    if not sub:
+                        continue
+                    p_path = out_dir / f"{_safe_stem(src, kind='project name')}_parts.pdf"
+                    p_path.write_bytes(generate_parts_list_pdf(
+                        sub, cabinet_name=src, paper=paper,
+                        subtitle=(f"Project {letter} in batch {name} — "
+                                  "part IDs match the batch sheet "
+                                  "layouts.")))
+                    files[f"parts_pdf_{src}"] = str(p_path)
+        except ImportError:
+            pipeline_notes.append(
+                "Parts-list PDF skipped — reportlab not installed "
+                "(lite mode).")
 
     # ── Banding cutlist (board→strip→piece) ────────────────────────────────
     # band_cfg is the run's hardwood band config with a purchase spec; the
@@ -4012,8 +4059,8 @@ def _cutlist_pipeline(
             p.write_text(to_banding_csv(banded, band_cfg))
             files["banding_cutlist_csv"] = str(p)
             try:
-                pdf_bytes = generate_banding_cutlist_pdf(banded, band_cfg,
-                                                         name)
+                pdf_bytes = generate_banding_cutlist_pdf(
+                    banded, band_cfg, name, paper=paper)
                 p = out_dir / f"{name}_banding_cutlist.pdf"
                 p.write_bytes(pdf_bytes)
                 files["banding_cutlist_pdf"] = str(p)
@@ -4110,6 +4157,9 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         args.pop("optimizer_overrides", None))
     kerf         = float(args.pop("kerf", 3.2))
     optimizer    = str(args.pop("optimizer", "auto"))
+    paper        = str(args.pop("paper", "letter")).lower()
+    if paper not in ("letter", "a4"):
+        raise ValueError(f"paper must be 'letter' or 'a4', got {paper!r}.")
     name         = _safe_stem(args.pop("name", "cabinet"), kind="cutlist name")
     columns_raw  = args.pop("columns", None)
     args.pop("furniture_top", None)
@@ -4140,6 +4190,7 @@ async def _tool_generate_cutlist(args: dict) -> list[types.TextContent]:
         sheet_size_overrides=sheet_size_overrides,
         optimizer_overrides=optimizer_overrides,
         band_cfg=cfg,
+        paper=paper,
     )
     return _ok(result)
 
@@ -5172,6 +5223,9 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         args.get("optimizer_overrides"))
     kerf         = float(args.get("kerf", 3.2))
     optimizer    = str(args.get("optimizer", "auto"))
+    paper        = str(args.get("paper", "letter")).lower()
+    if paper not in ("letter", "a4"):
+        raise ValueError(f"paper must be 'letter' or 'a4', got {paper!r}.")
 
     # Accumulate raw panels and hardware lines across every child cabinet.
     raw_carcass:    list[CutlistPanel] = []
@@ -5279,6 +5333,7 @@ async def _tool_generate_project_cutlist(args: dict) -> list[types.TextContent]:
         optimizer_overrides=optimizer_overrides,
         band_cfg=band_doc_cfg,
         band_panels=band_doc_panels if band_doc_cfg is not None else None,
+        paper=paper,
     )
     result = {
         "project": out_name,
@@ -5310,6 +5365,9 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
         # dict and no explanation.
         raise ValueError(
             f"format must be 'html', 'pdf', or 'both', got {fmt!r}.")
+    paper = str(args.get("paper", "letter")).lower()
+    if paper not in ("letter", "a4"):
+        raise ValueError(f"paper must be 'letter' or 'a4', got {paper!r}.")
 
     # Part IDs must match the project's own cutlist. Mirror the single-project
     # cutlist path: raw panels per cabinet → consolidate_bom per list →
@@ -5399,7 +5457,8 @@ async def _tool_generate_assembly_instructions(args: dict) -> list[types.TextCon
     if fmt in ("pdf", "both"):
         try:
             p = out_dir / f"{project.name}_assembly.pdf"
-            p.write_bytes(generate_assembly_pdf(plans, project.name))
+            p.write_bytes(
+                generate_assembly_pdf(plans, project.name, paper=paper))
             files["pdf"] = str(p)
         except ImportError:
             notes.append(

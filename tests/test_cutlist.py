@@ -274,3 +274,56 @@ class TestImperialAnnotations:
         assert "Sheet #3 " in html          # group 2 continues, not resets
         assert html.count("Sheet #") == 3
         assert "(#1–#2)" in html and ("(#3–#3)" in html or "(#3)" in html)
+
+
+class TestPartsListBenchFormat:
+    """Charlie's approved cut-parts format (2026-08-02): bold metric row,
+    grey imperial sub-row, spanning note rows, per-project section headers
+    instead of a Project column."""
+
+    def _panels(self):
+        from cabineteer.cutlist import CutlistPanel, assign_part_ids
+        a = CutlistPanel(name="side", length=1168, width=457, thickness=18,
+                         quantity=4)
+        b = CutlistPanel(name="bottom", length=1183, width=447.8,
+                         thickness=18, quantity=3,
+                         edge_band=["front"], notes="core — band to 451")
+        assign_part_ids([a, b])
+        return [a, b]
+
+    def test_row_structure(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.cutlist import _parts_table
+        tbl = _parts_table(self._panels(), 500.0)
+        rows = tbl._cellvalues
+        # header + (metric+imperial) + (metric+imperial+note) = 6
+        assert len(rows) == 6
+        assert rows[0][0] == "ID"
+        assert rows[1][0] == "S1"                 # metric row carries the ID
+        assert rows[2][0] == ""                   # imperial sub-row: no ID
+        # Note row spans — its text combines banding markers and notes.
+        note_para = rows[5][1]
+        assert "band: front" in note_para.text
+        assert "core" in note_para.text
+
+    def test_project_section_headers(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.cutlist import _parts_table
+        panels = self._panels()
+        for p in panels:
+            p.source = "kid1-desk"
+        tbl = _parts_table(panels, 500.0,
+                           source_letters={"kid1-desk": "B"})
+        rows = tbl._cellvalues
+        assert len(rows) == 7                     # + one section header row
+        assert "Project B — kid1-desk" in rows[1][0].text
+
+    def test_generate_parts_list_pdf_letter_default(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.cutlist import generate_parts_list_pdf
+        pdf = generate_parts_list_pdf(self._panels(), "bench_test")
+        assert pdf.startswith(b"%PDF")
+        assert b"612" in pdf and b"792" in pdf    # portrait US Letter
+        pdf_a4 = generate_parts_list_pdf(self._panels(), "bench_test",
+                                         paper="a4")
+        assert b"841.8" in pdf_a4

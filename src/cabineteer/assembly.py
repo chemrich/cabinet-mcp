@@ -3,8 +3,8 @@
 Pure Python (no CadQuery).  Builds an :class:`AssemblyPlan` from a
 ``CabinetConfig`` — the per-joint tenon layout, DF 500 machine settings,
 per-panel mortise maps, and an ordered step list with a mandatory dry fit
-before glue-up — then renders it as a self-contained HTML document or an
-A4-landscape PDF.
+before glue-up — then renders it as a self-contained HTML document or a
+portrait PDF (US Letter default, A4 optional).
 
 Conventions
 -----------
@@ -1247,8 +1247,10 @@ def generate_assembly_html(
 def generate_assembly_pdf(
     plans: list[AssemblyPlan],
     project_name: str = "Cabinet",
+    paper: str = "letter",
 ) -> bytes:
-    """A4-landscape PDF mirroring the HTML content."""
+    """Portrait PDF mirroring the HTML content — US Letter by default,
+    ``paper="a4"`` for A4."""
     from .cutlist import _REPORTLAB_AVAILABLE
     if not _REPORTLAB_AVAILABLE:
         raise ImportError(
@@ -1260,44 +1262,46 @@ def generate_assembly_pdf(
     from xml.sax.saxutils import escape as xesc
 
     from .cutlist import (
-        A4 as _A4,
         _getSampleStyleSheet, _HexColor, _KeepTogether, _PageBreak,
-        _Paragraph, _ParagraphStyle, _rl_landscape, _rl_mm,
+        _Paragraph, _ParagraphStyle, _paper_size, _rl_mm,
         _SimpleDocTemplate, _Spacer, _Table, _TableStyle, _Flowable,
     )
 
-    PAGE = _rl_landscape(_A4)
-    MARGIN = 15 * _rl_mm
+    # Portrait with ~10 pt body text: these pages are read at the bench,
+    # not at a desk — readability beats density (Charlie, 2026-08-02;
+    # the old landscape layout ran 7.5–8.5 pt and was hard to read).
+    PAGE = _paper_size(paper)
+    MARGIN = 14 * _rl_mm
     CW = PAGE[0] - 2 * MARGIN
 
     styles = _getSampleStyleSheet()
-    title_sty = _ParagraphStyle("at", parent=styles["Title"], fontSize=18,
-                                leading=22, spaceAfter=3 * _rl_mm)
-    h1 = _ParagraphStyle("ah1", parent=styles["Heading1"], fontSize=13,
-                         leading=16, spaceBefore=4 * _rl_mm,
+    title_sty = _ParagraphStyle("at", parent=styles["Title"], fontSize=20,
+                                leading=24, spaceAfter=3 * _rl_mm)
+    h1 = _ParagraphStyle("ah1", parent=styles["Heading1"], fontSize=15,
+                         leading=18, spaceBefore=4 * _rl_mm,
                          spaceAfter=2 * _rl_mm)
-    h2 = _ParagraphStyle("ah2", parent=styles["Heading2"], fontSize=10.5,
-                         leading=13, spaceBefore=3 * _rl_mm,
+    h2 = _ParagraphStyle("ah2", parent=styles["Heading2"], fontSize=12.5,
+                         leading=15, spaceBefore=3 * _rl_mm,
                          spaceAfter=1.5 * _rl_mm)
-    norm = _ParagraphStyle("an", parent=styles["Normal"], fontSize=8.5,
-                           leading=11)
-    cell = _ParagraphStyle("acell", parent=styles["Normal"], fontSize=7.5,
-                           leading=9)
-    step_sty = _ParagraphStyle("astep", parent=styles["Normal"], fontSize=8.5,
-                               leading=11.5, spaceAfter=2 * _rl_mm)
+    norm = _ParagraphStyle("an", parent=styles["Normal"], fontSize=10,
+                           leading=13)
+    cell = _ParagraphStyle("acell", parent=styles["Normal"], fontSize=9,
+                           leading=11.5)
+    step_sty = _ParagraphStyle("astep", parent=styles["Normal"], fontSize=10,
+                               leading=13.5, spaceAfter=2.5 * _rl_mm)
 
     def tbl_style() -> _TableStyle:
         return _TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), _HexColor("#2c3e50")),
             ("TEXTCOLOR", (0, 0), (-1, 0), _HexColor("#ffffff")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1),
              [_HexColor("#f5f5f5"), _HexColor("#ffffff")]),
             ("GRID", (0, 0), (-1, -1), 0.5, _HexColor("#cccccc")),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ])
 
     def wc(text: str) -> "_Paragraph":
@@ -1345,8 +1349,8 @@ def generate_assembly_pdf(
                                   x0 + p * scale + 4, y + 1.8,
                                   fill=1, stroke=0)
                     if row.label:
-                        c.setFont("Helvetica", 6.5)
-                        c.drawString(x0 + pw + 3, y - 2, row.label)
+                        c.setFont("Helvetica", 8)
+                        c.drawString(x0 + pw + 3, y - 2.5, row.label)
                 else:
                     x = min(max(x0 + row.offset * scale, x0 + 2),
                             x0 + pw - 2)
@@ -1357,12 +1361,12 @@ def generate_assembly_pdf(
                                   x + 1.8, y0 + p * scale + 4,
                                   fill=1, stroke=0)
                     if row.label:
-                        c.setFont("Helvetica", 6.5)
-                        c.drawCentredString(x, y0 + ph + 4, row.label)
+                        c.setFont("Helvetica", 8)
+                        c.drawCentredString(x, y0 + ph + 5, row.label)
                 c.setDash()
 
             c.setFillColor(_HexColor("#333333"))
-            c.setFont("Helvetica", 6.0)
+            c.setFont("Helvetica", 7.5)
             axis_h = any(r.axis == "h" for r in pm.rows)
             for p in pm.rows[0].positions:
                 if axis_h:
@@ -1370,6 +1374,7 @@ def generate_assembly_pdf(
                 else:
                     c.drawRightString(x0 - 3, y0 + p * scale - 2, f"{p:.0f}")
             c.setFillColor(_HexColor("#666666"))
+            c.setFont("Helvetica", 7.5)
             c.drawCentredString(self.width / 2, 2,
                                 "mortise centres, mm from front edge")
 
@@ -1377,15 +1382,15 @@ def generate_assembly_pdf(
         """Draws one registration-explainer scene (mm coords, y-up —
         matching the canvas, so no flip)."""
 
-        _S = 2.0                                  # pt per mm
-
         def __init__(self, scene: dict, avail_w: float) -> None:
             super().__init__()
             self._sc = scene
             self._pad = 10.0
+            # Fit the scene to the available width (portrait pages are
+            # narrower than the scenes' natural 2 pt/mm).
+            self._S = min(2.0, (avail_w - 2 * self._pad) / scene["w"])
             self._pad_b = scene.get("pad_b", 8.0) * self._S
-            self.width = min(avail_w,
-                             scene["w"] * self._S + 2 * self._pad)
+            self.width = scene["w"] * self._S + 2 * self._pad
             self.height = (scene["h"] * self._S + self._pad
                            + self._pad_b)
 
@@ -1422,7 +1427,7 @@ def generate_assembly_pdf(
                 elif kind == "text":
                     _, x, y, s, anchor = p
                     c.setFillColor(_HexColor("#333333"))
-                    c.setFont("Helvetica", 6.5)
+                    c.setFont("Helvetica", 8)
                     if anchor == "middle":
                         c.drawCentredString(X(x), Y(y), s)
                     elif anchor == "end":
@@ -1439,8 +1444,8 @@ def generate_assembly_pdf(
                     for xx in (x1, x2):
                         c.line(X(xx), yy - 3, X(xx), yy + 3)
                     c.setFillColor(_HexColor("#333333"))
-                    c.setFont("Helvetica-Bold", 6.5)
-                    c.drawCentredString(X((x1 + x2) / 2), yy - 9, label)
+                    c.setFont("Helvetica-Bold", 8)
+                    c.drawCentredString(X((x1 + x2) / 2), yy - 10, label)
                 elif kind == "dimv":
                     _, y1, y2, x, label = p
                     xx = X(x)
@@ -1451,8 +1456,8 @@ def generate_assembly_pdf(
                     for yy in (y1, y2):
                         c.line(xx - 3, Y(yy), xx + 3, Y(yy))
                     c.setFillColor(_HexColor("#333333"))
-                    c.setFont("Helvetica-Bold", 6.5)
-                    c.drawString(xx + 4, Y((y1 + y2) / 2) - 2, label)
+                    c.setFont("Helvetica-Bold", 8)
+                    c.drawString(xx + 4, Y((y1 + y2) / 2) - 2.5, label)
 
     buf = io.BytesIO()
     doc = _SimpleDocTemplate(
@@ -1548,7 +1553,7 @@ def generate_assembly_pdf(
             + (" · purple = miter mortises (into the 45° beveled end)"
                if plan.corner_style == "miter" else "")
             + ".", norm))
-        map_h = 62 * _rl_mm
+        map_h = 100 * _rl_mm
         for pm in plan.panels:
             pid_txt = f" · {pm.part_id}" if pm.part_id else ""
             note = f" — {pm.note}" if pm.note else ""

@@ -44,7 +44,9 @@ except ImportError:
     _OPCUT_AVAILABLE = False
 
 try:
-    from reportlab.lib.pagesizes import A4, landscape as _rl_landscape
+    from reportlab.lib.pagesizes import (
+        A4, letter as _rl_letter, landscape as _rl_landscape,
+    )
     from reportlab.lib.units import mm as _rl_mm
     from reportlab.lib.colors import HexColor as _HexColor
     from reportlab.platypus import (
@@ -93,6 +95,21 @@ _PROJECT_PALETTE = (
     "#EBC9DC",  # reddish purple (base #CC79A7)
     "#D6D6D6",  # grey         (base #999999)
 )
+
+
+def _paper_size(paper: str):
+    """Resolve a paper name to a reportlab page size (portrait tuple).
+
+    US Letter is the default for every generated PDF — Charlie prints on
+    letter, not A4 (2026-08-02); pass paper="a4" for A4. Only call from
+    PDF paths that have already checked _REPORTLAB_AVAILABLE.
+    """
+    sizes = {"letter": _rl_letter, "a4": A4}
+    try:
+        return sizes[paper.lower()]
+    except KeyError:
+        raise ValueError(
+            f"Unknown paper size {paper!r} — use 'letter' or 'a4'")
 
 
 def _inch_frac(mm: float) -> str:
@@ -2233,6 +2250,7 @@ schedule below — longest first.</div>
 
 def generate_banding_cutlist_pdf(
     panels: list["CutlistPanel"], cfg, cabinet_name: str,
+    paper: str = "letter",
 ) -> bytes:
     """Printable banding cutlist as PDF (same content as the HTML).
 
@@ -2240,7 +2258,7 @@ def generate_banding_cutlist_pdf(
     corner treatment; the board-by-board chop plan follows. Free-text cells
     are Paragraphs (plain strings never wrap — the #43 lesson). Raises
     ``ImportError`` when reportlab is unavailable (callers degrade like the
-    layout PDF).
+    layout PDF). ``paper``: "letter" (default) or "a4".
     """
     if not _REPORTLAB_AVAILABLE:
         raise ImportError(
@@ -2249,7 +2267,6 @@ def generate_banding_cutlist_pdf(
         )
     from xml.sax.saxutils import escape as _xml
     from reportlab.lib import colors as _colors
-    from reportlab.lib.pagesizes import A4 as _A4
     from reportlab.lib.styles import getSampleStyleSheet as _styles
     from reportlab.lib.units import mm as _MM
     from reportlab.platypus import (
@@ -2354,7 +2371,7 @@ def generate_banding_cutlist_pdf(
     # Margins sized so the 180 mm chop-plan table fits the frame — the
     # default 1" margins left a 159 mm frame under a 176 mm table and the
     # Offcut column ran into the right margin (review 2026-07-29 minor 6).
-    _Doc(buf, pagesize=_A4,
+    _Doc(buf, pagesize=_paper_size(paper),
          leftMargin=15 * _MM, rightMargin=15 * _MM,
          title=f"Banding cutlist — {cabinet_name}").build(story)
     return buf.getvalue()
@@ -3153,11 +3170,170 @@ function showTab(n){{
 </html>"""
 
 
+def _parts_table(panels: list["CutlistPanel"], content_width: float,
+                 source_letters: dict | None = None):
+    """Cut-parts table in Charlie's approved bench format (2026-08-02).
+
+    Per part: a bold METRIC row with scannable L/W/T columns, a grey
+    imperial sub-row beneath it, and — when banding markers or notes
+    exist — a spanning grey note row. Multi-project batches get spanning
+    "Project X — name" section header rows instead of a Project column
+    (part IDs carry the letter anyway). Requires reportlab; only call
+    behind a ``_REPORTLAB_AVAILABLE`` check.
+    """
+    from xml.sax.saxutils import escape as _esc
+
+    styles = _getSampleStyleSheet()
+    name_sty = _ParagraphStyle("pt_name", parent=styles["Normal"],
+                               fontSize=10, leading=12.5)
+    dim_sty = _ParagraphStyle("pt_dim", parent=styles["Normal"],
+                              fontSize=10.5, leading=13, alignment=1)
+    sub_sty = _ParagraphStyle("pt_sub", parent=styles["Normal"],
+                              fontSize=8.5, leading=10, alignment=1,
+                              textColor=_HexColor("#666666"))
+    sub_l_sty = _ParagraphStyle("pt_subl", parent=sub_sty, alignment=0)
+    note_sty = _ParagraphStyle("pt_note", parent=styles["Normal"],
+                               fontSize=8.5, leading=10.5,
+                               textColor=_HexColor("#555555"))
+
+    def _m(text: str):
+        return _Paragraph(f"<b>{_esc(text)}</b>", dim_sty)
+
+    def _i(text: str):
+        return _Paragraph(_esc(text), sub_sty)
+
+    data: list[list] = [["ID", "Part", "L (mm)", "W (mm)", "T (mm)",
+                         "Qty", "Material"]]
+    cmds: list[tuple] = [
+        ("BACKGROUND", (0, 0), (-1, 0), _HexColor("#2c3e50")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), _HexColor("#ffffff")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+        ("FONTSIZE", (0, 1), (-1, -1), 10),
+        ("ALIGN", (2, 0), (5, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, _HexColor("#2c3e50")),
+    ]
+
+    current_source = object()   # sentinel ≠ any source incl. ""
+    shade = False
+    for p in panels:
+        if source_letters and p.source != current_source:
+            current_source = p.source
+            r = len(data)
+            letter = source_letters.get(p.source, "")
+            label = (f"Project {letter} — {p.source}" if letter
+                     else (p.source or "Unassigned"))
+            data.append([_Paragraph(f"<b>{_esc(label)}</b>", name_sty),
+                         "", "", "", "", "", ""])
+            cmds += [("SPAN", (0, r), (-1, r)),
+                     ("BACKGROUND", (0, r), (-1, r), _HexColor("#dfe6ec")),
+                     ("TOPPADDING", (0, r), (-1, r), 5),
+                     ("BOTTOMPADDING", (0, r), (-1, r), 5)]
+            shade = False
+
+        r0 = len(data)
+        data.append([
+            p.part_id or "—",
+            _Paragraph(_esc(p.name), name_sty),
+            _m(f"{p.length:.0f}"), _m(f"{p.width:.0f}"),
+            _m(f"{p.thickness:g}"),
+            p.quantity, _Paragraph(
+                _esc(p.material.replace("_", " ").title()), name_sty),
+        ])
+        data.append([
+            "", _Paragraph("in", sub_l_sty),
+            _i(_inch_frac(p.length)), _i(_inch_frac(p.width)),
+            _i(_thickness_imperial(p.thickness).replace('"', "")),
+            "", "",
+        ])
+        note_bits = []
+        if p.edge_band:
+            note_bits.append("band: " + ", ".join(p.edge_band))
+        if p.notes:
+            note_bits.append(p.notes)
+        if note_bits:
+            r = len(data)
+            data.append(["", _Paragraph(_esc(" — ".join(note_bits)),
+                                        note_sty), "", "", "", "", ""])
+            cmds.append(("SPAN", (1, r), (-1, r)))
+        r1 = len(data) - 1
+        if shade:
+            cmds.append(("BACKGROUND", (0, r0), (-1, r1),
+                         _HexColor("#f5f5f5")))
+        shade = not shade
+        cmds.append(("LINEBELOW", (0, r1), (-1, r1), 0.5,
+                     _HexColor("#cccccc")))
+
+    col_w = [content_width * x
+             for x in (0.11, 0.30, 0.12, 0.12, 0.09, 0.06, 0.20)]
+    tbl = _Table(data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(_TableStyle(cmds))
+    return tbl
+
+
+def generate_parts_list_pdf(
+    panels: list["CutlistPanel"],
+    cabinet_name: str = "Cabinet",
+    paper: str = "letter",
+    subtitle: str = "",
+    source_letters: dict | None = None,
+) -> bytes:
+    """Standalone portrait cut-parts document — the page taped to the saw.
+
+    Same rows as the layout PDF's Cut Parts List section (bold metric row,
+    grey imperial sub-row, spanning note rows), portrait ``paper`` (US
+    Letter default), one table, no sheet drawings. ``subtitle`` prints
+    under the title (batch provenance, part-ID notes). Raises
+    ``ImportError`` without reportlab.
+    """
+    if not _REPORTLAB_AVAILABLE:
+        raise ImportError(
+            "reportlab is required for PDF export. "
+            "Install with: uv pip install reportlab"
+        )
+    import io
+    from datetime import date
+    from xml.sax.saxutils import escape as _esc
+
+    PAGE = _paper_size(paper)
+    MARGIN = 14 * _rl_mm
+    CW = PAGE[0] - 2 * MARGIN
+
+    styles = _getSampleStyleSheet()
+    title_sty = _ParagraphStyle("plt", parent=styles["Title"], fontSize=18,
+                                leading=22, spaceAfter=2 * _rl_mm)
+    norm_sty = _ParagraphStyle("pln", parent=styles["Normal"], fontSize=10,
+                               leading=13, spaceAfter=1 * _rl_mm)
+
+    total_pieces = sum(p.quantity for p in panels)
+    head = (f"{len(panels)} part rows / {total_pieces} pieces · metric bold, "
+            f"imperial beneath · generated {date.today().isoformat()}.")
+
+    buf = io.BytesIO()
+    doc = _SimpleDocTemplate(
+        buf, pagesize=PAGE, leftMargin=MARGIN, rightMargin=MARGIN,
+        topMargin=MARGIN, bottomMargin=MARGIN,
+        title=f"Cut Parts — {cabinet_name}")
+    story = [_Paragraph(f"{_esc(cabinet_name)} — Cut Parts List",
+                        title_sty)]
+    if subtitle:
+        story.append(_Paragraph(_esc(subtitle), norm_sty))
+    story.append(_Paragraph(head, norm_sty))
+    story.append(_Spacer(1, 3 * _rl_mm))
+    story.append(_parts_table(panels, CW, source_letters=source_letters))
+    doc.build(story)
+    return buf.getvalue()
+
+
 def generate_sheet_layout_pdf(
     groups: list[tuple[str, list["CutlistPanel"], "OptimizationResult"]],
     cabinet_name: str = "Cabinet",
     kerf: float = 3.2,
     hardware_lines: "list[HardwareLine] | None" = None,
+    paper: str = "letter",
 ) -> bytes:
     """Generate a PDF cutlist document with sheet layouts and parts list.
 
@@ -3170,6 +3346,8 @@ def generate_sheet_layout_pdf(
         Used in the document title.
     kerf:
         Saw kerf in mm (shown in the header).
+    paper:
+        "letter" (default) or "a4"; the document is landscape either way.
 
     Returns
     -------
@@ -3196,7 +3374,7 @@ def generate_sheet_layout_pdf(
     # and aborts the whole PDF. Escape before interpolation.
     safe_cabinet_name = _xml_escape(cabinet_name)
 
-    PAGE = _rl_landscape(A4)
+    PAGE = _rl_landscape(_paper_size(paper))
     MARGIN = 15 * _rl_mm
     CW = PAGE[0] - 2 * MARGIN   # usable content width
 
@@ -3302,50 +3480,19 @@ def generate_sheet_layout_pdf(
     story.append(sg_tbl)
     story.append(_Spacer(1, 5 * _rl_mm))
 
-    # Cut parts table
+    # Cut parts table — same bench format as generate_parts_list_pdf
+    # (bold metric row + grey imperial sub-row + spanning note rows;
+    # Charlie's pick, 2026-08-02). On this landscape page the table just
+    # gets wider columns.
     story.append(_Paragraph("Cut Parts List", h1_sty))
     all_panels: list[CutlistPanel] = []
     for _, pnls, _ in groups:
         all_panels.extend(pnls)
     all_panels.sort(key=lambda p: (p.source, p.thickness, p.material, p.name))
-
-    parts_header = ["ID", "Part Name", "L (mm/in)", "W (mm/in)", "T (mm/in)",
-                    "Qty", "Material", "Edge Band", "Notes"]
-    if project_mode:
-        parts_header = ["Project"] + parts_header
-    # Metric BOLD, imperial normal in parentheses (Charlie, Jul 2026).
-    dim_cell_sty = _ParagraphStyle(
-        "dimcell", parent=norm_sty, fontSize=6.5, leading=8)
-
-    def _dim_cell(mm_text: str, imp_text: str):
-        return _Paragraph(
-            f"<b>{mm_text}</b> ({_xml_escape(imp_text)})", dim_cell_sty)
-
-    parts_data = [parts_header]
-    for p in all_panels:
-        row = [
-            p.part_id or "—",
-            _wrap_cell(p.name, small=True),
-            _dim_cell(f"{p.length:.0f}", _inch_frac(p.length) + '\"'),
-            _dim_cell(f"{p.width:.0f}", _inch_frac(p.width) + '\"'),
-            _dim_cell(f"{p.thickness:.0f}", _thickness_imperial(p.thickness)),
-            str(p.quantity),
-            _wrap_cell(p.material.replace("_", " ").title(), small=True),
-            ", ".join(p.edge_band) if p.edge_band else "—",
-            _wrap_cell(p.notes, small=True) if p.notes else "—",
-        ]
-        if project_mode:
-            row = [_wrap_cell(p.source, small=True) if p.source else "—"] + row
-        parts_data.append(row)
-    if project_mode:
-        parts_col_w = [CW * x for x in (0.11, 0.07, 0.15, 0.09, 0.09, 0.07,
-                                        0.04, 0.11, 0.09, 0.18)]
-    else:
-        parts_col_w = [CW * x for x in (0.08, 0.18, 0.10, 0.10, 0.08, 0.04,
-                                        0.14, 0.10, 0.18)]
-    parts_tbl = _Table(parts_data, colWidths=parts_col_w, repeatRows=1)
-    parts_tbl.setStyle(_tbl_style(small=True))
-    story.append(parts_tbl)
+    story.append(_parts_table(
+        all_panels, CW,
+        source_letters=_source_letters_from_groups(groups)
+        if project_mode else None))
 
     # ── Sheet layout pages ────────────────────────────────────────────────────
     HEADER_RESERVE = 28 * _rl_mm    # space for title + subtitle above drawing
