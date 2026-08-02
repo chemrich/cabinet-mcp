@@ -250,9 +250,9 @@ class TestDividerShelfMaps:
         assert "col 1 shelf 1" in row.label
         assert "left face" in row.label
         cfg = _two_col()
-        # Offset re-based to the divider's bottom (= top of bottom panel).
-        assert row.offset == pytest.approx(
-            320 - cfg.bottom_thickness + cfg.shelf_thickness / 2)
+        # Offset re-based to the divider's bottom (= top of bottom panel):
+        # shelf underside line + the 10 mm base-height reference.
+        assert row.offset == pytest.approx(320 - cfg.bottom_thickness + 10.0)
         assert "ENDS only" not in div_map.note
 
     def test_divider_without_shelves_keeps_ends_only_note(self):
@@ -303,28 +303,122 @@ class TestSingleColumnShelfLabel:
 
 
 class TestFenceHeightText:
-    def test_uniform_stock_single_height(self):
+    """The fence height is 10 mm — the DF 500's fixed base height (= a
+    0-offset Domiplate) — NOT t/2. Fence-cut edge mortises must land in the
+    same plane as base-registered face mortises; the pre-2026-08 t/2 scheme
+    mismatched them by |10 − t/2| and a tight joint wouldn't close
+    (Charlie, 2026-08-02)."""
+
+    def test_uniform_stock_single_10mm_setting(self):
         plan = build_assembly_plan(_box())
         setup = next(s for s in plan.steps
                      if s.title == "Set up the Domino machine")
-        assert "height 9 mm" in setup.body
-        assert "RESET" not in setup.body
+        assert "height 10 mm" in setup.body
+        assert "REFERENCE face" in setup.body
+        assert "9 mm" not in setup.body           # the old t/2 for 18 mm
+        assert "ONE setting" in setup.body
 
-    def test_odd_stock_not_rounded(self):
+    def test_15mm_stock_still_takes_base_height(self):
+        # 15 mm is the floor: 10 + 2.5 (half cutter) leaves a 2.5 mm wall.
         plan = build_assembly_plan(_box(
             side_thickness=15.0, top_thickness=15.0, bottom_thickness=15.0))
         setup = next(s for s in plan.steps
                      if s.title == "Set up the Domino machine")
-        assert "7.5 mm" in setup.body      # was rounded to "8 mm" by :.0f
+        assert "height 10 mm" in setup.body
+        assert "7.5 mm" not in setup.body
 
-    def test_mixed_thickness_lists_all_heights(self):
+    def test_mixed_thick_stock_shares_one_setting(self):
+        # 18 + 25 mm: both ≥ 15 → one 10 mm setting, no per-thickness reset.
         plan = build_assembly_plan(_box(
             bottom_thickness=25.0, top_thickness=25.0))
         assert plan.panel_thicknesses == (18.0, 25.0)
         setup = next(s for s in plan.steps
                      if s.title == "Set up the Domino machine")
-        assert "RESET" in setup.body
-        assert "9 mm" in setup.body and "12.5 mm" in setup.body
+        assert "height 10 mm" in setup.body
+        assert "12.5 mm" not in setup.body
+        assert "ONE setting" in setup.body
+
+    def test_thin_stock_falls_back_to_centred_with_batten_offset(self):
+        plan = build_assembly_plan(_box(
+            side_thickness=12.0, top_thickness=12.0, bottom_thickness=12.0))
+        setup = next(s for s in plan.steps
+                     if s.title == "Set up the Domino machine")
+        assert "fence 6 mm (centred)" in setup.body
+        assert "4 mm SHORT" in setup.body
+
+
+class TestReferenceFaceRegistration:
+    """Every mortise row sits 10 mm from its panel's reference face —
+    bottom/top: outside face, shelves: underside, dividers: left face —
+    so map centres, fence rides, and batten lines all agree."""
+
+    def test_side_map_rows_at_10mm_from_ends(self):
+        plan = build_assembly_plan(_box())     # 18 mm stock, 700 tall
+        side = next(p for p in plan.panels if p.panel.startswith("side"))
+        rows = {r.label: r.offset for r in side.rows if r.kind == "face"}
+        assert rows["bottom (J1/J2)"] == pytest.approx(10.0)
+        assert rows["top (J3/J4)"] == pytest.approx(700.0 - 10.0)
+
+    def test_shelf_row_10mm_above_underside_line(self):
+        plan = build_assembly_plan(_two_col())   # col 1 shelf underside 320
+        side = next(p for p in plan.panels if p.panel.startswith("side"))
+        row = next(r for r in side.rows if "shelf" in r.label)
+        assert row.offset == pytest.approx(320.0 + 10.0)
+        shelf = next(p for p in plan.panels
+                     if "shelf" in p.panel and "divider" not in p.panel)
+        assert "UNDERSIDE" in shelf.note
+
+    def test_divider_face_row_10mm_past_left_face(self):
+        cfg = _two_col()
+        plan = build_assembly_plan(cfg)
+        top = next(p for p in plan.panels if p.panel == "top")
+        div_row = next(r for r in top.rows if "divider" in r.label)
+        # Divider left face = col 1 width; row = left face + 10.
+        left_face = float(cfg.columns[0].width_mm)
+        assert div_row.offset == pytest.approx(left_face + 10.0)
+        assert "LEFT-face line" in top.note
+        div_map = next(p for p in plan.panels if "divider" in p.panel)
+        assert "LEFT face" in div_map.note
+
+    def test_registration_explainer_prefers_dividers(self):
+        from cabineteer.assembly import _registration_scenes
+        reg = _registration_scenes(build_assembly_plan(_two_col()))
+        assert reg["case"] == "divider"
+        assert len(reg["scenes"]) == 3
+        intro = " ".join(reg["intro"])
+        assert "LEFT-face layout line" in intro
+        assert "10 mm" in intro
+        # Corner-only build falls back to the corner labels.
+        reg2 = _registration_scenes(build_assembly_plan(_box()))
+        assert reg2["case"] == "corner"
+
+    def test_registration_section_renders_in_html(self):
+        from cabineteer.assembly import generate_assembly_html
+        html = generate_assembly_html(
+            [build_assembly_plan(_two_col())], "p")
+        assert "Registration — how the two halves" in html
+        assert "DF 500 standing on its base," in html
+        assert "flush, no math" in html
+
+    def test_registration_section_renders_in_pdf(self):
+        pytest.importorskip("reportlab")
+        from cabineteer.assembly import generate_assembly_pdf
+        pdf = generate_assembly_pdf(
+            [build_assembly_plan(_two_col())], "p")
+        assert pdf.startswith(b"%PDF")
+
+    def test_steps_carry_the_reference_system(self):
+        plan = build_assembly_plan(_box())
+        titles = [s.title for s in plan.steps]
+        assert "Mark the reference faces" in titles
+        ref_i = titles.index("Mark the reference faces")
+        edge_i = titles.index("Cut the edge mortises (butt joints)")
+        face_i = titles.index("Cut the face mortises")
+        assert ref_i < edge_i < face_i
+        face = plan.steps[face_i].body
+        assert "REFERENCE LINE" in face
+        assert "10 mm" in face
+        assert "batten" in face.lower()
 
 
 class TestAssemblyPartIdCollisions:
