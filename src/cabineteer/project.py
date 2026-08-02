@@ -54,6 +54,7 @@ _SHARED_FIELDS = (
     "edge_band_stock",
     "carcass_joinery",
     "carcass_corner_style",
+    "back_style",
     "drawer_joinery",
     "domino_spec",
     "pocket_screw_spec",
@@ -93,6 +94,7 @@ class SharedDesign:
     # Joinery
     carcass_joinery:  Optional[CarcassJoinery]     = None
     carcass_corner_style: Optional[str] = None     # butt | miter
+    back_style: Optional[str] = None               # full_height | under_top
     drawer_joinery:   Optional[DrawerJoineryStyle] = None
     domino_spec:        Optional[DominoSpec]       = None
     pocket_screw_spec:  Optional[PocketScrewSpec]  = None

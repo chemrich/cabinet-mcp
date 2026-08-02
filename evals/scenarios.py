@@ -9272,6 +9272,72 @@ SCENARIOS.append(Scenario(
 def scenarios_by_tag(tag: str) -> list[Scenario]:
     return [s for s in SCENARIOS if tag in s.tags]
 
+SCENARIOS.append(Scenario(
+    name="back_under_top_capped",
+    prompt=(
+        "back_style under_top: the top panel is cut to full depth so it "
+        "caps the back — no back edge visible from above. design_cabinet "
+        "reports the changed panel dims, the shared token flows through a "
+        "project cutlist, and dado/rabbet construction rejects the style."
+    ),
+    tags=["cutlist", "project", "evaluation", "joinery"],
+    difficulty="standard",
+    tool_calls=[
+        ToolCall(
+            tool="design_cabinet",
+            args={"width": 1219.2, "height": 663.6, "depth": 457,
+                  "back_style": "under_top",
+                  "drawer_config": [[300, "drawer"], [327.6, "drawer"]]},
+            label="full-depth top, back stops at its underside",
+            assertions=[
+                Assertion("back_style", Op.EQ, "under_top"),
+                Assertion("panels.top_panel.depth_mm", Op.APPROX, 457),
+                # height − top_thickness; legacy full_height would be 663.6.
+                Assertion("panels.back_panel.height_mm", Op.APPROX, 645.6),
+                # The bottom keeps the 6 mm setback the back seats against.
+                Assertion("panels.bottom_panel.depth_mm", Op.APPROX, 451),
+            ],
+        ),
+        ToolCall(
+            tool="design_project",
+            args={"name": "eval_backcap", "overwrite": True,
+                  "shared": {"back_style": "under_top"},
+                  "cabinets": [
+                      {"name": "a", "config": {
+                          "width": 1219.2, "height": 663.6, "depth": 457,
+                          "drawer_config": [[300, "drawer"],
+                                            [327.6, "drawer"]]}},
+                  ]},
+            label="save a project with the shared back_style token",
+            assertions=[Assertion("cabinet_count", Op.EQ, 1)],
+        ),
+        ToolCall(
+            tool="generate_project_cutlist",
+            args={"project_name": "eval_backcap"},
+            label="cutlist: top full depth, bottom keeps setback",
+            assertions=[
+                Assertion("panels_summary.1.name", Op.EQ, "bottom"),
+                Assertion("panels_summary.1.width_mm", Op.APPROX, 451),
+                Assertion("panels_summary.2.name", Op.EQ, "top"),
+                Assertion("panels_summary.2.width_mm", Op.APPROX, 457),
+            ],
+        ),
+        ToolCall(
+            tool="evaluate_cabinet",
+            args={"width": 800, "height": 700, "depth": 457,
+                  "back_style": "under_top",
+                  "carcass_joinery": "dado_rabbet",
+                  "drawer_config": [[300, "drawer"], [364, "drawer"]]},
+            label="dado/rabbet construction rejects under_top",
+            assertions=[
+                Assertion("summary.errors", Op.GTE, 1),
+                Assertion("summary.pass", Op.IS_FALSE),
+            ],
+        ),
+    ],
+))
+
+
 def scenarios_by_difficulty(difficulty: str) -> list[Scenario]:
     return [s for s in SCENARIOS if s.difficulty == difficulty]
 

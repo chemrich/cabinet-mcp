@@ -836,6 +836,48 @@ def check_edge_band_face_gap(cab_cfg: CabinetConfig) -> list[Issue]:
     return []
 
 
+def check_back_style(cab_cfg: CabinetConfig) -> list[Issue]:
+    """Validate the ``back_style`` field.
+
+    ``under_top`` (top panel cut full depth, back stops at its underside so
+    no back edge shows from above) is modeled for butt corners with
+    non-dado joinery only: mitered tops are cut long-point on a different
+    convention, and dado/rabbet construction houses the back in real side
+    rabbets.
+    """
+    issues: list[Issue] = []
+    style = getattr(cab_cfg, "back_style", "full_height")
+    if style == "full_height":
+        return issues
+    if style != "under_top":
+        issues.append(Issue(
+            check="back_style",
+            severity=Severity.ERROR,
+            message=(f"Unknown back_style {style!r} — "
+                     "use 'full_height' or 'under_top'."),
+        ))
+        return issues
+    from .joinery import CarcassJoinery as _CJ
+    if getattr(cab_cfg, "carcass_corner_style", "butt") == "miter":
+        issues.append(Issue(
+            check="back_style",
+            severity=Severity.ERROR,
+            message=("back_style 'under_top' requires butt corners — "
+                     "mitered top/bottom panels follow the long-point "
+                     "miter convention, not the full-depth cap."),
+        ))
+    if cab_cfg.carcass_joinery == _CJ.DADO_RABBET:
+        issues.append(Issue(
+            check="back_style",
+            severity=Severity.ERROR,
+            message=("back_style 'under_top' is modeled for butt-joint "
+                     "carcasses (floating tenon / pocket screw / biscuit "
+                     "/ dowel); dado/rabbet construction houses the back "
+                     "in side rabbets instead."),
+        ))
+    return issues
+
+
 def check_miter_corners(cab_cfg: CabinetConfig) -> list[Issue]:
     """Validate mitered exterior corners.
 
@@ -2147,6 +2189,7 @@ def evaluate_cabinet(
     all_issues.extend(check_edge_banding(cab_cfg))
     all_issues.extend(check_edge_band_face_gap(cab_cfg))
     all_issues.extend(check_miter_corners(cab_cfg))
+    all_issues.extend(check_back_style(cab_cfg))
     all_issues.extend(check_carcass_joinery(cab_cfg))
     if cab_cfg.columns:
         # Run carcass clearance checks per-column using correct per-column width.

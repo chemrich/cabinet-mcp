@@ -271,6 +271,10 @@ def build_assembly_plan(
     # interior_depth from the front edge, safely inside the panel.
     interior_panel_depth = depth - float(
         getattr(cab_cfg, "back_thickness", 6.0))
+    # back_style "under_top": the top runs full depth and caps the back —
+    # its map must draw the panel at the dims in hand (butt corners only).
+    under_top = (getattr(cab_cfg, "back_style", "full_height") == "under_top"
+                 and not miter)
     height = float(cab_cfg.height)
     bottom_t = float(getattr(cab_cfg, "bottom_thickness", side_t))
     top_t = float(getattr(cab_cfg, "top_thickness", side_t))
@@ -356,9 +360,14 @@ def build_assembly_plan(
         end_txt = ("45° miter faces both ends"
                    if miter else "Edge mortises in both ends (ride the "
                    "fence/plate on the OUTSIDE face)")
+        panel_draw_depth = (depth if (pname == "top" and under_top)
+                            else interior_panel_depth)
+        cap_txt = (" Full-depth panel — rear edge flush with the sides; "
+                   "it caps the back." if (pname == "top" and under_top)
+                   else "")
         panels.append(PanelMortiseMap(
             panel=pname, part_id=pid(canonical),
-            draw_width=tb_width, draw_height=interior_panel_depth,
+            draw_width=tb_width, draw_height=panel_draw_depth,
             width_label=("length (= exterior width, long-point)" if miter
                          else "length (= interior width)"),
             height_label="depth — front edge at bottom",
@@ -367,7 +376,8 @@ def build_assembly_plan(
                   f"({'top face' if pname == 'bottom' else 'underside'}) "
                   f"{_ref_offset(side_t):g} mm past each divider's "
                   "LEFT-face line — mark left-face lines, not centrelines."
-                  if div_centres else f"{end_txt}."),
+                  f"{cap_txt}"
+                  if div_centres else f"{end_txt}.{cap_txt}"),
         ))
 
     if n_dividers:
@@ -499,6 +509,13 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
     n_joints = len(plan.joints)
     miter = plan.corner_style == "miter"
     n_butt = sum(1 for j in plan.joints if j.kind == "butt")
+    under_top = (getattr(cab_cfg, "back_style", "full_height") == "under_top"
+                 and not miter)
+    back_seat_txt = (
+        "slide the back panel up into its pocket from the carcass's bottom "
+        "end (it runs behind the bottom, dividers, and shelves) until it "
+        "seats against the underside of the full-depth top"
+        if under_top else "test-fit the back panel in its rabbet")
     # Panels that actually carry face (red) rows — drives the face-mortise
     # step text so it never claims rows that don't exist (or vice versa).
     face_panels = [pm.panel for pm in plan.panels
@@ -620,8 +637,8 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
             f"{DRY_FIT_TENON_NAME} — print at least that many "
             f"({plan.size_key} size): {DRY_FIT_TENON_URL} . The reduced "
             "cross-section inserts and pulls by hand. Seat every joint, "
-            "then: (1) check both diagonals match within 1 mm; (2) test-fit "
-            "the back panel in its rabbet; (3) rehearse the clamp layout — "
+            f"then: (1) check both diagonals match within 1 mm; (2) {back_seat_txt}; "
+            "(3) rehearse the clamp layout — "
             "set every clamp and caul you will use for real; (4) confirm "
             "drawer openings with a slide or spacer. Fix anything that "
             "fights you NOW — glue makes it permanent."),
@@ -652,10 +669,19 @@ def _build_steps(plan: AssemblyPlan, cab_cfg) -> list[AssemblyStep]:
              "in one stage.")),
         AssemblyStep(
             "Square with the back, then cure",
-            "While the clamps are on, glue/pin the back panel into its "
-            "rabbet — a square back holds the carcass square as it cures. "
-            "Re-check diagonals, wipe squeeze-out, leave clamped for the "
-            "glue's clamp time (30–60 min PVA) and unstressed for 24 h."),
+            ("While the clamps are on, slide the back panel up into its "
+             "pocket from the carcass's bottom end until it seats against "
+             "the underside of the full-depth top, then glue/pin it into "
+             "the rear edges of the bottom, dividers, and fixed shelves — "
+             "a square back holds the carcass square as it cures. Its top "
+             "edge is capped by the top panel: nothing shows from above. "
+             "Re-check diagonals, wipe squeeze-out, leave clamped for the "
+             "glue's clamp time (30–60 min PVA) and unstressed for 24 h."
+             if under_top else
+             "While the clamps are on, glue/pin the back panel into its "
+             "rabbet — a square back holds the carcass square as it cures. "
+             "Re-check diagonals, wipe squeeze-out, leave clamped for the "
+             "glue's clamp time (30–60 min PVA) and unstressed for 24 h.")),
     ])
 
     if plan.edge_band_mode == "hot_melt":

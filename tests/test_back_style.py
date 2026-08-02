@@ -1,0 +1,141 @@
+"""Tests for back_style — 'under_top' caps the back with a full-depth top.
+
+full_height (legacy): back runs the full carcass height; its top edge is
+exposed on the top plane. under_top: the top panel is cut to full depth
+(rear edge flush with the sides) and the back stops at its underside, so
+no back edge is visible from above or from the sides.
+"""
+
+import pytest
+
+from cabineteer.assembly import build_assembly_plan
+from cabineteer.cabinet import CabinetConfig, build_cabinet_config
+from cabineteer.evaluation import check_back_style, evaluate_cabinet
+from cabineteer.joinery import CarcassJoinery
+from cabineteer.project import CabinetProject, ProjectCabinet, SharedDesign
+from cabineteer.server import _raw_panels_for_cabinet
+
+
+def _cfg(**kw) -> CabinetConfig:
+    kw.setdefault("carcass_joinery", CarcassJoinery.FLOATING_TENON)
+    return CabinetConfig(width=1219.2, height=663.6, depth=457, **kw)
+
+
+def _panel(panels, name):
+    return next(p for p in panels if p.name == name)
+
+
+class TestCutlistPanels:
+    def test_full_height_default_dims_unchanged(self):
+        cfg = _cfg()
+        carcass, six_mm, _, _ = _raw_panels_for_cabinet(cfg, None)
+        top = _panel(carcass, "top")
+        back = _panel(six_mm, "back")
+        assert cfg.back_style == "full_height"
+        assert top.width == pytest.approx(457 - 6)      # depth − back_thickness
+        assert back.length == pytest.approx(663.6)      # full height
+
+    def test_under_top_full_depth_top_short_back(self):
+        cfg = _cfg(back_style="under_top")
+        carcass, six_mm, _, _ = _raw_panels_for_cabinet(cfg, None)
+        top = _panel(carcass, "top")
+        bottom = _panel(carcass, "bottom")
+        back = _panel(six_mm, "back")
+        assert top.width == pytest.approx(457)          # full depth
+        assert "caps the back" in top.notes
+        assert bottom.width == pytest.approx(457 - 6)   # bottom unchanged
+        assert back.length == pytest.approx(663.6 - 18)  # height − top_t
+        assert "stops under" in back.notes
+
+    def test_under_top_respects_hardwood_band_core_shrink(self):
+        cfg = _cfg(back_style="under_top", edge_band_mode="hardwood",
+                   edge_band_thickness_mm=3.2)
+        carcass, _, _, _ = _raw_panels_for_cabinet(cfg, None)
+        top = _panel(carcass, "top")
+        assert top.width == pytest.approx(457 - 3.2)    # full depth core
+
+    def test_miter_ignores_under_top_panel_change(self):
+        # Invalid combo — the evaluator errors; the panel builder must not
+        # half-apply the cap on top of the long-point miter convention.
+        cfg = _cfg(back_style="under_top", carcass_corner_style="miter")
+        carcass, six_mm, _, _ = _raw_panels_for_cabinet(cfg, None)
+        assert _panel(carcass, "top").width == pytest.approx(457 - 6)
+        assert _panel(six_mm, "back").length == pytest.approx(663.6)
+
+
+class TestEvaluator:
+    def test_full_height_silent(self):
+        assert check_back_style(_cfg()) == []
+
+    def test_under_top_valid_combo_silent(self):
+        assert check_back_style(_cfg(back_style="under_top")) == []
+
+    def test_unknown_style_errors(self):
+        issues = check_back_style(_cfg(back_style="floating"))
+        assert len(issues) == 1
+        assert "Unknown back_style" in issues[0].message
+
+    def test_under_top_with_miter_errors(self):
+        issues = check_back_style(
+            _cfg(back_style="under_top", carcass_corner_style="miter"))
+        assert any("butt corners" in i.message for i in issues)
+
+    def test_under_top_with_dado_rabbet_errors(self):
+        issues = check_back_style(
+            _cfg(back_style="under_top",
+                 carcass_joinery=CarcassJoinery.DADO_RABBET))
+        assert any("side rabbets" in i.message for i in issues)
+
+    def test_wired_into_evaluate_cabinet(self):
+        issues = evaluate_cabinet(
+            _cfg(back_style="under_top",
+                 carcass_joinery=CarcassJoinery.DADO_RABBET))
+        assert any(i.check == "back_style" for i in issues)
+
+
+class TestSharedToken:
+    def test_shared_back_style_propagates(self):
+        project = CabinetProject(
+            name="t",
+            shared=SharedDesign(back_style="under_top"),
+            cabinets=(ProjectCabinet(name="a", config=_cfg()),),
+        )
+        (_, resolved), = project.resolved()
+        assert resolved.back_style == "under_top"
+
+    def test_child_override_wins(self):
+        project = CabinetProject(
+            name="t",
+            shared=SharedDesign(back_style="under_top"),
+            cabinets=(ProjectCabinet(
+                name="a", config=_cfg(back_style="full_height"),
+                overrides=frozenset({"back_style"})),),
+        )
+        (_, resolved), = project.resolved()
+        assert resolved.back_style == "full_height"
+
+    def test_build_cabinet_config_accepts_flat_key(self):
+        cfg = build_cabinet_config(
+            {"width": 600, "height": 720, "depth": 550,
+             "back_style": "under_top"})
+        assert cfg.back_style == "under_top"
+
+
+class TestAssemblyDoc:
+    def test_under_top_map_and_steps(self):
+        plan = build_assembly_plan(_cfg(back_style="under_top"))
+        top_map = next(p for p in plan.panels if p.panel == "top")
+        bottom_map = next(p for p in plan.panels if p.panel == "bottom")
+        assert top_map.draw_height == pytest.approx(457)
+        assert "caps the back" in top_map.note
+        assert bottom_map.draw_height == pytest.approx(457 - 6)
+        text = " ".join(s.body for s in plan.steps)
+        assert "underside of the full-depth top" in text
+        assert "rabbet" not in text
+
+    def test_full_height_steps_unchanged(self):
+        plan = build_assembly_plan(_cfg())
+        top_map = next(p for p in plan.panels if p.panel == "top")
+        assert top_map.draw_height == pytest.approx(457 - 6)
+        text = " ".join(s.body for s in plan.steps)
+        assert "test-fit the back panel in its rabbet" in text
