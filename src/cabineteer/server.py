@@ -482,6 +482,19 @@ async def list_tools() -> list[types.Tool]:
                             "a SharedDesign token."
                         ),
                     },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {
@@ -729,6 +742,19 @@ async def list_tools() -> list[types.Tool]:
                             "a SharedDesign token."
                         ),
                     },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
+                        ),
+                    },
                     "carcass_joinery": {
                         "type": "string",
                         "enum": ["dado_rabbet", "floating_tenon", "pocket_screw", "biscuit", "dowel"],
@@ -905,6 +931,19 @@ async def list_tools() -> list[types.Tool]:
                             "beveled; divider/shelf joints stay butt "
                             "tenons. Floating-tenon carcasses only. Also "
                             "a SharedDesign token."
+                        ),
+                    },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -1202,6 +1241,19 @@ async def list_tools() -> list[types.Tool]:
                             "a SharedDesign token."
                         ),
                     },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1440,6 +1492,19 @@ async def list_tools() -> list[types.Tool]:
                             "beveled; divider/shelf joints stay butt "
                             "tenons. Floating-tenon carcasses only. Also "
                             "a SharedDesign token."
+                        ),
+                    },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -1793,6 +1858,19 @@ async def list_tools() -> list[types.Tool]:
                             "a SharedDesign token."
                         ),
                     },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
+                        ),
+                    },
                     "drawer_config": {
                         "type": "array",
                         "items": {"type": "array", "minItems": 2, "maxItems": 3},
@@ -1941,6 +2019,19 @@ async def list_tools() -> list[types.Tool]:
                             "beveled; divider/shelf joints stay butt "
                             "tenons. Floating-tenon carcasses only. Also "
                             "a SharedDesign token."
+                        ),
+                    },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -2165,6 +2256,19 @@ async def list_tools() -> list[types.Tool]:
                             "beveled; divider/shelf joints stay butt "
                             "tenons. Floating-tenon carcasses only. Also "
                             "a SharedDesign token."
+                        ),
+                    },
+                    "back_style": {
+                        "type": "string",
+                        "enum": ["full_height", "under_top"],
+                        "default": "full_height",
+                        "description": (
+                            "'under_top': the top panel is cut to FULL "
+                            "depth (rear edge flush with the sides) and "
+                            "the back stops at its underside — no back "
+                            "edge visible from above or the sides. Butt "
+                            "corners + tenon/screw/biscuit/dowel joinery "
+                            "only. Also a SharedDesign token."
                         ),
                     },
                     "drawer_config": {
@@ -3101,13 +3205,15 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
         "top_panel": {
             "qty": 1,
             "width_mm":  interior_width,
-            "depth_mm":  cfg.depth - cfg.back_thickness,
+            "depth_mm":  (cfg.depth if cfg.back_style == "under_top"
+                          else cfg.depth - cfg.back_thickness),
             "thickness_mm": cfg.top_thickness,
         },
         "back_panel": {
             "qty": 1,
             "width_mm":  interior_width,
-            "height_mm": cfg.height,
+            "height_mm": (cfg.height - cfg.top_thickness
+                          if cfg.back_style == "under_top" else cfg.height),
             "thickness_mm": cfg.back_thickness,
         },
     }
@@ -3133,6 +3239,7 @@ async def _tool_design_cabinet(args: dict) -> list[types.TextContent]:
             "depth_mm":  interior_depth,
         },
         "joinery":  cfg.carcass_joinery.value,
+        "back_style": cfg.back_style,
         "panels":   panels,
         "opening_stack": opening_stack,
         "adj_shelf_holes": cfg.adj_shelf_holes,
@@ -3462,6 +3569,12 @@ def _raw_panels_for_cabinet(
     # Mitered corners: top/bottom run to FULL exterior width (long-point),
     # and all four exterior panels get 45° bevels on their ends.
     tb_length = cfg.width if miter else interior_width
+    # back_style "under_top": the top runs FULL depth (rear edge flush with
+    # the sides) and the back stops at its underside, so no back edge shows
+    # from above. Butt corners only — the evaluator rejects other combos.
+    under_top = getattr(cfg, "back_style", "full_height") == "under_top" and not miter
+    top_depth = cfg.depth if under_top else interior_depth
+    back_length = cfg.height - cfg.top_thickness if under_top else cfg.height
 
     def _core_note(finished_l: float, finished_w: float, edges: str) -> str:
         if not band_t:
@@ -3492,12 +3605,14 @@ def _raw_panels_for_cabinet(
                                   _core_note(tb_length, interior_depth,
                                              "front edge"))),
         CutlistPanel(name="top", length=tb_length,
-                     width=interior_depth - band_t,
+                     width=top_depth - band_t,
                      thickness=cfg.top_thickness, quantity=1,
                      grain_direction="length", material=cfg.carcass_material,
                      edge_band=["front"],
                      notes=_notes(tb_bevel,
-                                  _core_note(tb_length, interior_depth,
+                                  "full depth — rear edge flush with sides, "
+                                  "caps the back" if under_top else "",
+                                  _core_note(tb_length, top_depth,
                                              "front edge"))),
     ]
     for i, _ in enumerate(cfg.fixed_shelf_positions):
@@ -3511,10 +3626,11 @@ def _raw_panels_for_cabinet(
         ))
 
     raw_6mm: list[CutlistPanel] = [
-        CutlistPanel(name="back", length=cfg.height, width=interior_width,
+        CutlistPanel(name="back", length=back_length, width=interior_width,
                      thickness=cfg.back_thickness, quantity=1,
                      grain_direction="", material="baltic_birch",
-                     notes="1/4 in plywood"),
+                     notes=("1/4 in plywood; stops under the full-depth top"
+                            if under_top else "1/4 in plywood")),
     ]
 
     raw_box: list[CutlistPanel] = []

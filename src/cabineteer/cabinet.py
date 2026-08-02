@@ -272,6 +272,15 @@ class CabinetConfig:
     # and all four panels get beveled ends; divider and shelf joints stay
     # butt tenons. Floating-tenon carcasses only. Also a SharedDesign token.
     carcass_corner_style: str = "butt"    # butt | miter
+    # Back panel treatment (butt corners, non-dado joinery only).
+    # "full_height": the back runs the full carcass height and its top edge
+    # shows on the top plane (legacy cutlist convention). "under_top": the
+    # top panel is cut to FULL depth (rear edge flush with the sides) and
+    # the back stops at its underside — no back edge visible from above or
+    # from the sides; the back slides into its pocket from the carcass's
+    # bottom end during glue-up. Cutlist/assembly-doc effect; the 3D
+    # viewer has always drawn under_top geometry. Also a SharedDesign token.
+    back_style: str = "full_height"       # full_height | under_top
 
     # Drawer box corner joinery
     drawer_joinery: DrawerJoineryStyle = DrawerJoineryStyle.HALF_LAP
