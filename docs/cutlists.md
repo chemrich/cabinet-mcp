@@ -73,6 +73,10 @@ It's opt-in (never chosen automatically), and you can mix algorithms per materia
 
 Override keys are `material@thickness`, `material`, or `@thickness` (most specific wins). The example above keeps 6 mm backs — usually a heterogeneous group that nests tighter with a true packer — on opcut while everything else follows the shop sequence. Each material group reports which algorithm laid it out.
 
+## The standalone parts list
+
+Alongside the layout files, every cutlist run writes `<name>_parts.pdf` — a portrait cut-parts document designed to be taped to the saw: per part, a **bold metric row** with scannable L/W/T columns, a grey imperial sub-row beneath, and a spanning note row for banding markers and remarks. Multi-project batches also write one per project (`<project>_parts.pdf`, part IDs keeping their batch letters) and use "Project B — kid1-desk" section rows in the combined doc instead of a Project column. The parts table inside the layout PDF uses the same format.
+
 ## The layout drawings
 
 `generate_cutlist` writes a self-contained HTML file (per-sheet SVG drawings, tabs per thickness) and a landscape PDF (sheet drawings + parts list + guillotine cut-sequence tables; US Letter by default, `paper: "a4"` for A4). Both show:

@@ -3988,6 +3988,39 @@ def _cutlist_pipeline(
             pipeline_notes.append(
                 "Layout PDF skipped — reportlab not installed (lite mode).")
 
+        # Standalone portrait cut-parts documents — the pages taped to the
+        # saw (Charlie, 2026-08-02). One combined doc always; per-project
+        # docs additionally on multi-project batches.
+        try:
+            from .cutlist import (
+                generate_parts_list_pdf, _source_letters_from_groups,
+            )
+            all_parts = [p for _, pnls, _ in layout_groups for p in pnls]
+            all_parts.sort(
+                key=lambda p: (p.source, p.thickness, p.material, p.name))
+            letters = _source_letters_from_groups(layout_groups)
+            p_path = out_dir / f"{name}_parts.pdf"
+            p_path.write_bytes(generate_parts_list_pdf(
+                all_parts, cabinet_name=name, paper=paper,
+                source_letters=letters or None))
+            files["parts_pdf"] = str(p_path)
+            if letters:
+                for src, letter in letters.items():
+                    sub = [p for p in all_parts if p.source == src]
+                    if not sub:
+                        continue
+                    p_path = out_dir / f"{_safe_stem(src, kind='project name')}_parts.pdf"
+                    p_path.write_bytes(generate_parts_list_pdf(
+                        sub, cabinet_name=src, paper=paper,
+                        subtitle=(f"Project {letter} in batch {name} — "
+                                  "part IDs match the batch sheet "
+                                  "layouts.")))
+                    files[f"parts_pdf_{src}"] = str(p_path)
+        except ImportError:
+            pipeline_notes.append(
+                "Parts-list PDF skipped — reportlab not installed "
+                "(lite mode).")
+
     # ── Banding cutlist (board→strip→piece) ────────────────────────────────
     # band_cfg is the run's hardwood band config with a purchase spec; the
     # doc packs every banded panel in the run with that one spec (mixed
